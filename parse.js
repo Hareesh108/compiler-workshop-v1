@@ -437,9 +437,32 @@ function compile(sourceCode) {
   return ast;
 }
 
+/**
+ * Compile and analyze code for static name resolution
+ * @param {string} sourceCode - The source code to compile and analyze
+ * @param {boolean} skipAnalysis - Whether to skip the analysis step
+ * @returns {object} - The AST and any errors found during analysis
+ */
+function compileAndAnalyze(sourceCode, skipAnalysis = false) {
+  const ast = compile(sourceCode);
+
+  if (skipAnalysis) {
+    return { ast, errors: [] };
+  }
+
+  try {
+    const { analyze } = require("./analyze");
+    return analyze(ast);
+  } catch (error) {
+    // If analyze.js is not available, return the AST without analysis
+    return { ast, errors: [] };
+  }
+}
+
 // Export the main function and individual components for teaching purposes
 module.exports = {
   compile,
+  compileAndAnalyze,
   tokenize,
   parse,
 };
