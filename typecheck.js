@@ -1,11 +1,38 @@
 /**
- * Hindley-Milner Type Inference
+ * Hindley-Milner Type Inference Module
  *
- * This module implements type inference based on the Hindley-Milner algorithm.
+ * This module implements type inference based on the Hindley-Milner algorithm,
+ * which is the foundation of type systems in many functional languages.
+ *
+ * Features:
+ * - Automatic type inference without explicit type annotations
+ * - Polymorphic type support (functions that work on multiple types)
+ * - Type checking for operations and expressions
+ * - Detailed type error reporting
+ *
  * It also enforces that return statements can only appear as the last statement in a function.
+ *
+ * How it works:
+ * 1. Each expression is assigned a type variable initially
+ * 2. As we analyze the code, we gather constraints about what these type variables must be
+ * 3. We use unification to solve these constraints, determining concrete types
+ * 4. If constraints are inconsistent, we report type errors
+ *
+ * The algorithm is named after Roger Hindley and Robin Milner, who independently
+ * developed similar type systems in the late 1960s and early 1970s.
  */
 
-// Define the types we'll support
+/**
+ * Types supported by our type system
+ *
+ * Our language has the following basic types:
+ * - Int: Integer numbers (e.g., 1, 2, 3)
+ * - Float: Floating-point numbers (e.g., 1.5, 2.0)
+ * - Bool: Boolean values (true, false)
+ * - String: Text strings (e.g., "hello")
+ * - Function: Functions from one type to another
+ * - Unknown: Used during inference when type is not yet determined
+ */
 const Types = {
   Int: "Int",
   Float: "Float",
@@ -15,40 +42,82 @@ const Types = {
   Unknown: "Unknown",
 };
 
-// Type variable for polymorphic types
+/**
+ * TypeVariable class - represents a type that isn't yet known
+ *
+ * Type variables are the foundation of Hindley-Milner type inference.
+ * They act as placeholders for types that will be determined through unification.
+ *
+ * For example, the function:
+ *    const identity = (x) => x;
+ *
+ * Would initially be assigned a type like:
+ *    t0 -> t0
+ *
+ * where t0 is a type variable. This indicates the function takes any type
+ * and returns the same type.
+ */
 class TypeVariable {
   constructor(name = null) {
-    this.id = TypeVariable.nextId++;
-    this.name = name || `t${this.id}`;
-    this.instance = null;
+    this.id = TypeVariable.nextId++; // Unique identifier for this variable
+    this.name = name || `t${this.id}`; // Human-readable name
+    this.instance = null; // What this variable resolves to, if known
   }
 
-  static nextId = 0;
+  static nextId = 0; // Counter for generating unique IDs
 
-  // Get the actual type, following type variable references
+  /**
+   * Prune a type variable by following the chain of instances
+   *
+   * If this type variable has been unified with another type,
+   * follow the chain to get the most specific type.
+   *
+   * @returns {TypeVariable|ConcreteType} - The most specific type this variable refers to
+   */
   prune() {
     if (this.instance) {
+      // Recursively prune the instance
       this.instance = this.instance.prune();
       return this.instance;
     }
+    // If not instantiated, return this variable
     return this;
   }
 
-  // Check if this type variable occurs within another type
+  /**
+   * Check if this type variable appears within another type
+   *
+   * This is used to prevent recursive types like t0 = Array<t0>,
+   * which would lead to infinite types.
+   *
+   * @param {object} type - The type to check
+   * @returns {boolean} - Whether this variable occurs in the given type
+   */
   occursIn(type) {
     type = type.prune();
 
+    // Direct self-reference
     if (type === this) {
       return true;
     }
 
+    // Check inside function types recursively
     if (type instanceof FunctionType) {
       return this.occursIn(type.paramType) || this.occursIn(type.returnType);
     }
 
+    // Not found
     return false;
   }
 
+  /**
+   * String representation of this type variable
+   *
+   * If this variable has been resolved to another type,
+   * use that type's representation.
+   *
+   * @returns {string} - A readable representation of this type
+   */
   toString() {
     if (this.instance) {
       return this.instance.toString();
@@ -57,18 +126,45 @@ class TypeVariable {
   }
 }
 
-// Function type (param -> return)
+/**
+ * FunctionType class - represents function types (parameter -> return)
+ *
+ * Functions are represented as their parameter type and return type.
+ * For multi-parameter functions, we use currying:
+ *    (a, b) => c  becomes  a -> b -> c
+ *
+ * This representation simplifies the type inference algorithm while
+ * still supporting all the functionality we need.
+ */
 class FunctionType {
+  /**
+   * Create a function type
+   * @param {object} paramType - Type of the parameter
+   * @param {object} returnType - Type of the return value
+   */
   constructor(paramType, returnType) {
-    this.paramType = paramType;
-    this.returnType = returnType;
+    this.paramType = paramType; // Type of the parameter
+    this.returnType = returnType; // Type of the return value
   }
 
+  /**
+   * Prune this function type by pruning its parameter and return types
+   * @returns {FunctionType} - A new function type with pruned components
+   */
   prune() {
     return new FunctionType(this.paramType.prune(), this.returnType.prune());
   }
 
+  /**
+   * String representation of this function type
+   *
+   * Uses the standard arrow notation: param -> return
+   * Function parameters are parenthesized for clarity: (a -> b) -> c
+   *
+   * @returns {string} - A readable representation of this function type
+   */
   toString() {
+    // Parenthesize parameter type if it's a function to avoid ambiguity
     const paramStr =
       this.paramType instanceof FunctionType
         ? `(${this.paramType.toString()})`
@@ -78,37 +174,81 @@ class FunctionType {
   }
 }
 
-// Concrete types (Int, Bool, etc.)
+/**
+ * ConcreteType class - represents known, specific types (Int, Bool, etc.)
+ *
+ * Unlike type variables, concrete types are fully determined and don't
+ * need to be unified with other types to be resolved.
+ */
 class ConcreteType {
+  /**
+   * Create a concrete type
+   * @param {string} type - The name of the type
+   */
   constructor(type) {
-    this.type = type;
+    this.type = type; // Type name (e.g., "Int", "Bool")
   }
 
+  /**
+   * Prune this concrete type
+   *
+   * For concrete types, pruning is a no-op since they're already
+   * fully determined.
+   *
+   * @returns {ConcreteType} - This concrete type
+   */
   prune() {
     return this;
   }
 
+  /**
+   * String representation of this concrete type
+   * @returns {string} - The type name
+   */
   toString() {
     return this.type;
   }
 }
 
 /**
- * Type inference engine that implements Hindley-Milner algorithm
+ * TypeInferer class - implements the Hindley-Milner type inference algorithm
+ *
+ * This class analyzes an AST to infer the types of all expressions and
+ * ensures type consistency throughout the program.
+ *
+ * The Hindley-Milner algorithm works by:
+ * 1. Assigning type variables to expressions
+ * 2. Gathering constraints through the program structure
+ * 3. Solving these constraints through unification
+ * 4. Producing a fully typed AST or reporting type errors
  */
 class TypeInferer {
   constructor() {
-    this.errors = [];
-    this.reset();
+    this.errors = []; // List of type errors found
+    this.reset(); // Initialize typing environment
   }
 
+  /**
+   * Reset the typing environment
+   *
+   * This clears all type variables and scopes, allowing
+   * the inferer to be reused for multiple programs.
+   */
   reset() {
+    // Environment mapping variable names to their types
     this.currentScope = {};
+
+    // Set of type variables that shouldn't be generalized
+    // (used to prevent overgeneralization in let-polymorphism)
     this.nonGeneric = new Set();
   }
 
   /**
    * Report a type error
+   *
+   * This records a type error with location information to help
+   * the user identify and fix the problem.
+   *
    * @param {string} message - Error message
    * @param {object} node - AST node where the error occurred
    */
@@ -122,6 +262,7 @@ class TypeInferer {
       location = `position ${node.id.position}`;
     }
 
+    // Add the error to our list
     this.errors.push({
       message: `${message} at ${location}`,
       node,
@@ -129,16 +270,25 @@ class TypeInferer {
   }
 
   /**
-   * Enter a new scope
+   * Enter a new type scope
+   *
+   * This is used when entering a new lexical scope like a function.
+   * A new scope inherits from its parent but can define new variables
+   * or shadow existing ones.
+   *
+   * @returns {object} - The previous scope (for restoring later)
    */
   enterScope() {
     const outerScope = this.currentScope;
+    // Create a new scope with the current scope as prototype
     this.currentScope = Object.create(outerScope);
     return outerScope;
   }
 
   /**
    * Exit the current scope and restore the previous one
+   *
+   * @param {object} scope - The scope to restore
    */
   exitScope(scope) {
     this.currentScope = scope;
@@ -146,6 +296,12 @@ class TypeInferer {
 
   /**
    * Create a fresh type variable
+   *
+   * This is used when we need a new type variable, for example
+   * when inferring the type of a function parameter.
+   *
+   * @param {string|null} name - Optional name for the type variable
+   * @returns {TypeVariable} - A new type variable
    */
   freshTypeVariable(name = null) {
     return new TypeVariable(name);
@@ -153,24 +309,36 @@ class TypeInferer {
 
   /**
    * Create a fresh instance of a type
+   *
+   * This is used for polymorphic types, where each use of a type
+   * should be independent. For example, if a function has type
+   * 'a -> 'a, each call to the function should use fresh type variables.
+   *
+   * @param {object} type - The type to create a fresh instance of
+   * @returns {object} - A fresh instance of the type
    */
   freshInstance(type) {
+    // Map of original type variables to their fresh copies
     const mappings = new Map();
 
+    // Recursive function to create fresh instances
     function freshenType(type) {
       type = type.prune();
 
       if (type instanceof TypeVariable) {
+        // If we haven't seen this type variable before, create a fresh copy
         if (!mappings.has(type)) {
           mappings.set(type, new TypeVariable());
         }
         return mappings.get(type);
       } else if (type instanceof FunctionType) {
+        // For function types, recursively freshen parameter and return types
         return new FunctionType(
           freshenType(type.paramType),
           freshenType(type.returnType),
         );
       } else {
+        // Concrete types don't need to be freshened
         return type;
       }
     }
@@ -180,9 +348,18 @@ class TypeInferer {
 
   /**
    * Get the type of a variable from the current environment
+   *
+   * This looks up a variable name in the current scope and returns its type.
+   * If the variable is not found, a fresh type variable is created.
+   *
+   * @param {string} name - The variable name to look up
+   * @returns {object} - The type of the variable
    */
   getType(name) {
+    // Look up the variable in the current scope
     const type = this.currentScope[name];
+
+    // If not found, create a fresh type variable
     if (!type) {
       const typeVar = this.freshTypeVariable();
       this.currentScope[name] = typeVar;
@@ -190,23 +367,38 @@ class TypeInferer {
     }
 
     // If the type is in the non-generic set, return it as is
+    // (this prevents overgeneralization in certain contexts)
     if (this.nonGeneric.has(type)) {
       return type;
     }
 
-    // Otherwise, create a fresh instance
+    // Otherwise, create a fresh instance to ensure proper polymorphism
     return this.freshInstance(type);
   }
 
   /**
    * Unify two types, making them equal
+   *
+   * This is the heart of the Hindley-Milner algorithm. Unification
+   * takes two types and tries to make them equal by:
+   * 1. If one is a type variable, set it to the other type
+   * 2. If both are function types, unify parameter and return types
+   * 3. If both are concrete types, check if they're the same
+   *
+   * @param {object} t1 - First type to unify
+   * @param {object} t2 - Second type to unify
+   * @param {object} node - AST node for error reporting
    */
   unify(t1, t2, node) {
+    // First, prune both types to get their most specific form
     t1 = t1.prune();
     t2 = t2.prune();
 
+    // Case 1: First type is a variable
     if (t1 instanceof TypeVariable) {
+      // If they're not already the same variable
       if (t1 !== t2) {
+        // Check for recursive types (not allowed)
         if (t1.occursIn(t2)) {
           this.reportError(
             `Recursive unification: cannot unify ${t1} with ${t2}`,
@@ -214,37 +406,59 @@ class TypeInferer {
           );
           return;
         }
+
+        // Set the type variable to point to the other type
         t1.instance = t2;
       }
-    } else if (t1 instanceof FunctionType && t2 instanceof FunctionType) {
+    }
+    // Case 2: Both are function types
+    else if (t1 instanceof FunctionType && t2 instanceof FunctionType) {
+      // Recursively unify parameter and return types
       this.unify(t1.paramType, t2.paramType, node);
       this.unify(t1.returnType, t2.returnType, node);
-    } else if (t1 instanceof ConcreteType && t2 instanceof ConcreteType) {
+    }
+    // Case 3: Both are concrete types
+    else if (t1 instanceof ConcreteType && t2 instanceof ConcreteType) {
+      // Check if they're the same type
       if (t1.type !== t2.type) {
         this.reportError(
           `Type mismatch: ${t1} is not compatible with ${t2}`,
           node,
         );
       }
-    } else if (t2 instanceof TypeVariable) {
+    }
+    // Case 4: Second type is a variable (swap and try again)
+    else if (t2 instanceof TypeVariable) {
       this.unify(t2, t1, node);
-    } else {
+    }
+    // Case 5: Types are incompatible
+    else {
       this.reportError(`Cannot unify ${t1} with ${t2}`, node);
     }
   }
 
   /**
    * Analyze an AST node and infer its type
+   *
+   * This is the main type inference function that dispatches to
+   * specialized functions based on the node type.
+   *
+   * @param {object} node - AST node to analyze
+   * @returns {object} - The inferred type of the node
    */
   inferType(node) {
+    // Handle null/undefined or non-object nodes
     if (!node || typeof node !== "object") {
       return this.freshTypeVariable();
     }
 
+    // Dispatch based on node type
     switch (node.type) {
+      // Program structure
       case "Program":
         return this.inferTypeProgram(node);
 
+      // Literals
       case "NumericLiteral":
         return this.inferTypeNumericLiteral(node);
 
