@@ -381,21 +381,31 @@ function parse(tokens) {
     return parsePrimary();
   }
 
-  // Parse primary expressions (identifiers, literals)
+  // Parse primary expressions (identifiers, literals, function calls)
   function parsePrimary() {
     const token = next();
+    let expr;
 
     switch (token.type) {
       case "IDENTIFIER":
-        return {
+        expr = {
           type: "Identifier",
           name: token.value,
+          position: token.position,
         };
+
+        // Check for function call: identifier followed by left paren
+        if (check("LEFT_PAREN")) {
+          return parseCallExpression(expr);
+        }
+
+        return expr;
 
       case "NUMBER":
         return {
           type: "NumericLiteral",
           value: parseFloat(token.value),
+          position: token.position,
         };
 
       case "STRING":
@@ -404,24 +414,70 @@ function parse(tokens) {
         return {
           type: "StringLiteral",
           value,
+          position: token.position,
         };
 
       case "BOOLEAN":
         return {
           type: "BooleanLiteral",
           value: token.value === "true",
+          position: token.position,
         };
 
-      case "LEFT_PAREN":
-        const expr = parseExpression();
+      case "LEFT_PAREN": {
+        const parenExpr = parseExpression();
         expect("RIGHT_PAREN", "Expected closing parenthesis");
-        return expr;
+
+        // Check for function call: parenthesized expression followed by left paren
+        if (check("LEFT_PAREN")) {
+          return parseCallExpression(parenExpr);
+        }
+
+        return parenExpr;
+      }
 
       default:
         throw new Error(
           `Unexpected token: ${token.type} at position ${token.position}`,
         );
     }
+  }
+
+  // Parse a function call expression
+  function parseCallExpression(callee) {
+    next(); // consume LEFT_PAREN
+
+    const args = [];
+
+    // Parse arguments
+    if (!check("RIGHT_PAREN")) {
+      do {
+        args.push(parseExpression());
+
+        if (check("COMMA")) {
+          next(); // consume comma
+        } else {
+          break;
+        }
+      } while (!check("RIGHT_PAREN") && !check("EOF"));
+    }
+
+    expect("RIGHT_PAREN", "Expected closing parenthesis for function call");
+
+    // Check for chained calls: foo()()
+    if (check("LEFT_PAREN")) {
+      return parseCallExpression({
+        type: "CallExpression",
+        callee,
+        arguments: args,
+      });
+    }
+
+    return {
+      type: "CallExpression",
+      callee,
+      arguments: args,
+    };
   }
 
   // Start parsing
@@ -438,12 +494,15 @@ function compile(sourceCode) {
 }
 
 /**
- * Compile and analyze code for static name resolution
+ * Compile and analyze code for static name resolution and type checking
  * @param {string} sourceCode - The source code to compile and analyze
- * @param {boolean} skipAnalysis - Whether to skip the analysis step
+ * @param {object} options - Analysis options
  * @returns {object} - The AST and any errors found during analysis
  */
-function compileAndAnalyze(sourceCode, skipAnalysis = false) {
+function compileAndAnalyze(sourceCode, options = {}) {
+  const { skipAnalysis = false, skipTypeCheck = false } =
+    typeof options === "boolean" ? { skipAnalysis: options } : options;
+
   const ast = compile(sourceCode);
 
   if (skipAnalysis) {
@@ -451,18 +510,42 @@ function compileAndAnalyze(sourceCode, skipAnalysis = false) {
   }
 
   try {
+    // First perform name resolution
     const { analyze } = require("./analyze");
-    return analyze(ast);
+    const { ast: analyzedAst, errors: nameErrors } = analyze(ast);
+
+    // Then perform type checking if requested
+    if (!skipTypeCheck) {
+      try {
+        const { typecheck } = require("./typecheck");
+        return typecheck(analyzedAst, nameErrors);
+      } catch (error) {
+        // If typechecking fails, return just the name resolution results
+        return { ast: analyzedAst, errors: nameErrors };
+      }
+    }
+
+    return { ast: analyzedAst, errors: nameErrors };
   } catch (error) {
-    // If analyze.js is not available, return the AST without analysis
+    // If analysis fails entirely, return the AST without analysis
     return { ast, errors: [] };
   }
+}
+
+/**
+ * Full compilation pipeline: parse, analyze, typecheck
+ * @param {string} sourceCode - The source code to compile
+ * @returns {object} - The AST with type annotations and any errors
+ */
+function compileWithTypes(sourceCode) {
+  return compileAndAnalyze(sourceCode, { skipTypeCheck: false });
 }
 
 // Export the main function and individual components for teaching purposes
 module.exports = {
   compile,
   compileAndAnalyze,
+  compileWithTypes,
   tokenize,
   parse,
 };
