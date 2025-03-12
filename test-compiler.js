@@ -1,5 +1,5 @@
 // Test our simple compiler
-const { compile } = require("./simple-compiler");
+const { compile } = require("./parse");
 
 // Example 1: const declaration and ternary
 const example1 = `

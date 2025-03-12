@@ -1,14 +1,10 @@
-/**
- * Simple Compiler for Teaching Purposes
- *
- * This is a minimal compiler that can lex and parse a tiny subset of JavaScript:
- * - Arrow functions
- * - Const declarations
- * - Return statements
- * - Ternary operators
- * - Binary expressions (+)
- * - Primitive types: strings, numbers, and booleans
- */
+// This parses a tiny subset of JavaScript:
+// - Strings, numbers, and booleans
+// - `const` declarations
+// - Arrow functions
+// - `return` statements
+// - Ternaries
+// - Binary expressions (+)
 
 /**
  * Lexer: Converts source code into tokens
