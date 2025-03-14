@@ -18,7 +18,8 @@ The compiler supports a small subset of JavaScript:
 - Ternary expressions
 - Binary expressions (only the `+` operator)
 - Function calls
-- Primitive types: integers, floats, strings, and booleans
+- Array literals and array indexing (`[]` syntax)
+- Primitive types: integers, floats, strings, booleans, and homogeneous arrays
 
 ## Components
 
@@ -64,6 +65,16 @@ const y = "hello"; // y: String
 const id = (x) => x; // id: α -> α (polymorphic)
 const five = id(5); // five: Int
 const greeting = id("hi"); // greeting: String
+
+// Array examples
+const nums = [1, 2, 3]; // nums: Array<Int>
+const emptyArray = []; // emptyArray: Array<α> (polymorphic)
+const matrix = [[1, 2], [3, 4]]; // matrix: Array<Array<Int>>
+
+// Polymorphic array function
+const first = (arr) => arr[0]; // first: Array<α> -> α (polymorphic)
+const firstNum = first(nums); // firstNum: Int
+const firstRow = first(matrix); // firstRow: Array<Int>
 ```
 
 In this example, the `id` function is polymorphic - it can work with any type, and the specific type used in each call is inferred correctly.
@@ -76,3 +87,5 @@ The compiler can detect:
 2. **Duplicate declarations**: Declaring the same variable twice in the same scope
 3. **Type errors**: Using a value of the wrong type (e.g., adding a string to a number)
 4. **Invalid return placement**: Return statements not at the end of functions
+5. **Array type errors**: Mixing different types in a homogeneous array
+6. **Invalid array access**: Using non-integer indices or accessing non-array values

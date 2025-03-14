@@ -53,6 +53,8 @@ function tokenize(sourceCode) {
     { type: "RIGHT_PAREN", regex: /^\)/ }, // )
     { type: "LEFT_CURLY", regex: /^\{/ }, // {
     { type: "RIGHT_CURLY", regex: /^\}/ }, // }
+    { type: "LEFT_BRACKET", regex: /^\[/ }, // [
+    { type: "RIGHT_BRACKET", regex: /^\]/ }, // ]
     { type: "COMMA", regex: /^,/ }, // , for function arguments
     { type: "SEMICOLON", regex: /^;/ }, // ; for statement endings
 
@@ -530,13 +532,96 @@ function parse(tokens) {
   }
 
   /**
+   * Parse array literals
+   * 
+   * @returns {Object} - ArrayLiteral node with elements
+   */
+  function parseArrayLiteral() {
+    const elements = [];
+    const position = peek().position;
+
+    next(); // consume LEFT_BRACKET
+
+    // Empty array case: []
+    if (check("RIGHT_BRACKET")) {
+      next(); // consume RIGHT_BRACKET
+      return {
+        type: "ArrayLiteral",
+        elements,
+        position,
+      };
+    }
+
+    // Parse elements until we hit the closing bracket
+    do {
+      // Parse an element (expression)
+      elements.push(parseExpression());
+
+      // If we see a comma, expect another element
+      if (check("COMMA")) {
+        next(); // consume comma
+      } else {
+        break;
+      }
+    } while (!check("RIGHT_BRACKET") && !check("EOF"));
+
+    expect("RIGHT_BRACKET", "Expected closing bracket for array literal");
+
+    return {
+      type: "ArrayLiteral",
+      elements,
+      position,
+    };
+  }
+  
+  /**
+   * Parse array member access expression (e.g. arr[0])
+   * 
+   * @param {Object} object - The array object being accessed
+   * @returns {Object} - MemberExpression node
+   */
+  function parseMemberExpression(object) {
+    next(); // consume LEFT_BRACKET
+    
+    // Parse the index expression
+    const index = parseExpression();
+    
+    expect("RIGHT_BRACKET", "Expected closing bracket for array access");
+    
+    const node = {
+      type: "MemberExpression",
+      object,
+      index,
+      position: object.position,
+    };
+    
+    // Handle chained access like arr[0][1]
+    if (check("LEFT_BRACKET")) {
+      return parseMemberExpression(node);
+    }
+    
+    // Handle function call on array element like arr[0]()
+    if (check("LEFT_PAREN")) {
+      return parseCallExpression(node);
+    }
+    
+    return node;
+  }
+
+  /**
    * Parse primary expressions - the most basic building blocks like:
    * - identifiers (variable names)
-   * - literals (numbers, strings, booleans)
+   * - literals (numbers, strings, booleans, arrays)
    * - function calls
+   * - array access expressions
    * - parenthesized expressions
    */
   function parsePrimary() {
+    // Check for array literals
+    if (check("LEFT_BRACKET")) {
+      return parseArrayLiteral();
+    }
+    
     const token = next();
 
     switch (token.type) {
@@ -551,6 +636,11 @@ function parse(tokens) {
         // Check if this identifier is being called as a function
         if (check("LEFT_PAREN")) {
           return parseCallExpression(identifierNode);
+        }
+        
+        // Check if this identifier is being used with array indexing
+        if (check("LEFT_BRACKET")) {
+          return parseMemberExpression(identifierNode);
         }
 
         return identifierNode;
@@ -592,6 +682,11 @@ function parse(tokens) {
         // Check if this parenthesized expression is being called as a function
         if (check("LEFT_PAREN")) {
           return parseCallExpression(parenExpr);
+        }
+        
+        // Check if this parenthesized expression has array indexing
+        if (check("LEFT_BRACKET")) {
+          return parseMemberExpression(parenExpr);
         }
 
         return parenExpr;

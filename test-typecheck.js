@@ -1,5 +1,6 @@
 // Test our Hindley-Milner type inference system
 const { compileWithTypes } = require("./parse");
+const { typeToString } = require("./typecheck");
 
 // Example 1: Type inference with numbers
 const example1 = `
@@ -80,7 +81,7 @@ function testTypeCheck(name, code) {
       console.log("\nInferred types:");
       for (const statement of result.ast.body) {
         if (statement.type === "ConstDeclaration") {
-          const typeStr = statement.inferredType?.toString() || "unknown";
+          const typeStr = typeToString(statement.inferredType) || "unknown";
           console.log(`  ${statement.id.name}: ${typeStr}`);
         }
       }

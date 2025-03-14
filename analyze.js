@@ -220,6 +220,12 @@ function visitNode(state, node) {
 
     case "CallExpression":
       return visitCallExpression(state, node);
+      
+    case "ArrayLiteral":
+      return visitArrayLiteral(state, node);
+      
+    case "MemberExpression":
+      return visitMemberExpression(state, node);
 
     // Literals don't need name resolution
     case "StringLiteral":
@@ -472,6 +478,43 @@ function visitConditionalExpression(state, node) {
   // Visit both branches
   currentState = visitNode(currentState, node.consequent);
   return visitNode(currentState, node.alternate);
+}
+
+/**
+ * Visit an array literal
+ * 
+ * We need to analyze each element in the array.
+ * 
+ * @param {object} state - Current analyzer state
+ * @param {object} node - ArrayLiteral node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitArrayLiteral(state, node) {
+  let currentState = state;
+
+  // Visit each element in the array
+  for (const element of node.elements) {
+    currentState = visitNode(currentState, element);
+  }
+
+  return currentState;
+}
+
+/**
+ * Visit a member expression (array access)
+ * 
+ * We need to analyze both the object being accessed and the index.
+ * 
+ * @param {object} state - Current analyzer state
+ * @param {object} node - MemberExpression node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitMemberExpression(state, node) {
+  // Visit the object being accessed
+  let currentState = visitNode(state, node.object);
+  
+  // Visit the index expression
+  return visitNode(currentState, node.index);
 }
 
 /**

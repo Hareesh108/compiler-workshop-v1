@@ -41,6 +41,7 @@ const Types = {
   Function: "Function",
   Unknown: "Unknown",
   Unit: "Unit",
+  Array: "Array",
 };
 
 // Counter for generating unique IDs for type variables
@@ -66,6 +67,16 @@ function createTypeVariable(name = null) {
  */
 function createFunctionType(paramType, returnType) {
   return { kind: "FunctionType", paramType, returnType };
+}
+
+/**
+ * Create a new array type
+ *
+ * @param {object} elementType - Type of the array elements
+ * @returns {object} - An array type object
+ */
+function createArrayType(elementType) {
+  return { kind: "ArrayType", elementType };
 }
 
 /**
@@ -121,6 +132,11 @@ function occursIn(typeVar, type) {
       occursIn(typeVar, type.paramType) || occursIn(typeVar, type.returnType)
     );
   }
+  
+  // Check inside array types recursively
+  if (type.kind === "ArrayType") {
+    return occursIn(typeVar, type.elementType);
+  }
 
   return false;
 }
@@ -146,6 +162,8 @@ function typeToString(type) {
         : typeToString(type.paramType);
 
     return `${paramStr} -> ${typeToString(type.returnType)}`;
+  } else if (type.kind === "ArrayType") {
+    return `Array<${typeToString(type.elementType)}>`;
   }
 
   return "UnknownType";
@@ -217,6 +235,11 @@ function freshInstance(type, mappings = new Map()) {
       freshInstance(type.paramType, mappings),
       freshInstance(type.returnType, mappings),
     );
+  } else if (type.kind === "ArrayType") {
+    // For array types, recursively freshen element type
+    return createArrayType(
+      freshInstance(type.elementType, mappings)
+    );
   } else {
     // Concrete types don't need to be freshened
     return type;
@@ -261,7 +284,8 @@ function getType(state, name) {
  * takes two types and tries to make them equal by:
  * 1. If one is a type variable, set it to the other type
  * 2. If both are function types, unify parameter and return types
- * 3. If both are concrete types, check if they're the same
+ * 3. If both are array types, unify their element types
+ * 4. If both are concrete types, check if they're the same
  *
  * @param {object} state - Current type inference state
  * @param {object} t1 - First type to unify
@@ -297,7 +321,12 @@ function unify(state, t1, t2, node) {
     unify(state, t1.paramType, t2.paramType, node);
     unify(state, t1.returnType, t2.returnType, node);
   }
-  // Case 3: Both are concrete types
+  // Case 3: Both are array types
+  else if (t1.kind === "ArrayType" && t2.kind === "ArrayType") {
+    // Recursively unify element types
+    unify(state, t1.elementType, t2.elementType, node);
+  }
+  // Case 4: Both are concrete types
   else if (t1.kind === "ConcreteType" && t2.kind === "ConcreteType") {
     // Check if they're the same type
     if (t1.type !== t2.type) {
@@ -308,11 +337,11 @@ function unify(state, t1, t2, node) {
       );
     }
   }
-  // Case 4: Second type is a variable (swap and try again)
+  // Case 5: Second type is a variable (swap and try again)
   else if (t2.kind === "TypeVariable") {
     unify(state, t2, t1, node);
   }
-  // Case 5: Types are incompatible
+  // Case 6: Types are incompatible
   else {
     reportError(
       state.errors,
@@ -419,6 +448,9 @@ function inferType(state, node) {
 
     case "BooleanLiteral":
       return inferTypeBooleanLiteral(state, node);
+      
+    case "ArrayLiteral":
+      return inferTypeArrayLiteral(state, node);
 
     case "Identifier":
       return inferTypeIdentifier(state, node);
@@ -434,6 +466,9 @@ function inferType(state, node) {
 
     case "CallExpression":
       return inferTypeCallExpression(state, node);
+      
+    case "MemberExpression":
+      return inferTypeMemberExpression(state, node);
 
     case "ConstDeclaration":
       return inferTypeConstDeclaration(state, node);
@@ -768,6 +803,80 @@ function inferTypeArrowFunction(state, node) {
 }
 
 /**
+ * Infer type for an array literal
+ *
+ * For array literals, we:
+ * 1. Infer the type of each element
+ * 2. Unify all element types to ensure homogeneity
+ * 3. Create an array type with the unified element type
+ *
+ * @param {object} state - Current type inference state
+ * @param {object} node - Array literal node
+ * @returns {object} - Tuple of [updated state, inferred type]
+ */
+function inferTypeArrayLiteral(state, node) {
+  let currentState = state;
+  
+  // Handle empty array case
+  if (node.elements.length === 0) {
+    // For empty arrays, we create a parametric array type
+    const elemType = freshTypeVariable();
+    return [currentState, createArrayType(elemType)];
+  }
+  
+  // Get the type of the first element
+  let [newState, elementType] = inferType(currentState, node.elements[0]);
+  currentState = newState;
+  
+  // Unify all remaining elements with the first one to ensure homogeneity
+  for (let i = 1; i < node.elements.length; i++) {
+    const [nextState, nextElemType] = inferType(currentState, node.elements[i]);
+    currentState = nextState;
+    
+    // Ensure all elements have the same type
+    unify(currentState, elementType, nextElemType, node.elements[i]);
+  }
+  
+  // Create array type with the element type
+  return [currentState, createArrayType(elementType)];
+}
+
+/**
+ * Infer type for a member expression (array indexing)
+ *
+ * For array indexing like arr[index], we:
+ * 1. Ensure the object is an array type
+ * 2. Ensure the index is a numeric type (Int)
+ * 3. Return the element type of the array
+ *
+ * @param {object} state - Current type inference state
+ * @param {object} node - Member expression node
+ * @returns {object} - Tuple of [updated state, inferred type]
+ */
+function inferTypeMemberExpression(state, node) {
+  // Get the type of the object being indexed
+  let [objState, objectType] = inferType(state, node.object);
+  
+  // Get the type of the index
+  let [idxState, indexType] = inferType(objState, node.index);
+  let currentState = idxState;
+  
+  // The index should be an Int
+  unify(currentState, indexType, createConcreteType(Types.Int), node.index);
+  
+  // If object is not already an array type, create a type variable for the element type
+  // and unify the object with an array of that element type
+  const elementType = freshTypeVariable();
+  const arrayType = createArrayType(elementType);
+  
+  // Unify the object type with the array type
+  unify(currentState, objectType, arrayType, node.object);
+  
+  // The result type is the element type of the array
+  return [currentState, elementType];
+}
+
+/**
  * Infer type for a const declaration
  *
  * @param {object} state - Current type inference state
@@ -844,4 +953,6 @@ module.exports = {
   infer,
   typecheck,
   Types,
+  typeToString,
+  createArrayType,
 };
