@@ -10,7 +10,7 @@ A minimal compiler implementation for educational purposes. This compiler demons
 
 ## Language Features
 
-The compiler supports a small subset of JavaScript:
+The compiler supports a small subset of JavaScript with TypeScript-like type annotations:
 
 - Variable declarations with `const`
 - Arrow functions with single and multiple parameters
@@ -19,6 +19,7 @@ The compiler supports a small subset of JavaScript:
 - Binary expressions (only the `+` operator)
 - Function calls
 - Array literals and array indexing (`[]` syntax)
+- TypeScript-style type annotations (optional)
 - Primitive types: integers, floats, strings, booleans, and homogeneous arrays
 
 ## Components
@@ -66,10 +67,19 @@ const id = (x) => x; // id: α -> α (polymorphic)
 const five = id(5); // five: Int
 const greeting = id("hi"); // greeting: String
 
+// With type annotations
+const z: number = 10; // z: Int
+const name: string = "world"; // name: String
+const add = (x: number, y: number): number => x + y; // add: Int -> Int -> Int
+
 // Array examples
 const nums = [1, 2, 3]; // nums: Array<Int>
 const emptyArray = []; // emptyArray: Array<α> (polymorphic)
 const matrix = [[1, 2], [3, 4]]; // matrix: Array<Array<Int>>
+
+// Arrays with type annotations
+const strings: Array<string> = ["a", "b", "c"]; // strings: Array<String>
+const emptyNums: Array<number> = []; // emptyNums: Array<Int>
 
 // Polymorphic array function
 const first = (arr) => arr[0]; // first: Array<α> -> α (polymorphic)
@@ -89,3 +99,16 @@ The compiler can detect:
 4. **Invalid return placement**: Return statements not at the end of functions
 5. **Array type errors**: Mixing different types in a homogeneous array
 6. **Invalid array access**: Using non-integer indices or accessing non-array values
+7. **Type annotation violations**: Values that don't match their type annotations
+
+## Type Annotations
+
+The compiler supports optional TypeScript-style type annotations that integrate with the Hindley-Milner type inference system:
+
+1. **Variable Annotations**: `const x: number = 5;`
+2. **Parameter Annotations**: `(x: number, y: string) => {...}`
+3. **Return Type Annotations**: `(): number => 42` 
+4. **Array Type Annotations**: `Array<number>` for arrays of numbers
+5. **Partial Annotations**: You can annotate some parts and let the compiler infer the rest
+
+Annotations serve as explicit constraints on the inferred types. When annotations are present, the compiler will ensure that values match their declared types. If no annotations are provided, the compiler will infer types automatically.

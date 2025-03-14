@@ -646,31 +646,44 @@ function inferTypeBinaryExpression(state, node) {
 
   switch (node.operator) {
     case "+": {
-      // For +, require numeric operands (Int or Float)
-      const numericType = freshTypeVariable();
-      unify(currentState, leftType, numericType, node.left);
-      unify(currentState, rightType, numericType, node.right);
-
-      // Try to unify with Int or Float
-      try {
-        unify(currentState, numericType, createConcreteType(Types.Int), node);
-        return [currentState, createConcreteType(Types.Int)];
-      } catch (e) {
+      // Check if both operands are strings for concatenation
+      const leftIsString = compress(leftType).kind === "ConcreteType" && 
+                          compress(leftType).type === Types.String;
+      const rightIsString = compress(rightType).kind === "ConcreteType" && 
+                           compress(rightType).type === Types.String;
+      
+      if (leftIsString || rightIsString) {
+        // String concatenation - both operands must be strings
+        unify(currentState, leftType, createConcreteType(Types.String), node.left);
+        unify(currentState, rightType, createConcreteType(Types.String), node.right);
+        return [currentState, createConcreteType(Types.String)];
+      } else {
+        // Numeric addition
+        const numericType = freshTypeVariable();
+        unify(currentState, leftType, numericType, node.left);
+        unify(currentState, rightType, numericType, node.right);
+  
+        // Try to unify with Int or Float
         try {
-          unify(
-            currentState,
-            numericType,
-            createConcreteType(Types.Float),
-            node,
-          );
-          return [currentState, createConcreteType(Types.Float)];
+          unify(currentState, numericType, createConcreteType(Types.Int), node);
+          return [currentState, createConcreteType(Types.Int)];
         } catch (e) {
-          reportError(
-            currentState.errors,
-            `The '+' operator requires numeric operands`,
-            node,
-          );
-          return [currentState, freshTypeVariable()];
+          try {
+            unify(
+              currentState,
+              numericType,
+              createConcreteType(Types.Float),
+              node,
+            );
+            return [currentState, createConcreteType(Types.Float)];
+          } catch (e) {
+            reportError(
+              currentState.errors,
+              `The '+' operator requires either numeric operands or string operands`,
+              node,
+            );
+            return [currentState, freshTypeVariable()];
+          }
         }
       }
     }
@@ -726,10 +739,19 @@ function inferTypeArrowFunction(state, node) {
     checkReturnPosition(currentState, node, node.body);
   }
 
-  // Create fresh type variables for parameters
+  // Create types for parameters, using annotations if available
   const paramTypes = [];
   for (const param of node.params) {
-    const paramType = freshTypeVariable();
+    let paramType;
+    
+    // If parameter has a type annotation, use it
+    if (param.typeAnnotation) {
+      paramType = createTypeFromAnnotation(currentState, param.typeAnnotation);
+    } else {
+      // Otherwise use a fresh type variable
+      paramType = freshTypeVariable();
+    }
+    
     currentState.currentScope[param.name] = paramType;
     currentState.nonGeneric.add(paramType);
     paramTypes.push(paramType);
@@ -737,6 +759,8 @@ function inferTypeArrowFunction(state, node) {
 
   // Infer the return type
   let returnType;
+  let inferredReturnType;
+  
   if (Array.isArray(node.body)) {
     // For block bodies, the return type is the type of the return statement,
     // or Unit if there is no return statement
@@ -751,9 +775,9 @@ function inferTypeArrowFunction(state, node) {
           returnStatement.argument,
         );
         currentState = newState;
-        returnType = argType;
+        inferredReturnType = argType;
       } else {
-        returnType = createConcreteType(Types.Unit);
+        inferredReturnType = createConcreteType(Types.Unit);
       }
 
       // Process all statements for side effects and type checking
@@ -769,13 +793,22 @@ function inferTypeArrowFunction(state, node) {
         let [newState] = inferType(currentState, statement);
         currentState = newState;
       }
-      returnType = createConcreteType(Types.Unit);
+      inferredReturnType = createConcreteType(Types.Unit);
     }
   } else {
     // For expression bodies, the return type is the type of the expression
     let [newState, bodyType] = inferType(currentState, node.body);
     currentState = newState;
-    returnType = bodyType;
+    inferredReturnType = bodyType;
+  }
+  
+  // If there's a return type annotation, use it and unify with inferred type
+  if (node.returnTypeAnnotation) {
+    returnType = createTypeFromAnnotation(currentState, node.returnTypeAnnotation);
+    unify(currentState, inferredReturnType, returnType, node);
+  } else {
+    // No annotation, use the inferred type
+    returnType = inferredReturnType;
   }
 
   // Construct the function type
@@ -877,6 +910,73 @@ function inferTypeMemberExpression(state, node) {
 }
 
 /**
+ * Convert a type annotation to an internal type representation
+ * 
+ * @param {object} state - Current type inference state
+ * @param {object} annotation - Type annotation node
+ * @returns {object} - Internal type representation
+ */
+function createTypeFromAnnotation(state, annotation) {
+  if (!annotation) {
+    return freshTypeVariable();
+  }
+  
+  switch (annotation.type) {
+    case "TypeAnnotation": {
+      // Convert string type names to our internal type system
+      switch (annotation.valueType) {
+        case "number":
+        case "Float":
+        case "Int":
+          // Treat all numeric types the same for simplicity
+          return createConcreteType(Types.Int);
+          
+        case "string":
+          return createConcreteType(Types.String);
+          
+        case "boolean":
+        case "Bool":
+          return createConcreteType(Types.Bool);
+          
+        case "void":
+        case "Unit":
+          return createConcreteType(Types.Unit);
+          
+        case "any":
+          // For 'any', use a fresh type variable
+          return freshTypeVariable();
+          
+        default:
+          // For custom/unknown types, use a type variable
+          return freshTypeVariable();
+      }
+    }
+    
+    case "ArrayTypeAnnotation": {
+      // For Array<T> or T[], create an array type with the element type
+      const elementType = createTypeFromAnnotation(state, annotation.elementType);
+      return createArrayType(elementType);
+    }
+    
+    case "FunctionTypeAnnotation": {
+      // Build function type from return type and parameter types
+      let functionType = createTypeFromAnnotation(state, annotation.returnType);
+      
+      // Build the function type from right to left (curried style)
+      for (let i = annotation.paramTypes.length - 1; i >= 0; i--) {
+        const paramType = createTypeFromAnnotation(state, annotation.paramTypes[i].typeAnnotation);
+        functionType = createFunctionType(paramType, functionType);
+      }
+      
+      return functionType;
+    }
+    
+    default:
+      return freshTypeVariable();
+  }
+}
+
+/**
  * Infer type for a const declaration
  *
  * @param {object} state - Current type inference state
@@ -884,7 +984,26 @@ function inferTypeMemberExpression(state, node) {
  * @returns {object} - Tuple of [updated state, inferred type]
  */
 function inferTypeConstDeclaration(state, node) {
+  // Infer type from the initializer
   let [currentState, initType] = inferType(state, node.init);
+  
+  // If there's a type annotation, create a concrete type from it
+  if (node.typeAnnotation) {
+    const annotatedType = createTypeFromAnnotation(currentState, node.typeAnnotation);
+    
+    // Unify the inferred type with the annotated type
+    unify(currentState, initType, annotatedType, node);
+    
+    // Use the annotated type
+    currentState.currentScope[node.id.name] = annotatedType;
+    
+    // Add type information to the AST
+    node.inferredType = annotatedType;
+    
+    return [currentState, annotatedType];
+  }
+  
+  // No annotation, use the inferred type
   currentState.currentScope[node.id.name] = initType;
 
   // Add type information to the AST

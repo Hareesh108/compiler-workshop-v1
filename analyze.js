@@ -347,6 +347,12 @@ function visitConstDeclaration(state, node) {
       node,
     );
   }
+  
+  // Remember type annotation if present
+  if (node.typeAnnotation) {
+    // Store type annotation in node for later type checking
+    node.id.typeAnnotation = node.typeAnnotation;
+  }
 
   // Process the initializer expression
   return visitNode(currentState, node.init);
@@ -380,7 +386,13 @@ function visitArrowFunction(state, node) {
         param,
       );
     }
+    
+    // Remember parameter type annotations if present
+    // Type checking will validate these later
   }
+  
+  // Remember return type annotation if present
+  // Type checking will validate this later
 
   // Process the function body
   if (Array.isArray(node.body)) {
