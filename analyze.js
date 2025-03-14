@@ -20,461 +20,475 @@
  */
 
 /**
- * Scope class - represents a lexical environment
- *
- * A scope is essentially a symbol table that maps variable names to their
- * declaration nodes in the AST. Scopes can be nested (e.g., a function scope
- * inside the global scope), forming a tree structure that mirrors the lexical
- * structure of the code.
+ * Create a new scope
+ * @param {object|null} parent - Parent scope, or null for the global scope
+ * @returns {object} - A new scope object
  */
-class Scope {
-  /**
-   * Create a new scope
-   * @param {Scope|null} parent - Parent scope, or null for the global scope
-   */
-  constructor(parent = null) {
-    this.parent = parent; // Reference to the parent scope
-    this.declarations = new Map(); // Map of variable names to declaration nodes
+function createScope(parent = null) {
+  return {
+    parent,
+    declarations: new Map()
+  };
+}
+
+/**
+ * Declare a new variable in the current scope
+ *
+ * This adds a variable to the current scope, but will fail if the variable
+ * is already declared in this scope (a duplicate declaration error).
+ *
+ * Note: It's perfectly legal to shadow a variable from an outer scope.
+ * For example:
+ *   const x = 10;
+ *   function foo() {
+ *     const x = 20; // This shadows the outer x, not a duplicate
+ *   }
+ *
+ * @param {object} scope - The scope to declare the variable in
+ * @param {string} name - Variable name
+ * @param {object} node - AST node where the variable is declared
+ * @returns {boolean} - Whether the declaration was successful
+ */
+function declareInScope(scope, name, node) {
+  // Check for duplicate declaration in the CURRENT scope only
+  if (scope.declarations.has(name)) {
+    return false; // Duplicate declaration error
   }
 
-  /**
-   * Declare a new variable in the current scope
-   *
-   * This adds a variable to the current scope, but will fail if the variable
-   * is already declared in this scope (a duplicate declaration error).
-   *
-   * Note: It's perfectly legal to shadow a variable from an outer scope.
-   * For example:
-   *   const x = 10;
-   *   function foo() {
-   *     const x = 20; // This shadows the outer x, not a duplicate
-   *   }
-   *
-   * @param {string} name - Variable name
-   * @param {object} node - AST node where the variable is declared
-   * @returns {boolean} - Whether the declaration was successful
-   */
-  declare(name, node) {
-    // Check for duplicate declaration in the CURRENT scope only
-    if (this.declarations.has(name)) {
-      return false; // Duplicate declaration error
-    }
+  // Add the declaration to the current scope
+  scope.declarations.set(name, node);
+  return true;
+}
 
-    // Add the declaration to the current scope
-    this.declarations.set(name, node);
+/**
+ * Check if a variable is declared in this scope or any parent scope
+ *
+ * This implements lexical scoping rules, where a variable is visible
+ * in its own scope and all inner scopes, unless shadowed.
+ *
+ * @param {object} scope - The scope to check
+ * @param {string} name - Variable name to look up
+ * @returns {boolean} - Whether the variable is declared
+ */
+function isDeclaredInScope(scope, name) {
+  // Check the current scope first
+  if (scope.declarations.has(name)) {
     return true;
   }
 
-  /**
-   * Check if a variable is declared in this scope or any parent scope
-   *
-   * This implements lexical scoping rules, where a variable is visible
-   * in its own scope and all inner scopes, unless shadowed.
-   *
-   * @param {string} name - Variable name to look up
-   * @returns {boolean} - Whether the variable is declared
-   */
-  isDeclared(name) {
-    // Check the current scope first
-    if (this.declarations.has(name)) {
-      return true;
-    }
-
-    // If not found, recursively check parent scopes
-    if (this.parent) {
-      return this.parent.isDeclared(name);
-    }
-
-    // Not found in any scope
-    return false;
+  // If not found, recursively check parent scopes
+  if (scope.parent) {
+    return isDeclaredInScope(scope.parent, name);
   }
 
-  /**
-   * Find declaration node for a variable
-   *
-   * This returns the actual AST node where the variable was declared.
-   * Like isDeclared(), it follows lexical scoping rules by checking
-   * the current scope first, then parent scopes.
-   *
-   * @param {string} name - Variable name to look up
-   * @returns {object|null} - The declaration node or null if not found
-   */
-  getDeclaration(name) {
-    // Check current scope
-    if (this.declarations.has(name)) {
-      return this.declarations.get(name);
-    }
-
-    // Check parent scopes recursively
-    if (this.parent) {
-      return this.parent.getDeclaration(name);
-    }
-
-    // Not found anywhere
-    return null;
-  }
+  // Not found in any scope
+  return false;
 }
 
 /**
- * Analyzer class - performs static name resolution on an AST
+ * Find declaration node for a variable
  *
- * This class visits each node in the AST and:
- * 1. Creates a scope hierarchy that matches the lexical structure of the code
- * 2. Records all variable declarations in the appropriate scope
- * 3. Verifies that all variable references can be resolved
- * 4. Reports any naming errors (undeclared variables, duplicate declarations)
+ * This returns the actual AST node where the variable was declared.
+ * Like isDeclared(), it follows lexical scoping rules by checking
+ * the current scope first, then parent scopes.
+ *
+ * @param {object} scope - The scope to check
+ * @param {string} name - Variable name to look up
+ * @returns {object|null} - The declaration node or null if not found
  */
-class Analyzer {
-  constructor() {
-    this.errors = []; // List of errors found during analysis
-    this.currentScope = null; // Current lexical scope being analyzed
+function getDeclarationFromScope(scope, name) {
+  // Check current scope
+  if (scope.declarations.has(name)) {
+    return scope.declarations.get(name);
   }
 
-  /**
-   * Analyze an AST to check for naming errors
-   *
-   * This is the main entry point for static analysis. It:
-   * 1. Creates a global scope
-   * 2. Visits the AST recursively to analyze all nodes
-   * 3. Returns the AST and any errors found
-   *
-   * @param {object} ast - The AST to analyze
-   * @returns {object} - The same AST, now with scope information
-   */
-  analyze(ast) {
-    // Create the global scope (top-level scope)
-    this.currentScope = new Scope();
-
-    // Start traversing the AST from the root
-    this.visitNode(ast);
-
-    // Return the annotated AST and any errors found
-    return {
-      ast,
-      errors: this.errors,
-    };
+  // Check parent scopes recursively
+  if (scope.parent) {
+    return getDeclarationFromScope(scope.parent, name);
   }
 
-  /**
-   * Report an error found during analysis
-   *
-   * This records details about an error including where it occurred
-   * in the source code to help users find and fix it.
-   *
-   * @param {string} message - Error message
-   * @param {object} node - AST node where the error occurred
-   */
-  reportError(message, node) {
-    let location = "unknown position";
+  // Not found anywhere
+  return null;
+}
 
-    // Try to get position information from the node
-    if (node.position !== undefined) {
-      location = `position ${node.position}`;
-    } else if (node.id && node.id.position !== undefined) {
-      location = `position ${node.id.position}`;
-    }
+/**
+ * Report an error found during analysis
+ *
+ * This records details about an error including where it occurred
+ * in the source code to help users find and fix it.
+ *
+ * @param {Array} errors - Array to add the error to
+ * @param {string} message - Error message
+ * @param {object} node - AST node where the error occurred
+ */
+function reportError(errors, message, node) {
+  let location = "unknown position";
 
-    // Add the error to our list
-    this.errors.push({
-      message: `${message} at ${location}`,
-      node,
-    });
+  // Try to get position information from the node
+  if (node.position !== undefined) {
+    location = `position ${node.position}`;
+  } else if (node.id && node.id.position !== undefined) {
+    location = `position ${node.id.position}`;
   }
 
-  /**
-   * Create a new scope for a lexical environment
-   *
-   * This is called when entering a new scope, such as:
-   * - Function bodies
-   * - Block statements
-   *
-   * @returns {Scope} - The previously active scope (for restoring later)
-   */
-  enterScope() {
-    const previousScope = this.currentScope;
-    // Create a new scope with the current scope as parent
-    this.currentScope = new Scope(previousScope);
-    return previousScope;
+  // Add the error to our list
+  errors.push({
+    message: `${message} at ${location}`,
+    node,
+  });
+}
+
+/**
+ * Create a new scope for a lexical environment
+ *
+ * This is called when entering a new scope, such as:
+ * - Function bodies
+ * - Block statements
+ *
+ * @param {object} state - Current analyzer state
+ * @returns {object} - Updated analyzer state with new current scope
+ */
+function enterScope(state) {
+  const previousScope = state.currentScope;
+  // Create a new scope with the current scope as parent
+  const newScope = createScope(previousScope);
+  
+  return {
+    ...state,
+    currentScope: newScope,
+    previousScope
+  };
+}
+
+/**
+ * Restore the previous scope when leaving a lexical environment
+ *
+ * @param {object} state - Current analyzer state
+ * @returns {object} - Updated analyzer state with restored scope
+ */
+function exitScope(state) {
+  return {
+    ...state,
+    currentScope: state.previousScope
+  };
+}
+
+/**
+ * Visit an AST node and its children
+ *
+ * This is the main traversal method that routes each node to its
+ * appropriate visitor function based on the node type.
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - AST node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitNode(state, node) {
+  // Skip null/undefined nodes and non-objects
+  if (!node || typeof node !== "object") {
+    return state;
   }
 
-  /**
-   * Restore the previous scope when leaving a lexical environment
-   *
-   * This is called when exiting a scope, to restore the parent scope.
-   *
-   * @param {Scope} scope - The scope to restore
-   */
-  exitScope(scope) {
-    this.currentScope = scope;
-  }
+  // Dispatch to appropriate visitor function based on node type
+  switch (node.type) {
+    // Program is the root of the AST
+    case "Program":
+      return visitProgram(state, node);
 
-  /**
-   * Visit an AST node and its children
-   *
-   * This is the main traversal method that routes each node to its
-   * appropriate visitor method based on the node type.
-   *
-   * @param {object} node - AST node to visit
-   */
-  visitNode(node) {
-    // Skip null/undefined nodes and non-objects
-    if (!node || typeof node !== "object") {
-      return;
-    }
+    // Variable declarations
+    case "ConstDeclaration":
+      return visitConstDeclaration(state, node);
 
-    // Dispatch to appropriate visitor method based on node type
-    switch (node.type) {
-      // Program is the root of the AST
-      case "Program":
-        this.visitProgram(node);
-        break;
+    // Functions
+    case "ArrowFunctionExpression":
+      return visitArrowFunction(state, node);
 
-      // Variable declarations
-      case "ConstDeclaration":
-        this.visitConstDeclaration(node);
-        break;
+    // Variable references
+    case "Identifier":
+      return visitIdentifier(state, node);
 
-      // Functions
-      case "ArrowFunctionExpression":
-        this.visitArrowFunction(node);
-        break;
+    // Statements
+    case "ReturnStatement":
+      return visitReturnStatement(state, node);
 
-      // Variable references
-      case "Identifier":
-        this.visitIdentifier(node);
-        break;
+    // Expressions
+    case "BinaryExpression":
+      return visitBinaryExpression(state, node);
 
-      // Statements
-      case "ReturnStatement":
-        this.visitReturnStatement(node);
-        break;
+    case "ConditionalExpression":
+      return visitConditionalExpression(state, node);
 
-      // Expressions
-      case "BinaryExpression":
-        this.visitBinaryExpression(node);
-        break;
+    case "CallExpression":
+      return visitCallExpression(state, node);
 
-      case "ConditionalExpression":
-        this.visitConditionalExpression(node);
-        break;
+    // Literals don't need name resolution
+    case "StringLiteral":
+    case "NumericLiteral":
+    case "BooleanLiteral":
+      return state;
 
-      case "CallExpression":
-        this.visitCallExpression(node);
-        break;
-
-      // Literals don't need name resolution
-      case "StringLiteral":
-      case "NumericLiteral":
-      case "BooleanLiteral":
-        break;
-
-      default:
-        // For unknown node types, traverse children generically
-        this.visitChildren(node);
-    }
-  }
-
-  /**
-   * Visit all children of a node
-   *
-   * This is a generic traversal method used when we don't have a
-   * specific visitor method for a node type.
-   *
-   * @param {object} node - Node whose children should be visited
-   */
-  visitChildren(node) {
-    if (!node || typeof node !== "object") {
-      return;
-    }
-
-    // Iterate through all properties of the node
-    for (const key in node) {
-      if (node.hasOwnProperty(key) && key !== "type") {
-        const child = node[key];
-
-        // Handle arrays (e.g., body of a block)
-        if (Array.isArray(child)) {
-          child.forEach((item) => this.visitNode(item));
-        }
-        // Handle nested objects (other AST nodes)
-        else if (child && typeof child === "object") {
-          this.visitNode(child);
-        }
-      }
-    }
-  }
-
-  /**
-   * Visit a program node (the root of the AST)
-   *
-   * A program consists of a series of top-level statements.
-   * These statements are executed in the global scope.
-   *
-   * @param {object} node - Program node to visit
-   */
-  visitProgram(node) {
-    // Visit each statement in the program body
-    node.body.forEach((statement) => this.visitNode(statement));
-  }
-
-  /**
-   * Visit a function call expression
-   *
-   * For a call expression, we need to:
-   * 1. Ensure the callee (the function) is in scope
-   * 2. Check each argument expression
-   *
-   * @param {object} node - CallExpression node to visit
-   */
-  visitCallExpression(node) {
-    // Visit the function being called
-    this.visitNode(node.callee);
-
-    // Visit each argument passed to the function
-    node.arguments.forEach((arg) => this.visitNode(arg));
-  }
-
-  /**
-   * Visit a const declaration
-   *
-   * When we see a const declaration, we need to:
-   * 1. Add the variable to the current scope
-   * 2. Check for duplicate declarations in the same scope
-   * 3. Process the initializer expression
-   *
-   * @param {object} node - ConstDeclaration node to visit
-   */
-  visitConstDeclaration(node) {
-    // Get the variable name
-    const name = node.id.name;
-
-    // Try to declare it in the current scope
-    if (!this.currentScope.declare(name, node)) {
-      // If declaration fails, report a duplicate declaration error
-      this.reportError(`Duplicate declaration of '${name}'`, node);
-    }
-
-    // Process the initializer expression
-    this.visitNode(node.init);
-  }
-
-  /**
-   * Visit an arrow function
-   *
-   * Arrow functions create a new lexical scope. We need to:
-   * 1. Create a new scope for the function body
-   * 2. Declare parameters in the function scope
-   * 3. Process the function body
-   * 4. Restore the parent scope when done
-   *
-   * @param {object} node - ArrowFunctionExpression node to visit
-   */
-  visitArrowFunction(node) {
-    // Create a new scope for the function body
-    const previousScope = this.enterScope();
-
-    // Add each parameter to the function scope
-    node.params.forEach((param) => {
-      const name = param.name;
-      // Check for duplicate parameter names
-      if (!this.currentScope.declare(name, param)) {
-        this.reportError(`Duplicate parameter name '${name}'`, param);
-      }
-    });
-
-    // Process the function body
-    if (Array.isArray(node.body)) {
-      // Block body with statements: () => { statements }
-      node.body.forEach((statement) => this.visitNode(statement));
-    } else {
-      // Expression body: () => expression
-      this.visitNode(node.body);
-    }
-
-    // Restore the previous scope when leaving the function
-    this.exitScope(previousScope);
-  }
-
-  /**
-   * Visit an identifier (variable reference)
-   *
-   * When we see an identifier used as a value, we need to:
-   * 1. Check if it refers to a declared variable
-   * 2. Report an error if the variable is not in scope
-   *
-   * @param {object} node - Identifier node to visit
-   */
-  visitIdentifier(node) {
-    // Skip built-in literals (true, false)
-    if (node.name === "true" || node.name === "false") {
-      return;
-    }
-
-    const name = node.name;
-
-    // Check if the variable is declared in any accessible scope
-    if (!this.currentScope.isDeclared(name)) {
-      // If not, report an undeclared variable error
-      this.reportError(`Reference to undeclared variable '${name}'`, node);
-    }
-  }
-
-  /**
-   * Visit a return statement
-   *
-   * For a return statement, we just need to analyze its argument (if any).
-   *
-   * @param {object} node - ReturnStatement node to visit
-   */
-  visitReturnStatement(node) {
-    // Process the return value if it exists
-    if (node.argument) {
-      this.visitNode(node.argument);
-    }
-  }
-
-  /**
-   * Visit a binary expression (e.g., a + b)
-   *
-   * For a binary expression, we need to analyze both sides.
-   *
-   * @param {object} node - BinaryExpression node to visit
-   */
-  visitBinaryExpression(node) {
-    // Visit both operands
-    this.visitNode(node.left);
-    this.visitNode(node.right);
-  }
-
-  /**
-   * Visit a conditional (ternary) expression (condition ? then : else)
-   *
-   * We need to analyze all three parts: the condition and both branches.
-   *
-   * @param {object} node - ConditionalExpression node to visit
-   */
-  visitConditionalExpression(node) {
-    // Visit the condition expression
-    this.visitNode(node.test);
-
-    // Visit both branches
-    this.visitNode(node.consequent);
-    this.visitNode(node.alternate);
+    default:
+      // For unknown node types, traverse children generically
+      return visitChildren(state, node);
   }
 }
 
 /**
- * Main function to perform static name resolution on an AST
+ * Visit all children of a node
  *
- * This is the entry point for name resolution analysis, used by the
- * compilation pipeline to verify variable scoping.
+ * This is a generic traversal method used when we don't have a
+ * specific visitor function for a node type.
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - Node whose children should be visited
+ * @returns {object} - Updated analyzer state
+ */
+function visitChildren(state, node) {
+  if (!node || typeof node !== "object") {
+    return state;
+  }
+
+  let currentState = state;
+
+  // Iterate through all properties of the node
+  for (const key in node) {
+    if (node.hasOwnProperty(key) && key !== "type") {
+      const child = node[key];
+
+      // Handle arrays (e.g., body of a block)
+      if (Array.isArray(child)) {
+        for (const item of child) {
+          currentState = visitNode(currentState, item);
+        }
+      }
+      // Handle nested objects (other AST nodes)
+      else if (child && typeof child === "object") {
+        currentState = visitNode(currentState, child);
+      }
+    }
+  }
+
+  return currentState;
+}
+
+/**
+ * Visit a program node (the root of the AST)
+ *
+ * A program consists of a series of top-level statements.
+ * These statements are executed in the global scope.
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - Program node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitProgram(state, node) {
+  // Visit each statement in the program body
+  let currentState = state;
+  
+  for (const statement of node.body) {
+    currentState = visitNode(currentState, statement);
+  }
+  
+  return currentState;
+}
+
+/**
+ * Visit a function call expression
+ *
+ * For a call expression, we need to:
+ * 1. Ensure the callee (the function) is in scope
+ * 2. Check each argument expression
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - CallExpression node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitCallExpression(state, node) {
+  // Visit the function being called
+  let currentState = visitNode(state, node.callee);
+
+  // Visit each argument passed to the function
+  for (const arg of node.arguments) {
+    currentState = visitNode(currentState, arg);
+  }
+
+  return currentState;
+}
+
+/**
+ * Visit a const declaration
+ *
+ * When we see a const declaration, we need to:
+ * 1. Add the variable to the current scope
+ * 2. Check for duplicate declarations in the same scope
+ * 3. Process the initializer expression
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - ConstDeclaration node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitConstDeclaration(state, node) {
+  // Get the variable name
+  const name = node.id.name;
+  let currentState = state;
+
+  // Try to declare it in the current scope
+  if (!declareInScope(currentState.currentScope, name, node)) {
+    // If declaration fails, report a duplicate declaration error
+    reportError(currentState.errors, `Duplicate declaration of '${name}'`, node);
+  }
+
+  // Process the initializer expression
+  return visitNode(currentState, node.init);
+}
+
+/**
+ * Visit an arrow function
+ *
+ * Arrow functions create a new lexical scope. We need to:
+ * 1. Create a new scope for the function body
+ * 2. Declare parameters in the function scope
+ * 3. Process the function body
+ * 4. Restore the parent scope when done
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - ArrowFunctionExpression node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitArrowFunction(state, node) {
+  // Create a new scope for the function body
+  let currentState = enterScope(state);
+
+  // Add each parameter to the function scope
+  for (const param of node.params) {
+    const name = param.name;
+    // Check for duplicate parameter names
+    if (!declareInScope(currentState.currentScope, name, param)) {
+      reportError(currentState.errors, `Duplicate parameter name '${name}'`, param);
+    }
+  }
+
+  // Process the function body
+  if (Array.isArray(node.body)) {
+    // Block body with statements: () => { statements }
+    for (const statement of node.body) {
+      currentState = visitNode(currentState, statement);
+    }
+  } else {
+    // Expression body: () => expression
+    currentState = visitNode(currentState, node.body);
+  }
+
+  // Restore the previous scope when leaving the function
+  return exitScope(currentState);
+}
+
+/**
+ * Visit an identifier (variable reference)
+ *
+ * When we see an identifier used as a value, we need to:
+ * 1. Check if it refers to a declared variable
+ * 2. Report an error if the variable is not in scope
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - Identifier node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitIdentifier(state, node) {
+  // Skip built-in literals (true, false)
+  if (node.name === "true" || node.name === "false") {
+    return state;
+  }
+
+  const name = node.name;
+  let currentState = state;
+
+  // Check if the variable is declared in any accessible scope
+  if (!isDeclaredInScope(currentState.currentScope, name)) {
+    // If not, report an undeclared variable error
+    reportError(currentState.errors, `Reference to undeclared variable '${name}'`, node);
+  }
+
+  return currentState;
+}
+
+/**
+ * Visit a return statement
+ *
+ * For a return statement, we just need to analyze its argument (if any).
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - ReturnStatement node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitReturnStatement(state, node) {
+  // Process the return value if it exists
+  if (node.argument) {
+    return visitNode(state, node.argument);
+  }
+  return state;
+}
+
+/**
+ * Visit a binary expression (e.g., a + b)
+ *
+ * For a binary expression, we need to analyze both sides.
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - BinaryExpression node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitBinaryExpression(state, node) {
+  // Visit both operands
+  let currentState = visitNode(state, node.left);
+  return visitNode(currentState, node.right);
+}
+
+/**
+ * Visit a conditional (ternary) expression (condition ? then : else)
+ *
+ * We need to analyze all three parts: the condition and both branches.
+ *
+ * @param {object} state - Current analyzer state
+ * @param {object} node - ConditionalExpression node to visit
+ * @returns {object} - Updated analyzer state
+ */
+function visitConditionalExpression(state, node) {
+  // Visit the condition expression
+  let currentState = visitNode(state, node.test);
+
+  // Visit both branches
+  currentState = visitNode(currentState, node.consequent);
+  return visitNode(currentState, node.alternate);
+}
+
+/**
+ * Analyze an AST to check for naming errors
+ *
+ * This is the main entry point for static analysis. It:
+ * 1. Creates a global scope
+ * 2. Visits the AST recursively to analyze all nodes
+ * 3. Returns the AST and any errors found
  *
  * @param {object} ast - The AST to analyze
- * @returns {object} - Analysis result containing the AST and any errors
+ * @returns {object} - The same AST, now with scope information and any errors
  */
 function analyze(ast) {
-  const analyzer = new Analyzer();
-  return analyzer.analyze(ast);
+  // Create initial analyzer state with global scope
+  const initialState = {
+    errors: [],
+    currentScope: createScope(),
+    previousScope: null
+  };
+
+  // Start traversing the AST from the root
+  const finalState = visitNode(initialState, ast);
+
+  // Return the annotated AST and any errors found
+  return {
+    ast,
+    errors: finalState.errors,
+  };
 }
 
 /**
