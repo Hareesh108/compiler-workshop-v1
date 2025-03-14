@@ -27,7 +27,7 @@
 function createScope(parent = null) {
   return {
     parent,
-    declarations: new Map()
+    declarations: new Map(),
   };
 }
 
@@ -152,11 +152,11 @@ function enterScope(state) {
   const previousScope = state.currentScope;
   // Create a new scope with the current scope as parent
   const newScope = createScope(previousScope);
-  
+
   return {
     ...state,
     currentScope: newScope,
-    previousScope
+    previousScope,
   };
 }
 
@@ -169,7 +169,7 @@ function enterScope(state) {
 function exitScope(state) {
   return {
     ...state,
-    currentScope: state.previousScope
+    currentScope: state.previousScope,
   };
 }
 
@@ -284,11 +284,11 @@ function visitChildren(state, node) {
 function visitProgram(state, node) {
   // Visit each statement in the program body
   let currentState = state;
-  
+
   for (const statement of node.body) {
     currentState = visitNode(currentState, statement);
   }
-  
+
   return currentState;
 }
 
@@ -335,7 +335,11 @@ function visitConstDeclaration(state, node) {
   // Try to declare it in the current scope
   if (!declareInScope(currentState.currentScope, name, node)) {
     // If declaration fails, report a duplicate declaration error
-    reportError(currentState.errors, `Duplicate declaration of '${name}'`, node);
+    reportError(
+      currentState.errors,
+      `Duplicate declaration of '${name}'`,
+      node,
+    );
   }
 
   // Process the initializer expression
@@ -364,7 +368,11 @@ function visitArrowFunction(state, node) {
     const name = param.name;
     // Check for duplicate parameter names
     if (!declareInScope(currentState.currentScope, name, param)) {
-      reportError(currentState.errors, `Duplicate parameter name '${name}'`, param);
+      reportError(
+        currentState.errors,
+        `Duplicate parameter name '${name}'`,
+        param,
+      );
     }
   }
 
@@ -406,7 +414,11 @@ function visitIdentifier(state, node) {
   // Check if the variable is declared in any accessible scope
   if (!isDeclaredInScope(currentState.currentScope, name)) {
     // If not, report an undeclared variable error
-    reportError(currentState.errors, `Reference to undeclared variable '${name}'`, node);
+    reportError(
+      currentState.errors,
+      `Reference to undeclared variable '${name}'`,
+      node,
+    );
   }
 
   return currentState;
@@ -478,7 +490,7 @@ function analyze(ast) {
   const initialState = {
     errors: [],
     currentScope: createScope(),
-    previousScope: null
+    previousScope: null,
   };
 
   // Start traversing the AST from the root

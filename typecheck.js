@@ -40,7 +40,7 @@ const Types = {
   String: "String",
   Function: "Function",
   Unknown: "Unknown",
-  Unit: "Unit"
+  Unit: "Unit",
 };
 
 // Counter for generating unique IDs for type variables
@@ -48,70 +48,59 @@ let nextTypeVarId = 0;
 
 /**
  * Create a new type variable
- * 
+ *
  * @param {string|null} name - Optional name for the variable
  * @returns {object} - A type variable object
  */
 function createTypeVariable(name = null) {
   const id = nextTypeVarId++;
-  return {
-    kind: "TypeVariable",
-    id,
-    name: name || `t${id}`,
-    instance: null
-  };
+  return { kind: "TypeVariable", id, name: name || `t${id}`, instance: null };
 }
 
 /**
  * Create a new function type
- * 
+ *
  * @param {object} paramType - Type of the parameter
  * @param {object} returnType - Type of the return value
  * @returns {object} - A function type object
  */
 function createFunctionType(paramType, returnType) {
-  return {
-    kind: "FunctionType",
-    paramType,
-    returnType
-  };
+  return { kind: "FunctionType", paramType, returnType };
 }
 
 /**
  * Create a new concrete type
- * 
+ *
  * @param {string} type - The name of the type
  * @returns {object} - A concrete type object
  */
 function createConcreteType(type) {
-  return {
-    kind: "ConcreteType",
-    type
-  };
+  return { kind: "ConcreteType", type };
 }
 
 /**
- * Prune a type by following the chain of instances
+ * Compress a type by following the chain of instances
  *
  * If this type variable has been unified with another type,
  * follow the chain to get the most specific type.
  *
- * @param {object} type - The type to prune
+ * @param {object} type - The type to compress
  * @returns {object} - The most specific type
  */
-function prune(type) {
+function compress(type) {
   if (type.kind === "TypeVariable" && type.instance) {
-    // Recursively prune the instance
-    type.instance = prune(type.instance);
+    // Recursively compress the instance
+    type.instance = compress(type.instance);
     return type.instance;
   }
+
   return type;
 }
 
 /**
  * Check if a type variable appears within another type
  *
- * This is used to prevent recursive types like t0 = Array<t0>,
+ * This is used to prevent infinite types like t0 = Array<t0>,
  * which would lead to infinite types.
  *
  * @param {object} typeVar - The type variable to check
@@ -119,45 +108,46 @@ function prune(type) {
  * @returns {boolean} - Whether this variable occurs in the given type
  */
 function occursIn(typeVar, type) {
-  type = prune(type);
+  type = compress(type);
 
-  // Direct self-reference
+  // Direct self-reference, e.g. `a = a`
   if (type === typeVar) {
     return true;
   }
 
   // Check inside function types recursively
   if (type.kind === "FunctionType") {
-    return occursIn(typeVar, type.paramType) || occursIn(typeVar, type.returnType);
+    return (
+      occursIn(typeVar, type.paramType) || occursIn(typeVar, type.returnType)
+    );
   }
 
-  // Not found
   return false;
 }
 
 /**
- * Get string representation of a type
+ * Return a string representation of a type.
  *
  * @param {object} type - The type to convert to string
  * @returns {string} - A readable representation of the type
  */
 function typeToString(type) {
-  type = prune(type);
-  
+  type = compress(type);
+
   if (type.kind === "TypeVariable") {
     return type.name;
   } else if (type.kind === "ConcreteType") {
     return type.type;
   } else if (type.kind === "FunctionType") {
     // Parenthesize parameter type if it's a function to avoid ambiguity
-    const paramStr = 
-      prune(type.paramType).kind === "FunctionType"
+    const paramStr =
+      compress(type.paramType).kind === "FunctionType"
         ? `(${typeToString(type.paramType)})`
         : typeToString(type.paramType);
-    
+
     return `${paramStr} -> ${typeToString(type.returnType)}`;
   }
-  
+
   return "UnknownType";
 }
 
@@ -206,14 +196,14 @@ function freshTypeVariable(name = null) {
  *
  * This is used for polymorphic types, where each use of a type
  * should be independent. For example, if a function has type
- * 'a -> 'a, each call to the function should use fresh type variables.
+ * (a -> a), each call to the function should use fresh type variables.
  *
  * @param {object} type - The type to create a fresh instance of
  * @param {Map} mappings - Map to track variables (defaults to new map)
  * @returns {object} - A fresh instance of the type
  */
 function freshInstance(type, mappings = new Map()) {
-  type = prune(type);
+  type = compress(type);
 
   if (type.kind === "TypeVariable") {
     // If we haven't seen this type variable before, create a fresh copy
@@ -225,7 +215,7 @@ function freshInstance(type, mappings = new Map()) {
     // For function types, recursively freshen parameter and return types
     return createFunctionType(
       freshInstance(type.paramType, mappings),
-      freshInstance(type.returnType, mappings)
+      freshInstance(type.returnType, mappings),
     );
   } else {
     // Concrete types don't need to be freshened
@@ -280,19 +270,19 @@ function getType(state, name) {
  */
 function unify(state, t1, t2, node) {
   // First, prune both types to get their most specific form
-  t1 = prune(t1);
-  t2 = prune(t2);
+  t1 = compress(t1);
+  t2 = compress(t2);
 
   // Case 1: First type is a variable
   if (t1.kind === "TypeVariable") {
     // If they're not already the same variable
     if (t1 !== t2) {
-      // Check for recursive types (not allowed)
+      // Check for infinite types (which are not allowed)
       if (occursIn(t1, t2)) {
         reportError(
           state.errors,
-          `Recursive unification: cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
-          node
+          `Infinite unification: cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
+          node,
         );
         return;
       }
@@ -314,7 +304,7 @@ function unify(state, t1, t2, node) {
       reportError(
         state.errors,
         `Type mismatch: ${typeToString(t1)} is not compatible with ${typeToString(t2)}`,
-        node
+        node,
       );
     }
   }
@@ -327,7 +317,7 @@ function unify(state, t1, t2, node) {
     reportError(
       state.errors,
       `Cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
-      node
+      node,
     );
   }
 }
@@ -346,11 +336,11 @@ function enterScope(state) {
   const outerScope = state.currentScope;
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
-  
+
   return {
     ...state,
     currentScope: newScope,
-    previousScope: outerScope
+    previousScope: outerScope,
   };
 }
 
@@ -363,13 +353,13 @@ function enterScope(state) {
 function exitScope(state) {
   return {
     ...state,
-    currentScope: state.previousScope
+    currentScope: state.previousScope,
   };
 }
 
 /**
  * Check if a return statement is in a valid position (last statement)
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Return statement node
  * @param {Array} body - Array of statements to check
@@ -380,9 +370,7 @@ function checkReturnPosition(state, node, body) {
     return true; // Nothing to check
   }
 
-  const returnIndex = body.findIndex(
-    (stmt) => stmt.type === "ReturnStatement"
-  );
+  const returnIndex = body.findIndex((stmt) => stmt.type === "ReturnStatement");
   if (returnIndex === -1) {
     return true; // No return statement
   }
@@ -392,7 +380,7 @@ function checkReturnPosition(state, node, body) {
     reportError(
       state.errors,
       `Return statement must be the last statement in a function`,
-      body[returnIndex]
+      body[returnIndex],
     );
     return false;
   }
@@ -461,7 +449,7 @@ function inferType(state, node) {
 
 /**
  * Infer type for a function call expression
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Call expression node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -481,14 +469,14 @@ function inferTypeCallExpression(state, node) {
         // For zero arguments, create a Unit -> returnType function
         const funcType = createFunctionType(
           createConcreteType(Types.Unit),
-          returnType
+          returnType,
         );
         unify(currentState, fnType, funcType, node);
         return [currentState, returnType];
       } else {
         // For each argument, infer its type and create the function type
         let argTypes = [];
-        
+
         for (const arg of node.arguments) {
           const [newState, argType] = inferType(currentState, arg);
           currentState = newState;
@@ -521,13 +509,17 @@ function inferTypeCallExpression(state, node) {
     currentState = newState;
 
     if (currentFnType.kind !== "FunctionType") {
-      reportError(currentState.errors, `Too many arguments provided to function`, node);
+      reportError(
+        currentState.errors,
+        `Too many arguments provided to function`,
+        node,
+      );
       return [currentState, freshTypeVariable()];
     }
 
     unify(currentState, currentFnType.paramType, argType, arg);
     resultType = currentFnType.returnType;
-    currentFnType = prune(resultType);
+    currentFnType = compress(resultType);
   }
 
   return [currentState, resultType];
@@ -535,7 +527,7 @@ function inferTypeCallExpression(state, node) {
 
 /**
  * Infer types for a program
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Program node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -558,7 +550,7 @@ function inferTypeProgram(state, node) {
 
 /**
  * Infer type for a numeric literal
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Numeric literal node
  * @returns {object} - Tuple of [state, inferred type]
@@ -574,7 +566,7 @@ function inferTypeNumericLiteral(state, node) {
 
 /**
  * Infer type for a string literal
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - String literal node
  * @returns {object} - Tuple of [state, inferred type]
@@ -585,7 +577,7 @@ function inferTypeStringLiteral(state, node) {
 
 /**
  * Infer type for a boolean literal
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Boolean literal node
  * @returns {object} - Tuple of [state, inferred type]
@@ -596,7 +588,7 @@ function inferTypeBooleanLiteral(state, node) {
 
 /**
  * Infer type for an identifier
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Identifier node
  * @returns {object} - Tuple of [state, inferred type]
@@ -607,7 +599,7 @@ function inferTypeIdentifier(state, node) {
 
 /**
  * Infer type for a binary expression
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Binary expression node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -630,27 +622,36 @@ function inferTypeBinaryExpression(state, node) {
         return [currentState, createConcreteType(Types.Int)];
       } catch (e) {
         try {
-          unify(currentState, numericType, createConcreteType(Types.Float), node);
+          unify(
+            currentState,
+            numericType,
+            createConcreteType(Types.Float),
+            node,
+          );
           return [currentState, createConcreteType(Types.Float)];
         } catch (e) {
           reportError(
             currentState.errors,
             `The '+' operator requires numeric operands`,
-            node
+            node,
           );
           return [currentState, freshTypeVariable()];
         }
       }
     }
     default:
-      reportError(currentState.errors, `Unsupported binary operator: ${node.operator}`, node);
+      reportError(
+        currentState.errors,
+        `Unsupported binary operator: ${node.operator}`,
+        node,
+      );
       return [currentState, freshTypeVariable()];
   }
 }
 
 /**
  * Infer type for a conditional (ternary) expression
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Conditional expression node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -672,7 +673,7 @@ function inferTypeConditionalExpression(state, node) {
 
 /**
  * Infer type for an arrow function
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Arrow function node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -682,7 +683,7 @@ function inferTypeArrowFunction(state, node) {
   const outerNonGeneric = currentState.nonGeneric;
   currentState = {
     ...currentState,
-    nonGeneric: new Set(outerNonGeneric)
+    nonGeneric: new Set(outerNonGeneric),
   };
 
   // Validate return statement position
@@ -705,12 +706,15 @@ function inferTypeArrowFunction(state, node) {
     // For block bodies, the return type is the type of the return statement,
     // or Unit if there is no return statement
     const returnStatement = node.body.find(
-      (stmt) => stmt.type === "ReturnStatement"
+      (stmt) => stmt.type === "ReturnStatement",
     );
 
     if (returnStatement) {
       if (returnStatement.argument) {
-        let [newState, argType] = inferType(currentState, returnStatement.argument);
+        let [newState, argType] = inferType(
+          currentState,
+          returnStatement.argument,
+        );
         currentState = newState;
         returnType = argType;
       } else {
@@ -742,19 +746,22 @@ function inferTypeArrowFunction(state, node) {
   // Construct the function type
   let functionType;
   if (paramTypes.length === 0) {
-    functionType = createFunctionType(createConcreteType(Types.Unit), returnType);
+    functionType = createFunctionType(
+      createConcreteType(Types.Unit),
+      returnType,
+    );
   } else {
     // For multiple parameters, create a curried function type
     functionType = paramTypes.reduceRight(
-      (acc, paramType) => createFunctionType(paramType, acc), 
-      returnType
+      (acc, paramType) => createFunctionType(paramType, acc),
+      returnType,
     );
   }
 
   currentState = exitScope(currentState);
   currentState = {
     ...currentState,
-    nonGeneric: outerNonGeneric
+    nonGeneric: outerNonGeneric,
   };
 
   return [currentState, functionType];
@@ -762,7 +769,7 @@ function inferTypeArrowFunction(state, node) {
 
 /**
  * Infer type for a const declaration
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Const declaration node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -779,7 +786,7 @@ function inferTypeConstDeclaration(state, node) {
 
 /**
  * Infer type for a return statement
- * 
+ *
  * @param {object} state - Current type inference state
  * @param {object} node - Return statement node
  * @returns {object} - Tuple of [updated state, inferred type]
@@ -794,7 +801,7 @@ function inferTypeReturnStatement(state, node) {
 
 /**
  * Analyze the AST and infer types
- * 
+ *
  * @param {object} ast - AST to analyze
  * @returns {object} - Result with AST and errors
  */
@@ -804,9 +811,9 @@ function infer(ast) {
     errors: [],
     currentScope: {},
     previousScope: null,
-    nonGeneric: new Set()
+    nonGeneric: new Set(),
   };
-  
+
   const [finalState] = inferType(initialState, ast);
 
   return {
@@ -817,7 +824,7 @@ function infer(ast) {
 
 /**
  * Combined analysis: name resolution + type inference
- * 
+ *
  * @param {object} ast - AST to analyze
  * @param {Array} nameErrors - Errors from name resolution
  * @returns {object} - Result with AST and all errors
