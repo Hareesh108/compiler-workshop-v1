@@ -19,11 +19,64 @@
  * - Function calls
  */
 
-// Check if we're in a browser environment and initialize the global CompilerModule
+// Single source of truth for token patterns and whitespace regex
+// Defined at the top level of the file
+const WHITESPACE_REGEX = /^\s+/;
+const TOKEN_PATTERNS = [
+  // Comments
+  { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
+  { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
+
+  // Keywords
+  { type: "CONST", regex: /^const\b/ }, // const keyword
+  { type: "RETURN", regex: /^return\b/ }, // return keyword
+
+  // Type annotation keywords (must come before other identifiers)
+  { type: "TYPE_NUMBER", regex: /^number\b/ }, // TypeScript's number type
+  { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
+  { type: "TYPE_BOOLEAN", regex: /^boolean\b/ }, // TypeScript's boolean type
+  { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
+  { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
+  { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
+  { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
+  { type: "TYPE_BOOL", regex: /^Bool\b/ }, // Our Bool type
+  { type: "TYPE_UNIT", regex: /^Unit\b/ }, // Our Unit type
+
+  // Operators and punctuation
+  { type: "ARROW", regex: /^=>/ }, // => for arrow functions
+  { type: "TERNARY", regex: /^\?/ }, // ? for ternary expressions
+  { type: "COLON", regex: /^:/ }, // : for ternary expressions and type annotations
+  { type: "EQUAL", regex: /^=/ }, // = for assignments
+  { type: "PIPE", regex: /^\|/ }, // | for union types
+  { type: "LESS_THAN", regex: /^</ }, // < for generic types
+  { type: "GREATER_THAN", regex: /^>/ }, // > for generic types
+  { type: "PLUS", regex: /^\+/ }, // + for addition
+  { type: "LEFT_PAREN", regex: /^\(/ }, // (
+  { type: "RIGHT_PAREN", regex: /^\)/ }, // )
+  { type: "LEFT_CURLY", regex: /^\{/ }, // {
+  { type: "RIGHT_CURLY", regex: /^\}/ }, // }
+  { type: "LEFT_BRACKET", regex: /^\[/ }, // [
+  { type: "RIGHT_BRACKET", regex: /^\]/ }, // ]
+  { type: "COMMA", regex: /^,/ }, // , for function arguments
+  { type: "SEMICOLON", regex: /^;/ }, // ; for statement endings
+
+  // Literals and identifiers
+  { type: "BOOLEAN", regex: /^(true|false)\b/ }, // Boolean literals
+  { type: "IDENTIFIER", regex: /^[a-zA-Z_][a-zA-Z0-9_]*/ }, // Variable and function names
+  { type: "NUMBER", regex: /^[0-9]+(\.[0-9]+)?/ }, // Numeric literals
+  { type: "STRING", regex: /^"([^"\\]|\\.)*("|$)/ }, // String literals with double quotes
+  { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ }, // String literals with single quotes
+];
+
+// Initialize the global CompilerModule in browser environment
 if (typeof window !== 'undefined') {
   if (!window.CompilerModule) {
     window.CompilerModule = {};
   }
+  
+  // Make patterns available in browser
+  window.CompilerModule.TOKEN_PATTERNS = TOKEN_PATTERNS;
+  window.CompilerModule.WHITESPACE_REGEX = WHITESPACE_REGEX;
 }
 
 /**
@@ -40,62 +93,10 @@ function tokenize(sourceCode) {
   const tokens = [];
   let position = 0; // Current position in the source code
 
-  // Regular expression to identify whitespace (spaces, tabs, newlines)
-  // Expose it as a module constant for reuse in other tools
-  const WHITESPACE_REGEX = /^\s+/;
-
-  // Token patterns in order of precedence
-  // ORDER MATTERS: Keywords must come before identifiers!
-  // Expose these as a module constant for reuse in other tools
-  const TOKEN_PATTERNS = [
-    // Comments
-    { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
-    { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
-
-    // Keywords
-    { type: "CONST", regex: /^const\b/ }, // const keyword
-    { type: "RETURN", regex: /^return\b/ }, // return keyword
-
-    // Type annotation keywords (must come before other identifiers)
-    { type: "TYPE_NUMBER", regex: /^number\b/ }, // TypeScript's number type
-    { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
-    { type: "TYPE_BOOLEAN", regex: /^boolean\b/ }, // TypeScript's boolean type
-    { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
-    { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
-    { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
-    { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
-    { type: "TYPE_BOOL", regex: /^Bool\b/ }, // Our Bool type
-    { type: "TYPE_UNIT", regex: /^Unit\b/ }, // Our Unit type
-
-    // Operators and punctuation
-    { type: "ARROW", regex: /^=>/ }, // => for arrow functions
-    { type: "TERNARY", regex: /^\?/ }, // ? for ternary expressions
-    { type: "COLON", regex: /^:/ }, // : for ternary expressions and type annotations
-    { type: "EQUAL", regex: /^=/ }, // = for assignments
-    { type: "PIPE", regex: /^\|/ }, // | for union types
-    { type: "LESS_THAN", regex: /^</ }, // < for generic types
-    { type: "GREATER_THAN", regex: /^>/ }, // > for generic types
-    { type: "PLUS", regex: /^\+/ }, // + for addition
-    { type: "LEFT_PAREN", regex: /^\(/ }, // (
-    { type: "RIGHT_PAREN", regex: /^\)/ }, // )
-    { type: "LEFT_CURLY", regex: /^\{/ }, // {
-    { type: "RIGHT_CURLY", regex: /^\}/ }, // }
-    { type: "LEFT_BRACKET", regex: /^\[/ }, // [
-    { type: "RIGHT_BRACKET", regex: /^\]/ }, // ]
-    { type: "COMMA", regex: /^,/ }, // , for function arguments
-    { type: "SEMICOLON", regex: /^;/ }, // ; for statement endings
-
-    // Literals and identifiers
-    { type: "BOOLEAN", regex: /^(true|false)\b/ }, // Boolean literals
-    { type: "IDENTIFIER", regex: /^[a-zA-Z_][a-zA-Z0-9_]*/ }, // Variable and function names
-    { type: "NUMBER", regex: /^[0-9]+(\.[0-9]+)?/ }, // Numeric literals
-    { type: "STRING", regex: /^"([^"\\]|\\.)*("|$)/ }, // String literals with double quotes
-    { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ }, // String literals with single quotes
-  ];
-
   /**
    * Helper function to skip over whitespace characters
    * Whitespace doesn't affect the program's meaning, so we ignore it
+   * Using the global WHITESPACE_REGEX constant
    */
   function skipWhitespace() {
     const match = sourceCode.slice(position).match(WHITESPACE_REGEX);
@@ -1133,54 +1134,6 @@ function compileWithTypes(sourceCode) {
   return compileAndAnalyze(sourceCode, { skipTypeCheck: false });
 }
 
-// Single source of truth for the token patterns - defined as constants at the top level
-const WHITESPACE_REGEX = /^\s+/;
-const TOKEN_PATTERNS = [
-  // Comments
-  { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
-  { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
-
-  // Keywords
-  { type: "CONST", regex: /^const\b/ }, // const keyword
-  { type: "RETURN", regex: /^return\b/ }, // return keyword
-
-  // Type annotation keywords
-  { type: "TYPE_NUMBER", regex: /^number\b/ }, // TypeScript's number type
-  { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
-  { type: "TYPE_BOOLEAN", regex: /^boolean\b/ }, // TypeScript's boolean type
-  { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
-  { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
-  { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
-  { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
-  { type: "TYPE_BOOL", regex: /^Bool\b/ }, // Our Bool type
-  { type: "TYPE_UNIT", regex: /^Unit\b/ }, // Our Unit type
-
-  // Operators and punctuation
-  { type: "ARROW", regex: /^=>/ }, // => for arrow functions
-  { type: "TERNARY", regex: /^\?/ }, // ? for ternary expressions
-  { type: "COLON", regex: /^:/ }, // : for ternary expressions and type annotations
-  { type: "EQUAL", regex: /^=/ }, // = for assignments
-  { type: "PIPE", regex: /^\|/ }, // | for union types
-  { type: "LESS_THAN", regex: /^</ }, // < for generic types
-  { type: "GREATER_THAN", regex: /^>/ }, // > for generic types
-  { type: "PLUS", regex: /^\+/ }, // + for addition
-  { type: "LEFT_PAREN", regex: /^\(/ }, // (
-  { type: "RIGHT_PAREN", regex: /^\)/ }, // )
-  { type: "LEFT_CURLY", regex: /^\{/ }, // {
-  { type: "RIGHT_CURLY", regex: /^\}/ }, // }
-  { type: "LEFT_BRACKET", regex: /^\[/ }, // [
-  { type: "RIGHT_BRACKET", regex: /^\]/ }, // ]
-  { type: "COMMA", regex: /^,/ }, // , for function arguments
-  { type: "SEMICOLON", regex: /^;/ }, // ; for statement endings
-
-  // Literals and identifiers
-  { type: "BOOLEAN", regex: /^(true|false)\b/ }, // Boolean literals
-  { type: "IDENTIFIER", regex: /^[a-zA-Z_][a-zA-Z0-9_]*/ }, // Variable and function names
-  { type: "NUMBER", regex: /^[0-9]+(\.[0-9]+)?/ }, // Numeric literals
-  { type: "STRING", regex: /^"([^"\\]|\\.)*("|$)/ }, // String literals with double quotes
-  { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ }, // String literals with single quotes
-];
-
 // Function to get the token patterns - can be called in browser or Node environment
 function getTokenPatterns() {
   return TOKEN_PATTERNS;
@@ -1191,10 +1144,8 @@ function getWhitespaceRegex() {
   return WHITESPACE_REGEX;
 }
 
-// If we're in a browser environment, make the patterns and tokenizer available globally
+// Add the tokenize function to browser environment (after it's defined)
 if (typeof window !== 'undefined') {
-  window.CompilerModule.TOKEN_PATTERNS = TOKEN_PATTERNS;
-  window.CompilerModule.WHITESPACE_REGEX = WHITESPACE_REGEX;
   window.CompilerModule.tokenize = tokenize;
 }
 
