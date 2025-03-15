@@ -69,11 +69,11 @@ const TOKEN_PATTERNS = [
 ];
 
 // Initialize the global CompilerModule in browser environment
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   if (!window.CompilerModule) {
     window.CompilerModule = {};
   }
-  
+
   // Make patterns available in browser
   window.CompilerModule.TOKEN_PATTERNS = TOKEN_PATTERNS;
   window.CompilerModule.WHITESPACE_REGEX = WHITESPACE_REGEX;
@@ -1145,13 +1145,13 @@ function getWhitespaceRegex() {
 }
 
 // Add the compiler functions to browser environment (after they're defined)
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   window.CompilerModule.tokenize = tokenize;
   window.CompilerModule.parse = parse;
 }
 
 // Export for Node.js environment
-if (typeof module !== 'undefined' && module.exports) {
+if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     // Main compilation functions
     compile, // Just parse to AST
@@ -1161,11 +1161,11 @@ if (typeof module !== 'undefined' && module.exports) {
     // Individual compiler phases for educational purposes
     tokenize, // Lexical analysis
     parse, // Syntax analysis
-    
+
     // Token patterns and utilities for visualization and educational tools
     getTokenPatterns, // Function to get token patterns
     getWhitespaceRegex, // Function to get whitespace regex
     TOKEN_PATTERNS, // Direct access to token patterns
-    WHITESPACE_REGEX // Direct access to whitespace regex
+    WHITESPACE_REGEX, // Direct access to whitespace regex
   };
 }
