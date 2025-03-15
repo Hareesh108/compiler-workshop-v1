@@ -44,7 +44,6 @@ const Types = {
   Array: "Array",
 };
 
-
 /**
  * Create a new function type
  *
@@ -226,9 +225,7 @@ function freshInstance(state, type, mappings = new Map()) {
     );
   } else if (type.kind === "ArrayType") {
     // For array types, recursively freshen element type
-    return createArrayType(
-      freshInstance(state, type.elementType, mappings)
-    );
+    return createArrayType(freshInstance(state, type.elementType, mappings));
   } else {
     // Concrete types don't need to be freshened
     return type;
@@ -483,10 +480,7 @@ function inferTypeCallExpression(state, node) {
 
       if (node.arguments.length === 0) {
         // For zero arguments, create a Void -> returnType function
-        const funcType = createFunctionType(
-          primitive(Types.Void),
-          returnType,
-        );
+        const funcType = createFunctionType(primitive(Types.Void), returnType);
         unify(state, fnType, funcType, node);
         return returnType;
       } else {
@@ -622,10 +616,12 @@ function inferTypeBinaryExpression(state, node) {
   switch (node.operator) {
     case "+": {
       // Check if both operands are strings for concatenation
-      const leftIsString = compress(leftType).kind === "PrimitiveType" &&
-                          compress(leftType).type === Types.String;
-      const rightIsString = compress(rightType).kind === "PrimitiveType" &&
-                           compress(rightType).type === Types.String;
+      const leftIsString =
+        compress(leftType).kind === "PrimitiveType" &&
+        compress(leftType).type === Types.String;
+      const rightIsString =
+        compress(rightType).kind === "PrimitiveType" &&
+        compress(rightType).type === Types.String;
 
       if (leftIsString || rightIsString) {
         // String concatenation - both operands must be strings
@@ -644,12 +640,7 @@ function inferTypeBinaryExpression(state, node) {
           return primitive(Types.Number);
         } catch (e) {
           try {
-            unify(
-              state,
-              numericType,
-              primitive(Types.Float),
-              node,
-            );
+            unify(state, numericType, primitive(Types.Float), node);
             return primitive(Types.Float);
           } catch (e) {
             reportError(
@@ -778,10 +769,7 @@ function inferTypeArrowFunction(state, node) {
   // Construct the function type
   let functionType;
   if (paramTypes.length === 0) {
-    functionType = createFunctionType(
-      primitive(Types.Void),
-      returnType,
-    );
+    functionType = createFunctionType(primitive(Types.Void), returnType);
   } else {
     // For multiple parameters, create a curried function type
     functionType = paramTypes.reduceRight(
@@ -901,7 +889,10 @@ function createTypeFromAnnotation(state, annotation) {
 
     case "ArrayTypeAnnotation": {
       // For Array<T> or T[], create an array type with the element type
-      const elementType = createTypeFromAnnotation(state, annotation.elementType);
+      const elementType = createTypeFromAnnotation(
+        state,
+        annotation.elementType,
+      );
       return createArrayType(elementType);
     }
 
@@ -911,7 +902,10 @@ function createTypeFromAnnotation(state, annotation) {
 
       // Build the function type from right to left (curried style)
       for (let i = annotation.paramTypes.length - 1; i >= 0; i--) {
-        const paramType = createTypeFromAnnotation(state, annotation.paramTypes[i].typeAnnotation);
+        const paramType = createTypeFromAnnotation(
+          state,
+          annotation.paramTypes[i].typeAnnotation,
+        );
         functionType = createFunctionType(paramType, functionType);
       }
 

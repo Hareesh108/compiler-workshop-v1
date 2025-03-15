@@ -494,7 +494,10 @@ function parse(tokens) {
         // Parse parameters
         while (true) {
           // Get parameter name
-          const paramName = expect("IDENTIFIER", "Expected parameter name").value;
+          const paramName = expect(
+            "IDENTIFIER",
+            "Expected parameter name",
+          ).value;
 
           // Check for parameter type annotation
           let paramTypeAnnotation = null;
@@ -506,7 +509,7 @@ function parse(tokens) {
           const param = {
             type: "Identifier",
             name: paramName,
-            typeAnnotation: paramTypeAnnotation
+            typeAnnotation: paramTypeAnnotation,
           };
 
           params.push(param);
@@ -700,7 +703,7 @@ function parse(tokens) {
       const typeName = token === "TYPE_NUMBER" ? "number" : "Float";
       return {
         type: "TypeAnnotation",
-        valueType: typeName
+        valueType: typeName,
       };
     }
 
@@ -708,7 +711,7 @@ function parse(tokens) {
       next();
       return {
         type: "TypeAnnotation",
-        valueType: "Void"
+        valueType: "Void",
       };
     }
 
@@ -716,7 +719,7 @@ function parse(tokens) {
       next();
       return {
         type: "TypeAnnotation",
-        valueType: "string"
+        valueType: "string",
       };
     }
 
@@ -725,13 +728,15 @@ function parse(tokens) {
       const typeName = token === "TYPE_BOOLEAN" ? "boolean" : "Bool";
       return {
         type: "TypeAnnotation",
-        valueType: typeName
+        valueType: typeName,
       };
     }
 
     // Explicitly reject 'any' type
     if (check("IDENTIFIER") && peek().value === "any") {
-      throw new Error(`'any' type is not supported at position ${peek().position}`);
+      throw new Error(
+        `'any' type is not supported at position ${peek().position}`,
+      );
     }
 
     if (check("TYPE_VOID") || check("TYPE_UNIT")) {
@@ -739,7 +744,7 @@ function parse(tokens) {
       const typeName = token === "TYPE_VOID" ? "void" : "Unit";
       return {
         type: "TypeAnnotation",
-        valueType: typeName
+        valueType: typeName,
       };
     }
 
@@ -758,7 +763,7 @@ function parse(tokens) {
 
           return {
             type: "ArrayTypeAnnotation",
-            elementType: { type: "TypeAnnotation", valueType: "number" }
+            elementType: { type: "TypeAnnotation", valueType: "number" },
           };
         }
 
@@ -768,7 +773,7 @@ function parse(tokens) {
 
           return {
             type: "ArrayTypeAnnotation",
-            elementType: { type: "TypeAnnotation", valueType: "string" }
+            elementType: { type: "TypeAnnotation", valueType: "string" },
           };
         }
 
@@ -778,22 +783,24 @@ function parse(tokens) {
 
           return {
             type: "ArrayTypeAnnotation",
-            elementType: { type: "TypeAnnotation", valueType: "boolean" }
+            elementType: { type: "TypeAnnotation", valueType: "boolean" },
           };
         }
 
         if (check("IDENTIFIER")) {
           // Check for 'any' type before consuming it
           if (peek().value === "any") {
-            throw new Error(`'any' type is not supported at position ${peek().position}`);
+            throw new Error(
+              `'any' type is not supported at position ${peek().position}`,
+            );
           }
-          
+
           const baseType = next().value;
           expect("GREATER_THAN", "Expected > to close Array type");
 
           return {
             type: "ArrayTypeAnnotation",
-            elementType: { type: "TypeAnnotation", valueType: baseType }
+            elementType: { type: "TypeAnnotation", valueType: baseType },
           };
         }
 
@@ -803,14 +810,14 @@ function parse(tokens) {
 
         return {
           type: "ArrayTypeAnnotation",
-          elementType
+          elementType,
         };
       }
 
       // Just "Array" without generic parameter
       return {
         type: "TypeAnnotation",
-        valueType: "Array"
+        valueType: "Array",
       };
     }
 
@@ -818,7 +825,7 @@ function parse(tokens) {
     if (check("IDENTIFIER")) {
       const baseType = {
         type: "TypeAnnotation",
-        valueType: next().value
+        valueType: next().value,
       };
 
       // Check for array bracket notation
@@ -827,7 +834,7 @@ function parse(tokens) {
         expect("RIGHT_BRACKET", "Expected closing bracket for array type");
         return {
           type: "ArrayTypeAnnotation",
-          elementType: baseType
+          elementType: baseType,
         };
       }
 
@@ -843,7 +850,7 @@ function parse(tokens) {
       return {
         type: "FunctionTypeAnnotation",
         paramTypes,
-        returnType
+        returnType,
       };
     }
 
@@ -873,7 +880,7 @@ function parse(tokens) {
 
       params.push({
         name: paramName,
-        typeAnnotation: paramType
+        typeAnnotation: paramType,
       });
 
       if (check("COMMA")) {
@@ -883,7 +890,10 @@ function parse(tokens) {
       }
     } while (!check("RIGHT_PAREN") && !check("EOF"));
 
-    expect("RIGHT_PAREN", "Expected closing parenthesis in parameter type list");
+    expect(
+      "RIGHT_PAREN",
+      "Expected closing parenthesis in parameter type list",
+    );
     return params;
   }
 

@@ -219,11 +219,11 @@ function visitNode(state, node) {
     case "CallExpression":
       visitCallExpression(state, node);
       break;
-      
+
     case "ArrayLiteral":
       visitArrayLiteral(state, node);
       break;
-      
+
     case "MemberExpression":
       visitMemberExpression(state, node);
       break;
@@ -328,13 +328,9 @@ function visitConstDeclaration(state, node) {
   // Try to declare it in the current scope
   if (!declareInScope(state.currentScope, name, node)) {
     // If declaration fails, report a duplicate declaration error
-    reportError(
-      state.errors,
-      `Duplicate declaration of '${name}'`,
-      node,
-    );
+    reportError(state.errors, `Duplicate declaration of '${name}'`, node);
   }
-  
+
   // Remember type annotation if present
   if (node.typeAnnotation) {
     // Store type annotation in node for later type checking
@@ -366,17 +362,13 @@ function visitArrowFunction(state, node) {
     const name = param.name;
     // Check for duplicate parameter names
     if (!declareInScope(state.currentScope, name, param)) {
-      reportError(
-        state.errors,
-        `Duplicate parameter name '${name}'`,
-        param,
-      );
+      reportError(state.errors, `Duplicate parameter name '${name}'`, param);
     }
-    
+
     // Remember parameter type annotations if present
     // Type checking will validate these later
   }
-  
+
   // Remember return type annotation if present
   // Type checking will validate this later
 
@@ -472,9 +464,9 @@ function visitConditionalExpression(state, node) {
 
 /**
  * Visit an array literal
- * 
+ *
  * We need to analyze each element in the array.
- * 
+ *
  * @param {object} state - Current analyzer state
  * @param {object} node - ArrayLiteral node to visit
  */
@@ -487,16 +479,16 @@ function visitArrayLiteral(state, node) {
 
 /**
  * Visit a member expression (array access)
- * 
+ *
  * We need to analyze both the object being accessed and the index.
- * 
+ *
  * @param {object} state - Current analyzer state
  * @param {object} node - MemberExpression node to visit
  */
 function visitMemberExpression(state, node) {
   // Visit the object being accessed
   visitNode(state, node.object);
-  
+
   // Visit the index expression
   visitNode(state, node.index);
 }
