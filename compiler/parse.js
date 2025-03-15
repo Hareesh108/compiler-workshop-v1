@@ -1144,9 +1144,10 @@ function getWhitespaceRegex() {
   return WHITESPACE_REGEX;
 }
 
-// Add the tokenize function to browser environment (after it's defined)
+// Add the compiler functions to browser environment (after they're defined)
 if (typeof window !== 'undefined') {
   window.CompilerModule.tokenize = tokenize;
+  window.CompilerModule.parse = parse;
 }
 
 // Export for Node.js environment

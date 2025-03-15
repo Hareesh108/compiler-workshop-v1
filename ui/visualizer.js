@@ -1,17 +1,17 @@
 /**
- * Tokenizer Visualization Module
+ * Compiler Visualization Module
  * 
- * This module visualizes the tokenization process by simulating it step by step,
- * using the original token patterns from the compiler module.
+ * This module visualizes both the tokenization and parsing processes step by step,
+ * using the original patterns and functions from the compiler module.
  */
 
 /**
  * Since we're running in the browser and can't use require/import directly,
- * we'll access the tokenizer globals that are exposed through script tags.
+ * we'll access the compiler globals that are exposed through script tags.
  * The HTML file includes compiler/parse.js before this file, so TOKEN_PATTERNS,
- * WHITESPACE_REGEX, and tokenize are available as globals.
+ * WHITESPACE_REGEX, tokenize, and parse are available as globals.
  */
-// Reference the patterns from the compiler (exposed as globals in the browser)
+// Reference the compiler functions and patterns (exposed as globals in the browser)
 
 /**
  * Runs a tokenizer simulation that records each step for visualization
@@ -216,6 +216,11 @@ function initializeVisualization() {
     visualizationSteps: [],
     currentStepIndex: 0,
     
+    // AST visualization state
+    ast: null,
+    astSteps: [],
+    totalSteps: 0, // Total steps across both tokenization and parsing
+    
     // Example code snippets
     examples: {
       example1: `const greeting = "Hello";
@@ -244,6 +249,7 @@ const emptyReturn = () => {
   state.ui = {
     sourceCodeElement: document.getElementById("source-code"),
     tokensListElement: document.getElementById("tokens-list"),
+    astTreeElement: document.getElementById("ast-tree"),
     scrubber: document.getElementById("scrubber"),
     progressInfo: document.getElementById("progress-info"),
     exampleSelect: document.getElementById("example-select"),
@@ -309,32 +315,43 @@ function loadExample(state, exampleKey) {
 }
 
 /**
- * Run tokenization on the current source code
+ * Run tokenization and parsing on the current source code
  * 
  * @param {Object} state - Visualization state
  */
 function runTokenization(state) {
   try {
-    // Clear previous token display
+    // Clear previous displays
     state.ui.tokensListElement.innerHTML = '';
+    state.ui.astTreeElement.innerHTML = '';
     
     // Run the tokenizer simulation
-    const result = runTokenizerSimulation(state.sourceCode);
+    const tokenResult = runTokenizerSimulation(state.sourceCode);
     
     // Get the actual tokens from the original tokenizer
     state.tokens = getTokens(state.sourceCode);
     
+    // Run the parser simulation with these tokens
+    const parseResult = runParseSimulation(state.tokens);
+    
     // Store visualization steps
-    state.visualizationSteps = result.steps;
+    state.visualizationSteps = tokenResult.steps;
+    state.astSteps = parseResult.steps;
+    state.ast = parseResult.ast;
+    
+    // Calculate total steps (tokenization + parsing)
+    state.totalSteps = state.visualizationSteps.length + state.astSteps.length;
     
     // Reset UI
     state.currentStepIndex = 0;
-    state.ui.scrubber.max = Math.max(0, state.visualizationSteps.length - 1);
+    // Set max to include both tokenization and parsing steps
+    state.ui.scrubber.max = Math.max(0, state.totalSteps - 1);
     state.ui.scrubber.value = 0;
     
     // Reset scroll positions
     state.ui.tokensListElement.scrollTop = 0;
     state.ui.sourceCodeElement.scrollTop = 0;
+    state.ui.astTreeElement.scrollTop = 0;
     
     // Update the visualization
     updateVisualization(state);
@@ -342,7 +359,7 @@ function runTokenization(state) {
     // Focus the scrubber
     state.ui.scrubber.focus();
   } catch (error) {
-    alert(`Tokenization error: ${error.message}`);
+    alert(`Compilation error: ${error.message}`);
     console.error(error);
   }
 }
@@ -354,19 +371,51 @@ function runTokenization(state) {
  */
 function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
-  // Skip the initial step to avoid requiring two drags to see anything
-  const progress = Math.min(scrubberValue, state.visualizationSteps.length - 1);
-  state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
   
-  // Update progress info
-  const percentage = Math.round((progress / (state.visualizationSteps.length - 1)) * 100);
+  // Calculate which phase we're in (tokenizing or parsing) and the appropriate step index
+  const tokenStepsCount = state.visualizationSteps.length;
+  const totalSteps = state.totalSteps;
+  
+  // Skip the initial step to avoid requiring two drags to see anything
+  let progress = Math.min(scrubberValue, totalSteps - 1);
+  
+  // Update progress info as percentage of total steps
+  const percentage = Math.round((progress / (totalSteps - 1)) * 100);
   state.ui.progressInfo.textContent = `${percentage}%`;
   
-  // Update tokens list first
-  updateTokensDisplay(state);
-  
-  // Then update source code display with highlighting
-  updateSourceCodeHighlighting(state);
+  if (progress < tokenStepsCount) {
+    // We're in the tokenization phase
+    state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
+    
+    // Update tokens list
+    updateTokensDisplay(state);
+    
+    // Update source code highlighting
+    updateSourceCodeHighlighting(state);
+    
+    // No AST display yet
+    state.ui.astTreeElement.innerHTML = '';
+  } else {
+    // We're in the parsing phase
+    const astStepIndex = progress - tokenStepsCount;
+    
+    // For parsing steps, we've finished tokenization, so show all tokens
+    state.currentStepIndex = tokenStepsCount; // Set to max tokens
+    
+    // Update tokens list with all tokens
+    updateTokensDisplay(state, true);
+    
+    // Update AST tree based on current parsing step
+    updateAstDisplay(state, astStepIndex);
+    
+    // Scroll to the AST container if this is the first parsing step
+    if (astStepIndex === 0) {
+      const scrollContainer = document.querySelector('.visualization-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollLeft = scrollContainer.scrollWidth;
+      }
+    }
+  }
 }
 
 /**
@@ -396,6 +445,14 @@ function updateSourceCodeHighlighting(state) {
       currentLength,
       highlightClass
     );
+    
+    // Find the highlighted element and scroll it into view if not already visible
+    setTimeout(() => {
+      const highlightedElement = state.ui.sourceCodeElement.querySelector(`.${highlightClass}`);
+      if (highlightedElement) {
+        scrollIntoViewIfNeeded(highlightedElement, state.ui.sourceCodeElement);
+      }
+    }, 0);
   }
 }
 
@@ -403,8 +460,9 @@ function updateSourceCodeHighlighting(state) {
  * Update the tokens display based on current step
  * 
  * @param {Object} state - Visualization state
+ * @param {boolean} astMode - Whether we're in AST visualization mode
  */
-function updateTokensDisplay(state) {
+function updateTokensDisplay(state, astMode = false) {
   // Clear tokens list
   state.ui.tokensListElement.innerHTML = '';
   
@@ -413,29 +471,720 @@ function updateTokensDisplay(state) {
   }
   
   // Get tokens up to current step
-  const step = state.visualizationSteps[state.currentStepIndex - 1];
-  const tokens = step.currentTokens || [];
+  let tokens = [];
+  let currentTokenIndex = -1;
   
-  // Add tokens to display
-  tokens.forEach((token, index) => {
-    const tokenElement = createTokenDisplay(token);
+  if (astMode) {
+    // In AST mode, show all tokens
+    tokens = state.tokens;
     
-    if (index === tokens.length - 1 && step.type === 'token') {
-      // Highlight the most recently added token
-      tokenElement.classList.add('token-current');
+    // Get the current AST step
+    const astStepIndex = parseInt(state.ui.scrubber.value, 10) - state.visualizationSteps.length;
+    if (astStepIndex >= 0 && astStepIndex < state.astSteps.length) {
+      // Get the tokens referenced by current AST step
+      const astStep = state.astSteps[astStepIndex];
+      
+      // Get the directly referenced tokens plus any peek tokens
+      let referencedTokens = astStep.tokensUsed || [];
+      
+      // Handle special case for peeking
+      const isPeekStep = astStep.type.includes('Peek') || astStep.type === 'exprStart';
+      if (isPeekStep && astStep.node && astStep.node.nextToken) {
+        // Add the peeked token to referenced tokens
+        const nextTokenValue = astStep.node.nextToken;
+        const nextTokenIndex = state.tokens.findIndex(t => 
+          t.value === nextTokenValue && t.position >= astStep.tokenPosition
+        );
+        
+        if (nextTokenIndex >= 0) {
+          referencedTokens = [...referencedTokens, state.tokens[nextTokenIndex]];
+        }
+      }
+      
+      // Track the first referenced token element to scroll to
+      let firstReferencedTokenElement = null;
+      
+      // Add tokens to display
+      tokens.forEach((token, index) => {
+        const tokenElement = createTokenDisplay(token);
+        
+        // Check if this token is referenced in the current AST step
+        const isReferenced = referencedTokens.some(refToken => {
+          if (!refToken) return false;
+          // Match by position and type if available, otherwise try to match by value
+          return (refToken.position === token.position && refToken.type === token.type) || 
+                 (refToken.value === token.value && token.position >= astStep.tokenPosition);
+        });
+        
+        if (isReferenced) {
+          // Highlight tokens that are referenced in the current AST step
+          tokenElement.classList.add('token-highlighted');
+          tokenElement.classList.add('token-referenced');
+          
+          // Track the first referenced token
+          if (!firstReferencedTokenElement) {
+            firstReferencedTokenElement = tokenElement;
+          }
+        }
+        
+        state.ui.tokensListElement.appendChild(tokenElement);
+      });
+      
+      // Scroll the first referenced token into view if it exists
+      setTimeout(() => {
+        if (firstReferencedTokenElement) {
+          scrollIntoViewIfNeeded(firstReferencedTokenElement, state.ui.tokensListElement);
+        }
+      }, 0);
     } else {
-      // Normal highlighting for previous tokens
-      tokenElement.classList.add('token-highlighted');
+      // Just show all tokens without highlighting
+      tokens.forEach(token => {
+        const tokenElement = createTokenDisplay(token);
+        state.ui.tokensListElement.appendChild(tokenElement);
+      });
+    }
+  } else {
+    // In tokenization mode, show tokens up to current step
+    const step = state.visualizationSteps[state.currentStepIndex - 1];
+    tokens = step.currentTokens || [];
+    currentTokenIndex = tokens.length - 1;
+    
+    // Variable to keep track of the current token element
+    let currentTokenElement = null;
+    
+    // Add tokens to display
+    tokens.forEach((token, index) => {
+      const tokenElement = createTokenDisplay(token);
+      
+      if (index === currentTokenIndex && step.type === 'token') {
+        // Highlight the most recently added token
+        tokenElement.classList.add('token-current');
+        currentTokenElement = tokenElement;
+      } else {
+        // Normal highlighting for previous tokens
+        tokenElement.classList.add('token-highlighted');
+      }
+      
+      state.ui.tokensListElement.appendChild(tokenElement);
+    });
+    
+    // Scroll the current token into view if it's not already visible
+    setTimeout(() => {
+      if (currentTokenElement) {
+        scrollIntoViewIfNeeded(currentTokenElement, state.ui.tokensListElement);
+      }
+    }, 0);
+  }
+}
+
+/**
+ * Parse AST simulation that records each step for visualization
+ *
+ * @param {Array} tokens - Tokens produced by the tokenizer
+ * @returns {Object} - Contains AST and visualization steps
+ */
+function runParseSimulation(tokens) {
+  // Initialize state for recording parse steps
+  const state = {
+    tokens: [...tokens], // Make a copy of tokens to avoid modifying the original
+    current: 0, // Current position in the token array
+    ast: null, // Will hold the final AST
+    astSteps: [] // Will hold steps for visualization
+  };
+
+  // Helper function to record a step in the parsing process
+  function recordStep(nodeType, node, description, tokensUsed = []) {
+    // Skip "start" and general placeholder steps - we want to show concrete parsing actions
+    if (nodeType === 'start' || 
+        nodeType === 'statement' || 
+        nodeType === 'expression' || 
+        nodeType === 'primary') {
+      return;
     }
     
-    state.ui.tokensListElement.appendChild(tokenElement);
-  });
+    state.astSteps.push({
+      type: nodeType,
+      node: JSON.parse(JSON.stringify(node)), // Deep copy to avoid reference issues
+      description,
+      tokenPosition: state.current, // Current token position
+      tokensUsed: [...tokensUsed], // Which tokens were used for this node
+      tokens: state.tokens.slice(0, state.current) // Tokens consumed so far
+    });
+  }
+
+  // Modified versions of the original parse.js helper functions that record steps
+  function peek() {
+    return state.tokens[state.current];
+  }
+
+  function next() {
+    return state.tokens[state.current++];
+  }
+
+  function check(type) {
+    return peek() && peek().type === type;
+  }
+
+  function expect(type, message) {
+    if (check(type)) {
+      return next();
+    }
+    // If we don't find what we expect, record an error step
+    const errorMsg = message || `Expected ${type} but got ${peek() ? peek().type : 'EOF'} at position ${peek() ? peek().position : 'end'}`;
+    recordStep('error', { error: errorMsg }, errorMsg);
+    throw new Error(errorMsg);
+  }
+
+  // Simplified parse function implementations that record visualization steps
   
-  // Scroll to the bottom of the token container after a short delay to ensure DOM updates
-  // This ensures the most recently added token is fully visible
+  // Main parse function - entry point
+  function parseProgram() {
+    const body = [];
+    
+    // Keep parsing statements until we reach the end of the file
+    while (state.current < state.tokens.length && !check('EOF')) {
+      try {
+        const stmt = parseStatement();
+        if (stmt) {
+          body.push(stmt);
+        }
+      } catch (error) {
+        console.error('Parse error:', error);
+        break;
+      }
+    }
+    
+    const program = {
+      type: 'Program',
+      body
+    };
+    
+    // Record the final program, but we won't show this in the visualization
+    // since we've already been showing the individual nodes as they're parsed
+    recordStep('complete', program, 'Completed parsing program', state.tokens.slice(0, state.current));
+    
+    return program;
+  }
+  
+  // Parse statements (const declarations, return, expressions)
+  function parseStatement() {
+    recordStep('statement', { type: 'Statement' }, 'Parsing statement');
+    
+    if (check('CONST')) {
+      return parseConstDeclaration();
+    }
+    
+    if (check('RETURN')) {
+      return parseReturnStatement();
+    }
+    
+    // If not a specific statement type, parse as expression
+    return parseExpression();
+  }
+  
+  // Parse const declarations: const x = value
+  function parseConstDeclaration() {
+    const startPos = state.current;
+    const constToken = next(); // consume 'const'
+    
+    // After consuming 'const', show this as parsing a const declaration
+    // Using only the tokens consumed so far
+    const tokensConsumedSoFar = state.tokens.slice(startPos, state.current);
+    recordStep('constDeclStart', 
+               { type: 'ConstDeclaration', partial: true }, 
+               `Parsing const declaration`, 
+               tokensConsumedSoFar);
+    
+    // Get the variable name
+    const idToken = expect('IDENTIFIER', 'Expected identifier after const');
+    
+    // After consuming the identifier, update the visualization
+    const tokensAfterIdent = state.tokens.slice(startPos, state.current);
+    recordStep('constDeclId', 
+               { type: 'ConstDeclaration', 
+                 id: { type: 'Identifier', name: idToken.value }, 
+                 partial: true }, 
+               `Parsing const declaration for '${idToken.value}'`, 
+               tokensAfterIdent);
+    
+    // Check for type annotation
+    let typeAnnotation = null;
+    if (check('COLON')) {
+      typeAnnotation = parseTypeAnnotation();
+      
+      // After parsing type annotation, update the visualization
+      const tokensAfterType = state.tokens.slice(startPos, state.current);
+      recordStep('constDeclWithType', 
+                 { type: 'ConstDeclaration', 
+                   id: { type: 'Identifier', name: idToken.value },
+                   typeAnnotation,
+                   partial: true }, 
+                 `Parsing const declaration with type annotation`, 
+                 tokensAfterType);
+    }
+    
+    // Expect equals sign
+    const equalToken = expect('EQUAL', 'Expected = after identifier in const declaration');
+    
+    // After consuming equals sign, update the visualization
+    const tokensAfterEqual = state.tokens.slice(startPos, state.current);
+    recordStep('constDeclBeforeInit', 
+               { type: 'ConstDeclaration', 
+                 id: { type: 'Identifier', name: idToken.value },
+                 typeAnnotation,
+                 partial: true }, 
+               `Parsing const declaration initializer`, 
+               tokensAfterEqual);
+    
+    // Parse the initializer expression
+    const init = parseExpression();
+    
+    // Optional semicolon
+    let semicolonToken = null;
+    if (check('SEMICOLON')) {
+      semicolonToken = next();
+    }
+    
+    // Get all tokens used for this declaration
+    const tokensUsed = state.tokens.slice(startPos, state.current);
+    
+    const constDecl = {
+      type: 'ConstDeclaration',
+      id: {
+        type: 'Identifier',
+        name: idToken.value
+      },
+      typeAnnotation,
+      init
+    };
+    
+    recordStep('constDeclComplete', constDecl, `Completed const declaration for '${idToken.value}'`, tokensUsed);
+    
+    return constDecl;
+  }
+  
+  // Parse return statements: return expr
+  function parseReturnStatement() {
+    const startPos = state.current;
+    const returnToken = next(); // consume 'return'
+    
+    // After consuming 'return', show this as parsing a return statement
+    const tokensConsumedSoFar = state.tokens.slice(startPos, state.current);
+    recordStep('returnStmtStart', 
+               { type: 'ReturnStatement', partial: true }, 
+               'Parsing return statement', 
+               tokensConsumedSoFar);
+    
+    // Check for empty return
+    if (check('SEMICOLON') || check('RIGHT_CURLY')) {
+      let semicolonToken = null;
+      if (check('SEMICOLON')) {
+        semicolonToken = next();
+      }
+      
+      const tokensUsed = state.tokens.slice(startPos, state.current);
+      
+      const returnStmt = {
+        type: 'ReturnStatement',
+        argument: null
+      };
+      
+      recordStep('returnStmtComplete', returnStmt, 'Completed empty return statement', tokensUsed);
+      
+      return returnStmt;
+    }
+    
+    // Parse return expression
+    const argument = parseExpression();
+    
+    // Optional semicolon
+    let semicolonToken = null;
+    if (check('SEMICOLON')) {
+      semicolonToken = next();
+    }
+    
+    const tokensUsed = state.tokens.slice(startPos, state.current);
+    
+    const returnStmt = {
+      type: 'ReturnStatement',
+      argument
+    };
+    
+    recordStep('returnStmtComplete', returnStmt, 'Completed return statement', tokensUsed);
+    
+    return returnStmt;
+  }
+  
+  // Parse expressions (anything that produces a value)
+  function parseExpression() {
+    // We're simplifying for this demo, so directly parse primary expressions
+    return parsePrimary();
+  }
+  
+  // Parse primary expressions (identifiers, literals, etc.)
+  function parsePrimary() {
+    const startPos = state.current;
+    
+    if (check('EOF')) {
+      // We've reached the end
+      return null;
+    }
+    
+    // Peek at the next token before consuming it
+    const nextToken = peek();
+    
+    // Prepare to mark this token as being processed
+    const tokensBeingProcessed = [nextToken];
+    recordStep('exprStart', 
+              { type: 'Expression', partial: true, tokenType: nextToken.type }, 
+              `Processing token: ${nextToken.type} "${nextToken.value}"`, 
+              tokensBeingProcessed);
+    
+    // Now consume the token
+    const token = next();
+    
+    let expr;
+    
+    switch (token.type) {
+      case 'IDENTIFIER': {
+        expr = {
+          type: 'Identifier',
+          name: token.value,
+          position: token.position
+        };
+        
+        const tokensUsed = state.tokens.slice(startPos, state.current);
+        recordStep('identifier', expr, `Parsed identifier: ${token.value}`, tokensUsed);
+        break;
+      }
+      
+      case 'NUMBER': {
+        expr = {
+          type: 'NumericLiteral',
+          value: parseFloat(token.value),
+          position: token.position
+        };
+        
+        const tokensUsed = state.tokens.slice(startPos, state.current);
+        recordStep('numberLiteral', expr, `Parsed number: ${token.value}`, tokensUsed);
+        break;
+      }
+      
+      case 'STRING': {
+        const value = token.value.slice(1, -1); // Remove quotes
+        expr = {
+          type: 'StringLiteral',
+          value,
+          position: token.position
+        };
+        
+        const tokensUsed = state.tokens.slice(startPos, state.current);
+        recordStep('stringLiteral', expr, `Parsed string: "${value}"`, tokensUsed);
+        break;
+      }
+      
+      case 'BOOLEAN': {
+        expr = {
+          type: 'BooleanLiteral',
+          value: token.value === 'true',
+          position: token.position
+        };
+        
+        const tokensUsed = state.tokens.slice(startPos, state.current);
+        recordStep('booleanLiteral', expr, `Parsed boolean: ${token.value}`, tokensUsed);
+        break;
+      }
+      
+      default: {
+        // For simplicity, we'll just make a placeholder node for any other token
+        expr = {
+          type: 'Unknown',
+          tokenType: token.type,
+          value: token.value,
+          position: token.position
+        };
+        
+        const tokensUsed = state.tokens.slice(startPos, state.current);
+        recordStep('unknown', expr, `Encountered token: ${token.type}`, tokensUsed);
+      }
+    }
+    
+    return expr;
+  }
+  
+  // Simplified version of type annotation parsing
+  function parseTypeAnnotation() {
+    const startPos = state.current;
+    const colonToken = next(); // consume colon
+    
+    // After consuming ':', show this as parsing a type annotation
+    const tokensAfterColon = state.tokens.slice(startPos, state.current);
+    recordStep('typeAnnotationStart', 
+               { type: 'TypeAnnotation', partial: true }, 
+               'Parsing type annotation', 
+               tokensAfterColon);
+    
+    // Peek at the type token before consuming it
+    const nextToken = peek();
+    const peekTokens = state.tokens.slice(startPos, state.current).concat([nextToken]);
+    recordStep('typeAnnotationPeek', 
+               { type: 'TypeAnnotation', partial: true, nextToken: nextToken.value }, 
+               `Type annotation will use token: ${nextToken.type} "${nextToken.value}"`, 
+               peekTokens);
+    
+    // Now consume the type token
+    const typeToken = next();
+    
+    const tokensUsed = state.tokens.slice(startPos, state.current);
+    
+    const typeAnnotation = {
+      type: 'TypeAnnotation',
+      valueType: typeToken.value
+    };
+    
+    recordStep('typeAnnotationComplete', 
+               typeAnnotation, 
+               `Completed type annotation: ${typeToken.value}`, 
+               tokensUsed);
+    
+    return typeAnnotation;
+  }
+  
+  // Start parsing
+  try {
+    state.ast = parseProgram();
+  } catch (error) {
+    console.error('Parse simulation error:', error);
+    // Add a final error step if we crashed
+    if (state.astSteps.length === 0 || state.astSteps[state.astSteps.length - 1].type !== 'error') {
+      recordStep('error', { error: error.message }, error.message);
+    }
+  }
+  
+  return {
+    ast: state.ast,
+    steps: state.astSteps
+  };
+}
+
+/**
+ * Update the AST tree display based on current parsing step
+ * 
+ * @param {Object} state - Visualization state
+ * @param {number} astStepIndex - Index of the current AST step
+ */
+function updateAstDisplay(state, astStepIndex) {
+  // Clear the AST tree
+  state.ui.astTreeElement.innerHTML = '';
+  
+  if (astStepIndex < 0 || astStepIndex >= state.astSteps.length) {
+    return;
+  }
+  
+  // Get the current step
+  const step = state.astSteps[astStepIndex];
+  
+  // Show the step description
+  const descriptionElement = document.createElement('div');
+  descriptionElement.className = 'ast-step-description';
+  descriptionElement.textContent = step.description || 'Parsing...';
+  state.ui.astTreeElement.appendChild(descriptionElement);
+  
+  // Create the AST tree visualization for all steps up to the current one
+  for (let i = 0; i <= astStepIndex; i++) {
+    const currentStep = state.astSteps[i];
+    
+    // Skip steps without nodes
+    if (!currentStep.node) continue;
+    
+    // Create different node representations based on the step type
+    let nodeElement;
+    
+    // For final step in a multi-step node creation, show it highlighted
+    const isCurrentStep = i === astStepIndex;
+    const isCompleteStep = currentStep.type.endsWith('Complete');
+    
+    // For node creation steps (not intermediate steps), create a tree node
+    if (isCompleteStep || currentStep.type === 'start' || currentStep.type === 'complete') {
+      nodeElement = createAstNodeElement(currentStep.node, isCurrentStep);
+      
+      // Add reference to tokens used to build this node
+      if (currentStep.tokensUsed && currentStep.tokensUsed.length > 0) {
+        const tokenRefElement = document.createElement('div');
+        tokenRefElement.className = 'ast-token-ref';
+        tokenRefElement.textContent = `Uses ${currentStep.tokensUsed.length} token(s)`;
+        nodeElement.appendChild(tokenRefElement);
+      }
+      
+      state.ui.astTreeElement.appendChild(nodeElement);
+    }
+  }
+  
+  // Find and scroll to the current AST node
   setTimeout(() => {
-    state.ui.tokensListElement.scrollTop = state.ui.tokensListElement.scrollHeight;
+    const currentNode = state.ui.astTreeElement.querySelector('.ast-node-current');
+    if (currentNode) {
+      scrollIntoViewIfNeeded(currentNode, state.ui.astTreeElement);
+    }
   }, 0);
+}
+
+/**
+ * Create an AST node element for visualization
+ * 
+ * @param {Object} node - AST node
+ * @param {boolean} isCurrent - Whether this is the current node being built
+ * @returns {HTMLElement} - DOM element representing the node
+ */
+function createAstNodeElement(node, isCurrent = false) {
+  const nodeElement = document.createElement('div');
+  nodeElement.className = 'ast-node';
+  
+  if (isCurrent) {
+    nodeElement.classList.add('ast-node-current');
+  } else if (node.partial) {
+    nodeElement.classList.add('ast-node-partial');
+  } else {
+    nodeElement.classList.add('ast-node-highlighted');
+  }
+  
+  // Add the node type
+  const typeElement = document.createElement('span');
+  typeElement.className = 'ast-node-type';
+  typeElement.textContent = node.type;
+  nodeElement.appendChild(typeElement);
+  
+  // Add node details based on type
+  const detailsElement = document.createElement('div');
+  detailsElement.className = 'ast-node-details';
+  
+  switch (node.type) {
+    case 'Program':
+      detailsElement.textContent = `${node.body ? node.body.length : 0} statements`;
+      break;
+      
+    case 'ConstDeclaration':
+      if (node.id) {
+        detailsElement.textContent = `${node.id.name}`;
+        if (node.typeAnnotation) {
+          detailsElement.textContent += `: ${node.typeAnnotation.valueType}`;
+        }
+      }
+      break;
+      
+    case 'ReturnStatement':
+      detailsElement.textContent = node.argument ? 'with value' : 'empty return';
+      break;
+      
+    case 'Identifier':
+      detailsElement.textContent = node.name || '';
+      break;
+      
+    case 'NumericLiteral':
+      detailsElement.textContent = node.value !== undefined ? node.value : '';
+      break;
+      
+    case 'StringLiteral':
+      detailsElement.textContent = `"${node.value || ''}"`;
+      break;
+      
+    case 'BooleanLiteral':
+      detailsElement.textContent = node.value !== undefined ? node.value : '';
+      break;
+      
+    case 'TypeAnnotation':
+      detailsElement.textContent = node.valueType || '';
+      break;
+      
+    default:
+      // For any other node type
+      const details = Object.entries(node)
+        .filter(([key]) => key !== 'type' && key !== 'body' && key !== 'children')
+        .map(([key, value]) => {
+          if (typeof value === 'object' && value !== null) {
+            return `${key}: ${value.type || JSON.stringify(value)}`;
+          }
+          return `${key}: ${value}`;
+        })
+        .join(', ');
+      
+      detailsElement.textContent = details;
+  }
+  
+  if (detailsElement.textContent) {
+    nodeElement.appendChild(detailsElement);
+  }
+  
+  // Add children for nodes that have them
+  if (node.body && Array.isArray(node.body) && node.body.length > 0) {
+    const childrenElement = document.createElement('div');
+    childrenElement.className = 'ast-node-children';
+    
+    node.body.forEach(child => {
+      if (child && typeof child === 'object') {
+        const childElement = createAstNodeElement(child, false);
+        childrenElement.appendChild(childElement);
+      }
+    });
+    
+    nodeElement.appendChild(childrenElement);
+  }
+  
+  // Handle special cases for other child relationships
+  if (node.init && typeof node.init === 'object') {
+    const childrenElement = document.createElement('div');
+    childrenElement.className = 'ast-node-children';
+    const label = document.createElement('div');
+    label.textContent = 'initialized to:';
+    childrenElement.appendChild(label);
+    
+    const childElement = createAstNodeElement(node.init, false);
+    childrenElement.appendChild(childElement);
+    nodeElement.appendChild(childrenElement);
+  }
+  
+  if (node.argument && typeof node.argument === 'object') {
+    const childrenElement = document.createElement('div');
+    childrenElement.className = 'ast-node-children';
+    const label = document.createElement('div');
+    label.textContent = 'returns:';
+    childrenElement.appendChild(label);
+    
+    const childElement = createAstNodeElement(node.argument, false);
+    childrenElement.appendChild(childElement);
+    nodeElement.appendChild(childrenElement);
+  }
+  
+  return nodeElement;
+}
+
+/**
+ * Helper function to scroll an element into view only if it's not already visible
+ * 
+ * @param {HTMLElement} element - The element to scroll into view
+ * @param {HTMLElement} container - The scrollable container
+ */
+function scrollIntoViewIfNeeded(element, container) {
+  // Get the element's position relative to the container
+  const elementRect = element.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  
+  // Check if the element is not fully visible
+  const isNotFullyVisible = (
+    elementRect.bottom > containerRect.bottom ||  // Element extends below container
+    elementRect.top < containerRect.top ||        // Element extends above container
+    elementRect.right > containerRect.right ||    // Element extends to the right of container
+    elementRect.left < containerRect.left         // Element extends to the left of container
+  );
+  
+  // Only scroll if the element is not fully visible
+  if (isNotFullyVisible) {
+    element.scrollIntoView({
+      behavior: 'auto',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  }
 }
 
 // Initialize the visualizer when the page loads

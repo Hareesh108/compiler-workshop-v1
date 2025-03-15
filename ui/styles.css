@@ -34,10 +34,16 @@ h2 {
   font-size: 1.2rem;
 }
 
+.visualization-scroll-container {
+  overflow-x: auto;
+  margin-bottom: 30px;
+  width: 100%;
+}
+
 .visualization-container {
   display: flex;
-  margin-bottom: 30px;
   gap: 20px;
+  min-width: 1200px;
 }
 
 .code-container {
@@ -51,7 +57,8 @@ h2 {
   overflow: auto;
 }
 
-.token-container {
+.token-container,
+.ast-container {
   flex: 1;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -67,7 +74,8 @@ h2 {
   line-height: 1.5;
 }
 
-.tokens-display {
+.tokens-display,
+.ast-display {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 14px;
   height: 100%;
@@ -206,6 +214,74 @@ h2 {
   background-color: #2980b9;
 }
 
+/* AST Tree Styles */
+.ast-node {
+  margin: 5px 0 5px 15px;
+  padding: 5px;
+  border-radius: 3px;
+  background-color: #e8e8e8;
+  border-left: 3px solid #999;
+  position: relative;
+}
+
+.ast-node-highlighted {
+  background-color: #9be0ae;
+  border-left-color: #4caf50;
+  transition: background-color 0.2s;
+}
+
+.ast-node-current {
+  background-color: #4caf50;
+  color: white;
+  border-left-color: #2e7d32;
+  transition: background-color 0.2s;
+}
+
+/* For partial nodes (in-progress parsing) */
+.ast-node-partial {
+  background-color: #fff9c4;
+  border-left-color: #fbc02d;
+  color: #333;
+}
+
+.ast-node-type {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.ast-node-details {
+  margin-left: 10px;
+  font-size: 12px;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+.ast-node-children {
+  padding-left: 20px;
+  border-left: 1px dotted #999;
+  margin-left: 5px;
+}
+
+.ast-token-ref {
+  color: #888;
+  font-style: italic;
+  font-size: 12px;
+}
+
+.token-referenced {
+  border-right: 3px solid #4caf50;
+}
+
+.ast-step-description {
+  font-weight: bold;
+  margin-bottom: 10px;
+  padding: 5px;
+  background-color: #f0f0f0;
+  border-radius: 3px;
+  border-left: 3px solid #3498db;
+}
+
+/* Used by both token and AST parts */
 .hidden {
   display: none;
 }
