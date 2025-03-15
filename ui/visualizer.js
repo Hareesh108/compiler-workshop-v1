@@ -10,6 +10,14 @@
     const tokens = [];
     let position = 0;
     
+    // Add initial step with empty tokens
+    steps.push({
+      type: 'initial',
+      position: 0,
+      length: 0,
+      currentTokens: []
+    });
+    
     // Regular expression to identify whitespace
     const whitespaceRegex = /^\s+/;
     
@@ -63,16 +71,19 @@
     function skipWhitespace() {
       const match = sourceCode.slice(position).match(whitespaceRegex);
       if (match) {
-        // Record whitespace skipping as a step
-        const oldPosition = position;
-        position += match[0].length;
+        const startPosition = position;
+        const length = match[0].length;
         
+        // Record step BEFORE changing position
         steps.push({
           type: 'whitespace',
-          position: oldPosition,
-          length: match[0].length,
+          position: startPosition,
+          length: length,
           currentTokens: [...tokens]
         });
+        
+        // Update position AFTER recording the step
+        position += length;
       }
     }
     
@@ -91,20 +102,21 @@
         
         if (match) {
           const value = match[0];
+          const startPosition = position;
           
           // Skip comments but still record the step
           if (pattern.type === "COMMENT") {
-            const oldPosition = position;
-            position += value.length;
-            
+            // Record step BEFORE changing position
             steps.push({
               type: 'comment',
-              position: oldPosition,
+              position: startPosition,
               length: value.length,
               value,
               currentTokens: [...tokens]
             });
             
+            // Update position AFTER recording the step
+            position += value.length;
             matched = true;
             break;
           }
@@ -113,20 +125,22 @@
           const token = {
             type: pattern.type,
             value,
-            position,
+            position: startPosition,
           };
           
+          // Add token to the array
           tokens.push(token);
           
-          // Record this step for visualization
+          // Record step BEFORE changing position
           steps.push({
             type: 'token',
             token: { ...token },
-            position,
+            position: startPosition,
             length: value.length,
             currentTokens: [...tokens]
           });
           
+          // Update position AFTER recording the step
           position += value.length;
           matched = true;
           break;
@@ -169,14 +183,14 @@ function createTokenDisplay(token) {
 }
 
 // Helper function to highlight source code
-function highlightCode(sourceCode, consumedUntil, currentConsuming) {
+function highlightCode(sourceCode, currentPosition, currentLength) {
   // Convert source code to HTML with spans for highlighting
-  const beforeConsumed = sourceCode.substring(0, consumedUntil);
-  const currentText = sourceCode.substring(consumedUntil, consumedUntil + currentConsuming);
-  const afterCurrent = sourceCode.substring(consumedUntil + currentConsuming);
+  const beforeCurrent = sourceCode.substring(0, currentPosition);
+  const currentText = sourceCode.substring(currentPosition, currentPosition + currentLength);
+  const afterCurrent = sourceCode.substring(currentPosition + currentLength);
   
   return [
-    beforeConsumed.length > 0 ? `<span class="text-consumed">${escapeHtml(beforeConsumed)}</span>` : '',
+    beforeCurrent.length > 0 ? `<span class="text-consumed">${escapeHtml(beforeCurrent)}</span>` : '',
     currentText.length > 0 ? `<span class="text-current">${escapeHtml(currentText)}</span>` : '',
     afterCurrent
   ].join('');
@@ -281,11 +295,11 @@ const emptyReturn = () => {
     const percentage = Math.round((progress / this.visualizationSteps.length) * 100);
     this.progressInfo.textContent = `${percentage}%`;
     
-    // Update source code display with highlighting
-    this.updateSourceCodeHighlighting();
-    
-    // Update tokens list
+    // Update tokens list first
     this.updateTokensDisplay();
+    
+    // Then update source code display with highlighting
+    this.updateSourceCodeHighlighting();
   }
   
   updateSourceCodeHighlighting() {
@@ -293,23 +307,17 @@ const emptyReturn = () => {
     this.sourceCodeElement.textContent = this.sourceCode;
     
     if (this.currentStepIndex > 0) {
-      const step = this.visualizationSteps[this.currentStepIndex - 1];
+      const currentStep = this.visualizationSteps[this.currentStepIndex - 1];
       
-      // Determine how much of the source code has been consumed
-      let consumedUntil = step.position + (step.length || 0);
+      // Current token position and length
+      const currentPosition = currentStep.position;
+      const currentLength = currentStep.length || 0;
       
-      // For the current step, highlight it differently
-      let currentConsuming = 0;
-      if (this.currentStepIndex < this.visualizationSteps.length) {
-        const nextStep = this.visualizationSteps[this.currentStepIndex];
-        currentConsuming = nextStep.length || 0;
-      }
-      
-      // Apply highlighting
+      // Apply highlighting - highlight the current token
       this.sourceCodeElement.innerHTML = highlightCode(
         this.sourceCode, 
-        consumedUntil, 
-        currentConsuming
+        currentPosition, 
+        currentLength
       );
     }
   }
