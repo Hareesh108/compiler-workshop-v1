@@ -184,8 +184,6 @@ function reportError(errors, message, node) {
 }
 
 /**
- * Create a fresh type variable
- *
  * This is used when we need a new type variable, for example
  * when inferring the type of a function parameter.
  *
@@ -193,7 +191,7 @@ function reportError(errors, message, node) {
  * @param {string|null} name - Optional name for the type variable
  * @returns {object} - A new type variable
  */
-function freshTypeVar(state, name = null) {
+function newTypeVar(state, name = null) {
   const id = state.nextTypeVarId;
   state.nextTypeVarId = state.nextTypeVarId + 1;
   return { kind: "TypeVariable", id, name: name || `t${id}`, symlink: null };
@@ -216,7 +214,7 @@ function freshInstance(state, type, mappings = new Map()) {
   if (type.kind === "TypeVariable") {
     // If we haven't seen this type variable before, create a fresh copy
     if (!mappings.has(type)) {
-      mappings.set(type, freshTypeVar(state));
+      mappings.set(type, newTypeVar(state));
     }
     return mappings.get(type);
   } else if (type.kind === "FunctionType") {
@@ -252,7 +250,7 @@ function getType(state, name) {
 
   // If not found, create a fresh type variable
   if (!type) {
-    const typeVar = freshTypeVar(state);
+    const typeVar = newTypeVar(state);
     state.currentScope[name] = typeVar;
     return typeVar;
   }
@@ -412,7 +410,7 @@ function checkReturnPosition(state, node, body) {
 function infer(state, node) {
   // Handle null/undefined or non-object nodes
   if (!node || typeof node !== "object") {
-    return freshTypeVar(state);
+    return newTypeVar(state);
   }
 
   // Dispatch based on node type
@@ -460,7 +458,7 @@ function infer(state, node) {
 
     default:
       reportError(state.errors, `Unknown node type: ${node.type}`, node);
-      return freshTypeVar(state);
+      return newTypeVar(state);
   }
 }
 
@@ -480,7 +478,7 @@ function inferTypeCallExpression(state, node) {
     // If it's not yet resolved to a function, create a fresh function type
     if (fnType.kind === "TypeVariable") {
       // Create a return type variable
-      const returnType = freshTypeVar(state);
+      const returnType = newTypeVar(state);
 
       if (node.arguments.length === 0) {
         // For zero arguments, create a Unit -> returnType function
@@ -510,13 +508,13 @@ function inferTypeCallExpression(state, node) {
       }
     } else {
       reportError(state.errors, "Called value is not a function", node);
-      return freshTypeVar(state);
+      return newTypeVar(state);
     }
   }
 
   // Handle multi-parameter functions (curried form)
   let currentFnType = fnType;
-  let resultType = freshTypeVar(state);
+  let resultType = newTypeVar(state);
 
   // Check each argument against the expected parameter type
   for (let i = 0; i < node.arguments.length; i++) {
@@ -529,7 +527,7 @@ function inferTypeCallExpression(state, node) {
         `Too many arguments provided to function`,
         node,
       );
-      return freshTypeVar(state);
+      return newTypeVar(state);
     }
 
     unify(state, currentFnType.paramType, argType, arg);
@@ -635,7 +633,7 @@ function inferTypeBinaryExpression(state, node) {
         return concreteType(Types.String);
       } else {
         // Numeric addition
-        const numericType = freshTypeVar(state);
+        const numericType = newTypeVar(state);
         unify(state, leftType, numericType, node.left);
         unify(state, rightType, numericType, node.right);
 
@@ -658,7 +656,7 @@ function inferTypeBinaryExpression(state, node) {
               `The '+' operator requires either numeric operands or string operands`,
               node,
             );
-            return freshTypeVar(state);
+            return newTypeVar(state);
           }
         }
       }
@@ -669,7 +667,7 @@ function inferTypeBinaryExpression(state, node) {
         `Unsupported binary operator: ${node.operator}`,
         node,
       );
-      return freshTypeVar(state);
+      return newTypeVar(state);
   }
 }
 
@@ -689,7 +687,7 @@ function inferTernary(state, node) {
   const thenBranchType = infer(state, node.thenBranch);
   const elseBranchType = infer(state, node.elseBranch);
 
-  const answer = freshTypeVar(state);
+  const answer = newTypeVar(state);
   unify(state, thenBranchType, answer, node.thenBranch);
   unify(state, elseBranchType, answer, node.elseBranch);
 
@@ -723,7 +721,7 @@ function inferTypeArrowFunction(state, node) {
       paramType = createTypeFromAnnotation(state, param.typeAnnotation);
     } else {
       // Otherwise use a fresh type variable
-      paramType = freshTypeVar(state);
+      paramType = newTypeVar(state);
     }
 
     state.currentScope[param.name] = paramType;
@@ -813,7 +811,7 @@ function inferTypeArrayLiteral(state, node) {
   // Handle empty array case
   if (node.elements.length === 0) {
     // For empty arrays, we create a parametric array type
-    const elemType = freshTypeVar(state);
+    const elemType = newTypeVar(state);
     return createArrayType(elemType);
   }
 
@@ -856,7 +854,7 @@ function inferTypeMemberExpression(state, node) {
 
   // If object is not already an array type, create a type variable for the element type
   // and unify the object with an array of that element type
-  const elementType = freshTypeVar(state);
+  const elementType = newTypeVar(state);
   const arrayType = createArrayType(elementType);
 
   // Unify the object type with the array type
@@ -875,7 +873,7 @@ function inferTypeMemberExpression(state, node) {
  */
 function createTypeFromAnnotation(state, annotation) {
   if (!annotation) {
-    return freshTypeVar(state);
+    return newTypeVar(state);
   }
 
   switch (annotation.type) {
@@ -901,11 +899,11 @@ function createTypeFromAnnotation(state, annotation) {
 
         case "any":
           // For 'any', use a fresh type variable
-          return freshTypeVar(state);
+          return newTypeVar(state);
 
         default:
           // For custom/unknown types, use a type variable
-          return freshTypeVar(state);
+          return newTypeVar(state);
       }
     }
 
@@ -929,7 +927,7 @@ function createTypeFromAnnotation(state, annotation) {
     }
 
     default:
-      return freshTypeVar(state);
+      return newTypeVar(state);
   }
 }
 
