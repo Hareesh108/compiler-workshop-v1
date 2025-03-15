@@ -28,6 +28,23 @@ The compiler supports a small subset of JavaScript with TypeScript-like type ann
 - **analyze.js**: Name resolution that verifies variable scoping
 - **typecheck.js**: Hindley-Milner type inference algorithm
 
+## Visualization Tool
+
+The project includes an interactive visualization tool to help understand the compilation process:
+
+1. **Tokenizer Visualization**: Step through the tokenization process with an interactive scrubber
+   - See source code being consumed token by token
+   - Watch the token stream being built in real-time
+   - Try out different code examples or input your own
+
+### How to Use the Visualization Tool
+
+1. Open `index.html` in your web browser (double-click the file or open it with your browser)
+2. Use the scrubber to progress through the tokenization stages
+3. Select different examples from the dropdown or enter custom code
+
+For more information, see [ui/README.md](ui/README.md)
+
 ## Hindley-Milner Type Inference
 
 The type checker uses a simplified implementation of the Hindley-Milner algorithm, named after its creators Roger Hindley and Robin Milner. This algorithm can infer types without requiring explicit type annotations.
