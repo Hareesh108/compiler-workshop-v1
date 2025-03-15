@@ -86,10 +86,10 @@ function concreteType(type) {
  * @returns {object} - The most specific type
  */
 function compress(type) {
-  if (type.kind === "TypeVariable" && type.instance) {
-    // Recursively compress the instance
-    type.instance = compress(type.instance);
-    return type.instance;
+  if (type.kind === "TypeVariable" && type.symlink) {
+    // Recursively compress the symlink path
+    type.symlink = compress(type.symlink);
+    return type.symlink;
   }
 
   return type;
@@ -196,7 +196,7 @@ function reportError(errors, message, node) {
 function freshTypeVar(state, name = null) {
   const id = state.nextTypeVarId;
   state.nextTypeVarId = state.nextTypeVarId + 1;
-  return { kind: "TypeVariable", id, name: name || `t${id}`, instance: null };
+  return { kind: "TypeVariable", id, name: name || `t${id}`, symlink: null };
 }
 
 /**
@@ -302,7 +302,7 @@ function unify(state, t1, t2, node) {
       }
 
       // Set the type variable to point to the other type
-      t1.instance = t2;
+      t1.symlink = t2;
     }
   }
   // Case 2: Both are function types
