@@ -262,11 +262,15 @@ h2 {
   margin-left: 5px;
 }
 
-.ast-token-ref {
-  color: #888;
+.ast-node-child-label {
   font-style: italic;
+  color: #666;
+  margin-top: 5px;
+  margin-bottom: 2px;
   font-size: 12px;
 }
+
+/* Removed ast-token-ref class as requested */
 
 .token-referenced {
   border-right: 3px solid #4caf50;
@@ -274,11 +278,16 @@ h2 {
 
 .ast-step-description {
   font-weight: bold;
-  margin-bottom: 10px;
-  padding: 5px;
+  padding: 10px;
   background-color: #f0f0f0;
-  border-radius: 3px;
-  border-left: 3px solid #3498db;
+  border-top: 3px solid #3498db;
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
 }
 
 /* Used by both token and AST parts */

@@ -984,41 +984,106 @@ function updateAstDisplay(state, astStepIndex) {
   // Get the current step
   const step = state.astSteps[astStepIndex];
   
-  // Show the step description
-  const descriptionElement = document.createElement('div');
-  descriptionElement.className = 'ast-step-description';
-  descriptionElement.textContent = step.description || 'Parsing...';
-  state.ui.astTreeElement.appendChild(descriptionElement);
+  // Instead of a program node, we'll just have a collection of top-level nodes
+  const topLevelNodes = [];
   
-  // Create the AST tree visualization for all steps up to the current one
+  // Completed nodes by ID to avoid duplication
+  const completedNodesMap = new Map();
+  
+  let currentNode = null; // Tracks the node that's currently being built
+  
+  // Process all steps up to the current one
   for (let i = 0; i <= astStepIndex; i++) {
     const currentStep = state.astSteps[i];
     
     // Skip steps without nodes
     if (!currentStep.node) continue;
     
-    // Create different node representations based on the step type
-    let nodeElement;
-    
-    // For final step in a multi-step node creation, show it highlighted
     const isCurrentStep = i === astStepIndex;
     const isCompleteStep = currentStep.type.endsWith('Complete');
     
-    // For node creation steps (not intermediate steps), create a tree node
-    if (isCompleteStep || currentStep.type === 'start' || currentStep.type === 'complete') {
-      nodeElement = createAstNodeElement(currentStep.node, isCurrentStep);
+    // Handle the node based on step type
+    if (isCompleteStep) {
+      // This is a completed node, add it to the top level if appropriate
+      const completedNode = { 
+        ...currentStep.node, 
+        _isCurrentStep: isCurrentStep,
+        _tokensUsed: currentStep.tokensUsed || []
+      };
       
-      // Add reference to tokens used to build this node
-      if (currentStep.tokensUsed && currentStep.tokensUsed.length > 0) {
-        const tokenRefElement = document.createElement('div');
-        tokenRefElement.className = 'ast-token-ref';
-        tokenRefElement.textContent = `Uses ${currentStep.tokensUsed.length} token(s)`;
-        nodeElement.appendChild(tokenRefElement);
+      // If this is a top-level declaration (const/return), add it to our top-level nodes
+      if (completedNode.type === 'ConstDeclaration' || 
+          completedNode.type === 'ReturnStatement') {
+        // Create a unique ID for this node to avoid duplication
+        const nodeId = `${completedNode.type}-${completedNode.id?.name || 'anonymous'}-${i}`;
+        completedNodesMap.set(nodeId, completedNode);
       }
       
-      state.ui.astTreeElement.appendChild(nodeElement);
+      // Reset current node since we've completed it
+      currentNode = null;
+    } 
+    else if (currentStep.type.includes('Start') || 
+             currentStep.type === 'exprStart' || 
+             currentStep.type.includes('Peek')) {
+      // This is a node that's currently being built
+      currentNode = { 
+        ...currentStep.node, 
+        _isCurrentStep: isCurrentStep,
+        _tokensUsed: currentStep.tokensUsed || [],
+        _inProgress: true
+      };
+      
+      // Only add in-progress nodes if there's no completed version of them
+      if ((currentNode.type === 'ConstDeclaration' || 
+           currentNode.type === 'ReturnStatement' || 
+           currentNode.type === 'Expression')) {
+        
+        // Check if this node is already completed
+        const nodeAlreadyCompleted = Array.from(completedNodesMap.values()).some(node => 
+          node.type === currentNode.type && 
+          (node.id?.name === currentNode.id?.name)
+        );
+        
+        // Only add in-progress nodes if they're not already completed
+        if (!nodeAlreadyCompleted) {
+          // Create a unique ID for this in-progress node
+          const nodeId = `in-progress-${currentNode.type}-${currentNode.id?.name || 'anonymous'}-${i}`;
+          // Only add if we don't already have this exact node
+          if (!Array.from(completedNodesMap.keys()).includes(nodeId)) {
+            completedNodesMap.set(nodeId, currentNode);
+          }
+        }
+      }
+    }
+    else {
+      // Other intermediate steps - update current node if it exists
+      if (currentNode) {
+        // Extend the current node with any new properties
+        currentNode = { 
+          ...currentNode, 
+          ...currentStep.node, 
+          _isCurrentStep: isCurrentStep,
+          _tokensUsed: currentStep.tokensUsed || [],
+          _inProgress: true 
+        };
+      }
     }
   }
+  
+  // Convert the map to an array for rendering
+  const nodesToRender = Array.from(completedNodesMap.values());
+  
+  // Render all top-level nodes directly (no program wrapper)
+  nodesToRender.forEach(node => {
+    const nodeElement = createAstNodeElement(node, false);
+    state.ui.astTreeElement.appendChild(nodeElement);
+  });
+  
+  // Add the sticky status message at the bottom
+  const descriptionElement = document.createElement('div');
+  descriptionElement.className = 'ast-step-description';
+  descriptionElement.textContent = step.description || 'Parsing...';
+  state.ui.astTreeElement.appendChild(descriptionElement);
   
   // Find and scroll to the current AST node
   setTimeout(() => {
@@ -1033,73 +1098,91 @@ function updateAstDisplay(state, astStepIndex) {
  * Create an AST node element for visualization
  * 
  * @param {Object} node - AST node
- * @param {boolean} isCurrent - Whether this is the current node being built
+ * @param {boolean} forceHighlight - Whether to force highlighting this node
  * @returns {HTMLElement} - DOM element representing the node
  */
-function createAstNodeElement(node, isCurrent = false) {
+function createAstNodeElement(node, forceHighlight = false) {
   const nodeElement = document.createElement('div');
   nodeElement.className = 'ast-node';
   
-  if (isCurrent) {
+  // Check if this is the current node being processed
+  if (node._isCurrentStep) {
     nodeElement.classList.add('ast-node-current');
-  } else if (node.partial) {
+  } else if (node._inProgress) {
     nodeElement.classList.add('ast-node-partial');
   } else {
     nodeElement.classList.add('ast-node-highlighted');
   }
   
+  // Skip internal properties that start with '_'
+  const filteredNode = Object.fromEntries(
+    Object.entries(node).filter(([key]) => !key.startsWith('_'))
+  );
+  
   // Add the node type
   const typeElement = document.createElement('span');
   typeElement.className = 'ast-node-type';
-  typeElement.textContent = node.type;
+  typeElement.textContent = filteredNode.type;
   nodeElement.appendChild(typeElement);
   
   // Add node details based on type
   const detailsElement = document.createElement('div');
   detailsElement.className = 'ast-node-details';
   
-  switch (node.type) {
-    case 'Program':
-      detailsElement.textContent = `${node.body ? node.body.length : 0} statements`;
-      break;
-      
+  // We no longer have a Program root node to skip
+  switch (filteredNode.type) {
     case 'ConstDeclaration':
-      if (node.id) {
-        detailsElement.textContent = `${node.id.name}`;
-        if (node.typeAnnotation) {
-          detailsElement.textContent += `: ${node.typeAnnotation.valueType}`;
+      if (filteredNode.id) {
+        detailsElement.textContent = `${filteredNode.id.name}`;
+        if (filteredNode.typeAnnotation) {
+          detailsElement.textContent += `: ${filteredNode.typeAnnotation.valueType}`;
         }
+      } else if (node.partial) {
+        detailsElement.textContent = '(incomplete)';
       }
       break;
       
     case 'ReturnStatement':
-      detailsElement.textContent = node.argument ? 'with value' : 'empty return';
+      detailsElement.textContent = filteredNode.argument ? 'with value' : 'empty return';
       break;
       
     case 'Identifier':
-      detailsElement.textContent = node.name || '';
+      detailsElement.textContent = filteredNode.name || '';
       break;
       
     case 'NumericLiteral':
-      detailsElement.textContent = node.value !== undefined ? node.value : '';
+      detailsElement.textContent = filteredNode.value !== undefined ? filteredNode.value : '';
       break;
       
     case 'StringLiteral':
-      detailsElement.textContent = `"${node.value || ''}"`;
+      detailsElement.textContent = `"${filteredNode.value || ''}"`;
       break;
       
     case 'BooleanLiteral':
-      detailsElement.textContent = node.value !== undefined ? node.value : '';
+      detailsElement.textContent = filteredNode.value !== undefined ? filteredNode.value : '';
       break;
       
     case 'TypeAnnotation':
-      detailsElement.textContent = node.valueType || '';
+      detailsElement.textContent = filteredNode.valueType || '';
+      break;
+      
+    case 'Expression':
+      if (filteredNode.tokenType) {
+        detailsElement.textContent = `Processing ${filteredNode.tokenType}`;
+      } else {
+        detailsElement.textContent = 'Processing expression';
+      }
       break;
       
     default:
-      // For any other node type
-      const details = Object.entries(node)
-        .filter(([key]) => key !== 'type' && key !== 'body' && key !== 'children')
+      // For any other node type, filter out internal properties and show relevant details
+      const details = Object.entries(filteredNode)
+        .filter(([key]) => 
+          key !== 'type' && 
+          key !== 'body' && 
+          key !== 'children' &&
+          key !== 'partial'
+        )
         .map(([key, value]) => {
           if (typeof value === 'object' && value !== null) {
             return `${key}: ${value.type || JSON.stringify(value)}`;
@@ -1108,49 +1191,71 @@ function createAstNodeElement(node, isCurrent = false) {
         })
         .join(', ');
       
-      detailsElement.textContent = details;
+      if (details) {
+        detailsElement.textContent = details;
+      }
   }
   
   if (detailsElement.textContent) {
     nodeElement.appendChild(detailsElement);
   }
   
-  // Add children for nodes that have them
-  if (node.body && Array.isArray(node.body) && node.body.length > 0) {
-    const childrenElement = document.createElement('div');
-    childrenElement.className = 'ast-node-children';
-    
-    node.body.forEach(child => {
-      if (child && typeof child === 'object') {
-        const childElement = createAstNodeElement(child, false);
-        childrenElement.appendChild(childElement);
-      }
-    });
-    
-    nodeElement.appendChild(childrenElement);
-  }
+  // We're removing the 'Uses X tokens' indicator as requested
   
-  // Handle special cases for other child relationships
-  if (node.init && typeof node.init === 'object') {
+  // We no longer need special handling for Program node body statements,
+  // as we're directly rendering top-level nodes
+  
+  // Handle special cases for other child relationships - these should be nested
+  if (filteredNode.init && typeof filteredNode.init === 'object') {
     const childrenElement = document.createElement('div');
     childrenElement.className = 'ast-node-children';
     const label = document.createElement('div');
+    label.className = 'ast-node-child-label';
     label.textContent = 'initialized to:';
     childrenElement.appendChild(label);
     
-    const childElement = createAstNodeElement(node.init, false);
+    const childElement = createAstNodeElement(filteredNode.init, false);
     childrenElement.appendChild(childElement);
     nodeElement.appendChild(childrenElement);
   }
   
-  if (node.argument && typeof node.argument === 'object') {
+  if (filteredNode.argument && typeof filteredNode.argument === 'object') {
     const childrenElement = document.createElement('div');
     childrenElement.className = 'ast-node-children';
     const label = document.createElement('div');
+    label.className = 'ast-node-child-label';
     label.textContent = 'returns:';
     childrenElement.appendChild(label);
     
-    const childElement = createAstNodeElement(node.argument, false);
+    const childElement = createAstNodeElement(filteredNode.argument, false);
+    childrenElement.appendChild(childElement);
+    nodeElement.appendChild(childrenElement);
+  }
+  
+  if (filteredNode.id && typeof filteredNode.id === 'object' && 
+      filteredNode.id.type === 'Identifier' && !filteredNode.id.position) {
+    // Add identifier as a child node for better tree visualization
+    const childrenElement = document.createElement('div');
+    childrenElement.className = 'ast-node-children';
+    const label = document.createElement('div');
+    label.className = 'ast-node-child-label';
+    label.textContent = 'name:';
+    childrenElement.appendChild(label);
+    
+    const childElement = createAstNodeElement(filteredNode.id, false);
+    childrenElement.appendChild(childElement);
+    nodeElement.appendChild(childrenElement);
+  }
+  
+  if (filteredNode.typeAnnotation && typeof filteredNode.typeAnnotation === 'object') {
+    const childrenElement = document.createElement('div');
+    childrenElement.className = 'ast-node-children';
+    const label = document.createElement('div');
+    label.className = 'ast-node-child-label';
+    label.textContent = 'type:';
+    childrenElement.appendChild(label);
+    
+    const childElement = createAstNodeElement(filteredNode.typeAnnotation, false);
     childrenElement.appendChild(childElement);
     nodeElement.appendChild(childrenElement);
   }
