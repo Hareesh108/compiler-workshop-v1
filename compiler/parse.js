@@ -19,6 +19,13 @@
  * - Function calls
  */
 
+// Check if we're in a browser environment and initialize the global CompilerModule
+if (typeof window !== 'undefined') {
+  if (!window.CompilerModule) {
+    window.CompilerModule = {};
+  }
+}
+
 /**
  * Lexical Analysis (Tokenization)
  *
@@ -1126,8 +1133,7 @@ function compileWithTypes(sourceCode) {
   return compileAndAnalyze(sourceCode, { skipTypeCheck: false });
 }
 
-// Export the constants for token patterns and whitespace regex at module level
-// so they can be used by the visualization tools
+// Single source of truth for the token patterns - defined as constants at the top level
 const WHITESPACE_REGEX = /^\s+/;
 const TOKEN_PATTERNS = [
   // Comments
@@ -1175,18 +1181,39 @@ const TOKEN_PATTERNS = [
   { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ }, // String literals with single quotes
 ];
 
-// Export the main functions and individual components for teaching purposes
-module.exports = {
-  // Main compilation functions
-  compile, // Just parse to AST
-  compileAndAnalyze, // Parse + optional analysis
-  compileWithTypes, // Parse + full analysis with types
+// Function to get the token patterns - can be called in browser or Node environment
+function getTokenPatterns() {
+  return TOKEN_PATTERNS;
+}
 
-  // Individual compiler phases for educational purposes
-  tokenize, // Lexical analysis
-  parse, // Syntax analysis
-  
-  // Token patterns and utilities for visualization and educational tools
-  TOKEN_PATTERNS,
-  WHITESPACE_REGEX
-};
+// Function to get the whitespace regex - can be called in browser or Node environment
+function getWhitespaceRegex() {
+  return WHITESPACE_REGEX;
+}
+
+// If we're in a browser environment, make the patterns and tokenizer available globally
+if (typeof window !== 'undefined') {
+  window.CompilerModule.TOKEN_PATTERNS = TOKEN_PATTERNS;
+  window.CompilerModule.WHITESPACE_REGEX = WHITESPACE_REGEX;
+  window.CompilerModule.tokenize = tokenize;
+}
+
+// Export for Node.js environment
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    // Main compilation functions
+    compile, // Just parse to AST
+    compileAndAnalyze, // Parse + optional analysis
+    compileWithTypes, // Parse + full analysis with types
+
+    // Individual compiler phases for educational purposes
+    tokenize, // Lexical analysis
+    parse, // Syntax analysis
+    
+    // Token patterns and utilities for visualization and educational tools
+    getTokenPatterns, // Function to get token patterns
+    getWhitespaceRegex, // Function to get whitespace regex
+    TOKEN_PATTERNS, // Direct access to token patterns
+    WHITESPACE_REGEX // Direct access to whitespace regex
+  };
+}
