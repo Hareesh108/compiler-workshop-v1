@@ -263,7 +263,6 @@ const emptyReturn = () => {
   state.ui = {
     sourceCodeElement: document.getElementById("source-code"),
     tokensListElement: document.getElementById("tokens-list"),
-    astTreeElement: document.getElementById("ast-tree"),
     scrubber: document.getElementById("scrubber"),
     progressInfo: document.getElementById("progress-info"),
     exampleSelect: document.getElementById("example-select"),
@@ -308,7 +307,7 @@ function setupEventHandlers(state) {
   state.ui.runCustomButton.addEventListener("click", () => {
     const customCode = state.ui.customInput.value.trim();
     if (!customCode) {
-      alert("Please enter some code to tokenize");
+      showToast("Please enter some code to tokenize");
       return;
     }
 
@@ -329,7 +328,7 @@ function loadExample(state, exampleKey) {
 }
 
 /**
- * Run tokenization and parsing on the current source code
+ * Run tokenization on the current source code
  *
  * @param {Object} state - Visualization state
  */
@@ -337,7 +336,6 @@ function runTokenization(state) {
   try {
     // Clear previous displays
     state.ui.tokensListElement.innerHTML = "";
-    state.ui.astTreeElement.innerHTML = "";
 
     // Run the tokenizer simulation
     const tokenResult = runTokenizerSimulation(state.sourceCode);
@@ -345,27 +343,23 @@ function runTokenization(state) {
     // Get the actual tokens from the original tokenizer
     state.tokens = getTokens(state.sourceCode);
 
-    // Run the parser simulation with these tokens
-    const parseResult = runParseSimulation(state.tokens);
-
     // Store visualization steps
     state.visualizationSteps = tokenResult.steps;
-    state.astSteps = parseResult.steps;
-    state.ast = parseResult.ast;
+    state.astSteps = [];  // We've removed the AST visualizer
+    state.ast = null;     // No AST to store
 
-    // Calculate total steps (tokenization + parsing)
-    state.totalSteps = state.visualizationSteps.length + state.astSteps.length;
+    // Calculate total steps (tokenization only, since we removed AST)
+    state.totalSteps = state.visualizationSteps.length;
 
     // Reset UI
     state.currentStepIndex = 0;
-    // Set max to include both tokenization and parsing steps
+    // Set max to the number of tokenization steps
     state.ui.scrubber.max = Math.max(0, state.totalSteps - 1);
     state.ui.scrubber.value = 0;
 
     // Reset scroll positions
     state.ui.tokensListElement.scrollTop = 0;
     state.ui.sourceCodeElement.scrollTop = 0;
-    state.ui.astTreeElement.scrollTop = 0;
 
     // Update the visualization
     updateVisualization(state);
@@ -373,7 +367,7 @@ function runTokenization(state) {
     // Focus the scrubber
     state.ui.scrubber.focus();
   } catch (error) {
-    alert(`Compilation error: ${error.message}`);
+    showToast(`Compilation error: ${error.message}`);
     console.error(error);
   }
 }
@@ -385,9 +379,6 @@ function runTokenization(state) {
  */
 function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
-
-  // Calculate which phase we're in (tokenizing or parsing) and the appropriate step index
-  const tokenStepsCount = state.visualizationSteps.length;
   const totalSteps = state.totalSteps;
 
   // Skip the initial step to avoid requiring two drags to see anything
@@ -397,41 +388,14 @@ function updateVisualization(state) {
   const percentage = Math.round((progress / (totalSteps - 1)) * 100);
   state.ui.progressInfo.textContent = `${percentage}%`;
 
-  if (progress < tokenStepsCount) {
-    // We're in the tokenization phase
-    state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
+  // We're only in the tokenization phase now
+  state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
 
-    // Update tokens list
-    updateTokensDisplay(state);
+  // Update tokens list
+  updateTokensDisplay(state);
 
-    // Update source code highlighting
-    updateSourceCodeHighlighting(state);
-
-    // No AST display yet
-    state.ui.astTreeElement.innerHTML = "";
-  } else {
-    // We're in the parsing phase
-    const astStepIndex = progress - tokenStepsCount;
-
-    // For parsing steps, we've finished tokenization, so show all tokens
-    state.currentStepIndex = tokenStepsCount; // Set to max tokens
-
-    // Update tokens list with all tokens
-    updateTokensDisplay(state, true);
-
-    // Update AST tree based on current parsing step
-    updateAstDisplay(state, astStepIndex);
-
-    // Scroll to the AST container if this is the first parsing step
-    if (astStepIndex === 0) {
-      const scrollContainer = document.querySelector(
-        ".visualization-scroll-container",
-      );
-      if (scrollContainer) {
-        scrollContainer.scrollLeft = scrollContainer.scrollWidth;
-      }
-    }
-  }
+  // Update source code highlighting
+  updateSourceCodeHighlighting(state);
 }
 
 /**
@@ -479,9 +443,8 @@ function updateSourceCodeHighlighting(state) {
  * Update the tokens display based on current step
  *
  * @param {Object} state - Visualization state
- * @param {boolean} astMode - Whether we're in AST visualization mode
  */
-function updateTokensDisplay(state, astMode = false) {
+function updateTokensDisplay(state) {
   // Clear tokens list
   state.ui.tokensListElement.innerHTML = "";
 
@@ -489,124 +452,36 @@ function updateTokensDisplay(state, astMode = false) {
     return;
   }
 
-  // Get tokens up to current step
-  let tokens = [];
-  let currentTokenIndex = -1;
+  // In tokenization mode, show tokens up to current step
+  const step = state.visualizationSteps[state.currentStepIndex - 1];
+  const tokens = step.currentTokens || [];
+  const currentTokenIndex = tokens.length - 1;
 
-  if (astMode) {
-    // In AST mode, show all tokens
-    tokens = state.tokens;
+  // Variable to keep track of the current token element
+  let currentTokenElement = null;
 
-    // Get the current AST step
-    const astStepIndex =
-      parseInt(state.ui.scrubber.value, 10) - state.visualizationSteps.length;
-    if (astStepIndex >= 0 && astStepIndex < state.astSteps.length) {
-      // Get the tokens referenced by current AST step
-      const astStep = state.astSteps[astStepIndex];
+  // Add tokens to display
+  tokens.forEach((token, index) => {
+    const tokenElement = createTokenDisplay(token);
 
-      // Get the directly referenced tokens plus any peek tokens
-      let referencedTokens = astStep.tokensUsed || [];
-
-      // Handle special case for peeking
-      const isPeekStep =
-        astStep.type.includes("Peek") || astStep.type === "exprStart";
-      if (isPeekStep && astStep.node && astStep.node.nextToken) {
-        // Add the peeked token to referenced tokens
-        const nextTokenValue = astStep.node.nextToken;
-        const nextTokenIndex = state.tokens.findIndex(
-          (t) =>
-            t.value === nextTokenValue && t.position >= astStep.tokenPosition,
-        );
-
-        if (nextTokenIndex >= 0) {
-          referencedTokens = [
-            ...referencedTokens,
-            state.tokens[nextTokenIndex],
-          ];
-        }
-      }
-
-      // Track the first referenced token element to scroll to
-      let firstReferencedTokenElement = null;
-
-      // Add tokens to display
-      tokens.forEach((token, index) => {
-        const tokenElement = createTokenDisplay(token);
-
-        // Check if this token is referenced in the current AST step
-        const isReferenced = referencedTokens.some((refToken) => {
-          if (!refToken) return false;
-          // Match by position and type if available, otherwise try to match by value
-          return (
-            (refToken.position === token.position &&
-              refToken.type === token.type) ||
-            (refToken.value === token.value &&
-              token.position >= astStep.tokenPosition)
-          );
-        });
-
-        if (isReferenced) {
-          // Highlight tokens that are referenced in the current AST step
-          tokenElement.classList.add("token-highlighted");
-          tokenElement.classList.add("token-referenced");
-
-          // Track the first referenced token
-          if (!firstReferencedTokenElement) {
-            firstReferencedTokenElement = tokenElement;
-          }
-        }
-
-        state.ui.tokensListElement.appendChild(tokenElement);
-      });
-
-      // Scroll the first referenced token into view if it exists
-      setTimeout(() => {
-        if (firstReferencedTokenElement) {
-          scrollIntoViewIfNeeded(
-            firstReferencedTokenElement,
-            state.ui.tokensListElement,
-          );
-        }
-      }, 0);
+    if (index === currentTokenIndex && step.type === "token") {
+      // Highlight the most recently added token
+      tokenElement.classList.add("token-current");
+      currentTokenElement = tokenElement;
     } else {
-      // Just show all tokens without highlighting
-      tokens.forEach((token) => {
-        const tokenElement = createTokenDisplay(token);
-        state.ui.tokensListElement.appendChild(tokenElement);
-      });
+      // Normal highlighting for previous tokens
+      tokenElement.classList.add("token-highlighted");
     }
-  } else {
-    // In tokenization mode, show tokens up to current step
-    const step = state.visualizationSteps[state.currentStepIndex - 1];
-    tokens = step.currentTokens || [];
-    currentTokenIndex = tokens.length - 1;
 
-    // Variable to keep track of the current token element
-    let currentTokenElement = null;
+    state.ui.tokensListElement.appendChild(tokenElement);
+  });
 
-    // Add tokens to display
-    tokens.forEach((token, index) => {
-      const tokenElement = createTokenDisplay(token);
-
-      if (index === currentTokenIndex && step.type === "token") {
-        // Highlight the most recently added token
-        tokenElement.classList.add("token-current");
-        currentTokenElement = tokenElement;
-      } else {
-        // Normal highlighting for previous tokens
-        tokenElement.classList.add("token-highlighted");
-      }
-
-      state.ui.tokensListElement.appendChild(tokenElement);
-    });
-
-    // Scroll the current token into view if it's not already visible
-    setTimeout(() => {
-      if (currentTokenElement) {
-        scrollIntoViewIfNeeded(currentTokenElement, state.ui.tokensListElement);
-      }
-    }, 0);
-  }
+  // Scroll the current token into view if it's not already visible
+  setTimeout(() => {
+    if (currentTokenElement) {
+      scrollIntoViewIfNeeded(currentTokenElement, state.ui.tokensListElement);
+    }
+  }, 0);
 }
 
 /**
@@ -1848,6 +1723,59 @@ function scrollIntoViewIfNeeded(element, container) {
       inline: "nearest",
     });
   }
+}
+
+/**
+ * Shows a toast notification
+ * 
+ * @param {string} message - The message to display in the toast
+ */
+function showToast(message) {
+  // Create toast container if it doesn't exist
+  let toastContainer = document.querySelector('.toast-container');
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    document.body.appendChild(toastContainer);
+  }
+  
+  // Create the toast element
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  
+  // Create the message element
+  const msgElement = document.createElement('div');
+  msgElement.className = 'toast-message';
+  msgElement.textContent = message;
+  toast.appendChild(msgElement);
+  
+  // Create close button
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.setAttribute('aria-label', 'Close notification');
+  toast.appendChild(closeBtn);
+  
+  // Add toast to container
+  toastContainer.appendChild(toast);
+  
+  // Handle close button click
+  closeBtn.addEventListener('click', () => {
+    toast.remove();
+  });
+  
+  // Handle Escape key to dismiss toast
+  document.addEventListener('keydown', function escapeHandler(e) {
+    if (e.key === 'Escape') {
+      toast.remove();
+      document.removeEventListener('keydown', escapeHandler);
+    }
+  });
+  
+  // Auto remove after 3 seconds
+  setTimeout(() => {
+    toast.remove();
+  }, 3000);
 }
 
 // Initialize the visualizer when the page loads
