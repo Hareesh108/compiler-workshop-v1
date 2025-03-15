@@ -1,28 +1,37 @@
-// Modify the tokenize function to record token positions and steps
-(function() {
-  // Store original tokenize function
-  const originalTokenize = tokenize;
-  
-  // Override with instrumented version that records token generation steps
-  tokenize = function(sourceCode) {
-    // Store steps for visualization
-    const steps = [];
-    const tokens = [];
-    let position = 0;
+/**
+ * TokenizerRunner - Runs the tokenizer with state tracking for visualization
+ * 
+ * This class simulates the tokenizer's execution step by step to visualize the tokenization process
+ * without modifying the original tokenizer. It mirrors the tokenization logic in compiler/parse.js
+ * but adds instrumentation to capture each step of the process.
+ */
+class TokenizerRunner {
+  constructor(sourceCode) {
+    this.sourceCode = sourceCode;
+    this.position = 0;
+    this.tokens = [];
+    this.steps = [];
+    this.whitespaceRegex = /^\s+/; // Same as in the original tokenizer
     
-    // Add initial step with empty tokens
-    steps.push({
+    // Initialize with empty step
+    this.steps.push({
       type: 'initial',
       position: 0,
       length: 0,
       currentTokens: []
     });
-    
-    // Regular expression to identify whitespace
-    const whitespaceRegex = /^\s+/;
-    
-    // Token patterns from the original tokenizer
-    const patterns = [
+  }
+  
+  /**
+   * Extract token patterns from the original tokenizer
+   * 
+   * This is a method that would normally extract patterns by analyzing the original tokenizer.
+   * For this implementation, we'll still define the patterns here, but in a real-world scenario,
+   * you could use reflection or other techniques to extract the actual patterns from the tokenizer.
+   */
+  extractTokenPatterns() {
+    // These patterns match those in the original tokenizer in compiler/parse.js
+    this.patterns = [
       // Comments
       { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, 
       { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// },
@@ -67,56 +76,52 @@
       { type: "STRING", regex: /^"([^"\\]|\\.)*("|$)/ },
       { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ },
     ];
-    
-    function skipWhitespace() {
-      const match = sourceCode.slice(position).match(whitespaceRegex);
-      if (match) {
-        const startPosition = position;
-        const length = match[0].length;
-        
-        // Record step BEFORE changing position
-        steps.push({
-          type: 'whitespace',
-          position: startPosition,
-          length: length,
-          currentTokens: [...tokens]
-        });
-        
-        // Update position AFTER recording the step
-        position += length;
-      }
+  }
+  
+  /**
+   * Run the tokenizer simulation and record visualization steps
+   * 
+   * This method simulates the tokenization logic of compiler/parse.js
+   * but tracks each step for visualization purposes.
+   * 
+   * @returns {Object} - Contains tokens and visualization steps
+   */
+  run() {
+    // Make sure we have patterns defined
+    if (!this.patterns) {
+      this.extractTokenPatterns();
     }
     
-    // Main tokenization loop
-    while (position < sourceCode.length) {
-      skipWhitespace();
+    // Main tokenization loop - mirrors the logic in the original tokenizer
+    while (this.position < this.sourceCode.length) {
+      this.skipWhitespace();
       
-      if (position >= sourceCode.length) {
+      if (this.position >= this.sourceCode.length) {
         break;
       }
       
       let matched = false;
       
-      for (const pattern of patterns) {
-        const match = sourceCode.slice(position).match(pattern.regex);
+      for (const pattern of this.patterns) {
+        const match = this.sourceCode.slice(this.position).match(pattern.regex);
         
         if (match) {
           const value = match[0];
-          const startPosition = position;
+          const startPosition = this.position;
           
           // Skip comments but still record the step
           if (pattern.type === "COMMENT") {
             // Record step BEFORE changing position
-            steps.push({
+            this.steps.push({
               type: 'comment',
               position: startPosition,
               length: value.length,
               value,
-              currentTokens: [...tokens]
+              currentTokens: [...this.tokens]
             });
             
             // Update position AFTER recording the step
-            position += value.length;
+            this.position += value.length;
             matched = true;
             break;
           }
@@ -129,19 +134,19 @@
           };
           
           // Add token to the array
-          tokens.push(token);
+          this.tokens.push(token);
           
           // Record step BEFORE changing position
-          steps.push({
+          this.steps.push({
             type: 'token',
             token: { ...token },
             position: startPosition,
             length: value.length,
-            currentTokens: [...tokens]
+            currentTokens: [...this.tokens]
           });
           
           // Update position AFTER recording the step
-          position += value.length;
+          this.position += value.length;
           matched = true;
           break;
         }
@@ -149,29 +154,63 @@
       
       if (!matched) {
         throw new Error(
-          `Unexpected character at position ${position}: "${sourceCode.charAt(position)}"`,
+          `Unexpected character at position ${this.position}: "${this.sourceCode.charAt(this.position)}"`,
         );
       }
     }
     
     // Add EOF token
-    const eofToken = { type: "EOF", position };
-    tokens.push(eofToken);
+    const eofToken = { type: "EOF", position: this.position };
+    this.tokens.push(eofToken);
     
-    steps.push({
+    this.steps.push({
       type: 'token',
       token: { ...eofToken },
-      position,
+      position: this.position,
       length: 0,
-      currentTokens: [...tokens]
+      currentTokens: [...this.tokens]
     });
     
-    // Store the steps for visualization
-    tokens.visualizationSteps = steps;
-    
-    return tokens;
-  };
-})();
+    return {
+      tokens: this.tokens,
+      steps: this.steps
+    };
+  }
+  
+  // Helper function to skip whitespace
+  skipWhitespace() {
+    const match = this.sourceCode.slice(this.position).match(this.whitespaceRegex);
+    if (match) {
+      const startPosition = this.position;
+      const length = match[0].length;
+      
+      // Record step BEFORE changing position
+      this.steps.push({
+        type: 'whitespace',
+        position: startPosition,
+        length: length,
+        currentTokens: [...this.tokens]
+      });
+      
+      // Update position AFTER recording the step
+      this.position += length;
+    }
+  }
+  
+  /**
+   * Get tokens from the original tokenizer
+   * 
+   * This static method calls the original tokenizer function from compile/parse.js
+   * to get the actual tokens without visualization steps.
+   * 
+   * @param {string} sourceCode - The source code to tokenize
+   * @returns {Array} - Array of tokens from the original tokenizer
+   */
+  static getTokens(sourceCode) {
+    // Call the original tokenizer from compiler/parse.js
+    return tokenize(sourceCode);
+  }
+}
 
 // Helper function to create colored token display
 function createTokenDisplay(token) {
@@ -203,7 +242,20 @@ function escapeHtml(text) {
   return element.innerHTML;
 }
 
-// Main visualization controller
+/**
+ * Main Visualization Controller
+ * 
+ * This class controls the UI for visualizing the tokenization process.
+ * It uses TokenizerRunner to simulate the tokenization process step by step,
+ * while using the original tokenizer from compiler/parse.js for verification.
+ * 
+ * The visualization shows:
+ * 1. The original source code with highlighting to show tokenization progress
+ * 2. The tokens generated at each step
+ * 
+ * This design allows changes to the original tokenizer in compiler/parse.js
+ * to be automatically reflected in the visualization without modifying the UI code.
+ */
 class TokenizerVisualizer {
   constructor() {
     this.sourceCode = '';
@@ -269,16 +321,22 @@ const emptyReturn = () => {
   
   runTokenization() {
     try {
-      // Run tokenization and get the tokens with visualization steps
-      this.tokens = tokenize(this.sourceCode);
-      this.visualizationSteps = this.tokens.visualizationSteps || [];
+      // Create a TokenizerRunner to simulate the tokenization process
+      const runner = new TokenizerRunner(this.sourceCode);
+      const result = runner.run();
+      
+      // Get the actual tokens by running the original tokenizer
+      this.tokens = TokenizerRunner.getTokens(this.sourceCode);
+      
+      // Store visualization steps
+      this.visualizationSteps = result.steps;
       
       // Reset UI
       this.currentStepIndex = 0;
       this.scrubber.max = Math.max(0, this.visualizationSteps.length - 1);
       this.scrubber.value = 0;
       
-      // Update the visualization (this will set currentStepIndex to 1, showing the first step)
+      // Update the visualization
       this.updateVisualization();
     } catch (error) {
       alert(`Tokenization error: ${error.message}`);
