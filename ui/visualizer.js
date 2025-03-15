@@ -370,6 +370,9 @@ const emptyReturn = () => {
 
       // Update the visualization
       this.updateVisualization();
+      
+      // Focus the scrubber
+      this.scrubber.focus();
     } catch (error) {
       alert(`Tokenization error: ${error.message}`);
       console.error(error);

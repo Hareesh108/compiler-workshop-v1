@@ -120,6 +120,43 @@ h2 {
 #scrubber {
   flex: 1;
   height: 10px;
+  outline: none; /* Remove the default focus outline */
+  -webkit-appearance: none;
+  appearance: none;
+  background: #d3d3d3;
+  border-radius: 5px;
+}
+
+/* Style for the scrubber thumb (the dot in the middle) */
+#scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%; 
+  background: #ccc;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+}
+
+#scrubber::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ccc;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+}
+
+/* Blue thumb when focused */
+#scrubber:focus::-webkit-slider-thumb {
+  background: #3498db;
+}
+
+#scrubber:focus::-moz-range-thumb {
+  background: #3498db;
 }
 
 #progress-info {
