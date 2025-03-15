@@ -882,7 +882,6 @@ function createTypeFromAnnotation(state, annotation) {
       // Convert string type names to our internal type system
       switch (annotation.valueType) {
         case "number":
-          // Treat all numeric types the same for simplicity
           return primitive(Types.Number);
 
         case "string":
@@ -893,10 +892,6 @@ function createTypeFromAnnotation(state, annotation) {
 
         case "void":
           return primitive(Types.Void);
-
-        case "any":
-          // For 'any', use a fresh type variable
-          return newTypeVar(state);
 
         default:
           // For custom/unknown types, use a type variable

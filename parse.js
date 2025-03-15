@@ -52,7 +52,6 @@ function tokenize(sourceCode) {
     { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
     { type: "TYPE_BOOLEAN", regex: /^boolean\b/ }, // TypeScript's boolean type
     { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
-    { type: "TYPE_ANY", regex: /^any\b/ }, // Any type
     { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
     { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
     { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
@@ -730,12 +729,9 @@ function parse(tokens) {
       };
     }
 
-    if (check("TYPE_ANY")) {
-      next();
-      return {
-        type: "TypeAnnotation",
-        valueType: "any"
-      };
+    // Explicitly reject 'any' type
+    if (check("IDENTIFIER") && peek().value === "any") {
+      throw new Error(`'any' type is not supported at position ${peek().position}`);
     }
 
     if (check("TYPE_VOID") || check("TYPE_UNIT")) {
@@ -787,6 +783,11 @@ function parse(tokens) {
         }
 
         if (check("IDENTIFIER")) {
+          // Check for 'any' type before consuming it
+          if (peek().value === "any") {
+            throw new Error(`'any' type is not supported at position ${peek().position}`);
+          }
+          
           const baseType = next().value;
           expect("GREATER_THAN", "Expected > to close Array type");
 
