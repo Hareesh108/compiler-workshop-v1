@@ -34,11 +34,13 @@ function tokenize(sourceCode) {
   let position = 0; // Current position in the source code
 
   // Regular expression to identify whitespace (spaces, tabs, newlines)
-  const whitespaceRegex = /^\s+/;
+  // Expose it as a module constant for reuse in other tools
+  const WHITESPACE_REGEX = /^\s+/;
 
   // Token patterns in order of precedence
   // ORDER MATTERS: Keywords must come before identifiers!
-  const patterns = [
+  // Expose these as a module constant for reuse in other tools
+  const TOKEN_PATTERNS = [
     // Comments
     { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
     { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
@@ -89,7 +91,7 @@ function tokenize(sourceCode) {
    * Whitespace doesn't affect the program's meaning, so we ignore it
    */
   function skipWhitespace() {
-    const match = sourceCode.slice(position).match(whitespaceRegex);
+    const match = sourceCode.slice(position).match(WHITESPACE_REGEX);
     if (match) {
       position += match[0].length;
     }
@@ -108,7 +110,7 @@ function tokenize(sourceCode) {
     let matched = false;
 
     // Try to match the source code against each token pattern
-    for (const pattern of patterns) {
+    for (const pattern of TOKEN_PATTERNS) {
       // We use .slice() to get the remaining source code from our current position
       // Then try to match it against the pattern's regex
       const match = sourceCode.slice(position).match(pattern.regex);
@@ -1124,6 +1126,55 @@ function compileWithTypes(sourceCode) {
   return compileAndAnalyze(sourceCode, { skipTypeCheck: false });
 }
 
+// Export the constants for token patterns and whitespace regex at module level
+// so they can be used by the visualization tools
+const WHITESPACE_REGEX = /^\s+/;
+const TOKEN_PATTERNS = [
+  // Comments
+  { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
+  { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
+
+  // Keywords
+  { type: "CONST", regex: /^const\b/ }, // const keyword
+  { type: "RETURN", regex: /^return\b/ }, // return keyword
+
+  // Type annotation keywords
+  { type: "TYPE_NUMBER", regex: /^number\b/ }, // TypeScript's number type
+  { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
+  { type: "TYPE_BOOLEAN", regex: /^boolean\b/ }, // TypeScript's boolean type
+  { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
+  { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
+  { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
+  { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
+  { type: "TYPE_BOOL", regex: /^Bool\b/ }, // Our Bool type
+  { type: "TYPE_UNIT", regex: /^Unit\b/ }, // Our Unit type
+
+  // Operators and punctuation
+  { type: "ARROW", regex: /^=>/ }, // => for arrow functions
+  { type: "TERNARY", regex: /^\?/ }, // ? for ternary expressions
+  { type: "COLON", regex: /^:/ }, // : for ternary expressions and type annotations
+  { type: "EQUAL", regex: /^=/ }, // = for assignments
+  { type: "PIPE", regex: /^\|/ }, // | for union types
+  { type: "LESS_THAN", regex: /^</ }, // < for generic types
+  { type: "GREATER_THAN", regex: /^>/ }, // > for generic types
+  { type: "PLUS", regex: /^\+/ }, // + for addition
+  { type: "LEFT_PAREN", regex: /^\(/ }, // (
+  { type: "RIGHT_PAREN", regex: /^\)/ }, // )
+  { type: "LEFT_CURLY", regex: /^\{/ }, // {
+  { type: "RIGHT_CURLY", regex: /^\}/ }, // }
+  { type: "LEFT_BRACKET", regex: /^\[/ }, // [
+  { type: "RIGHT_BRACKET", regex: /^\]/ }, // ]
+  { type: "COMMA", regex: /^,/ }, // , for function arguments
+  { type: "SEMICOLON", regex: /^;/ }, // ; for statement endings
+
+  // Literals and identifiers
+  { type: "BOOLEAN", regex: /^(true|false)\b/ }, // Boolean literals
+  { type: "IDENTIFIER", regex: /^[a-zA-Z_][a-zA-Z0-9_]*/ }, // Variable and function names
+  { type: "NUMBER", regex: /^[0-9]+(\.[0-9]+)?/ }, // Numeric literals
+  { type: "STRING", regex: /^"([^"\\]|\\.)*("|$)/ }, // String literals with double quotes
+  { type: "STRING", regex: /^'([^'\\]|\\.)*(\'|$)/ }, // String literals with single quotes
+];
+
 // Export the main functions and individual components for teaching purposes
 module.exports = {
   // Main compilation functions
@@ -1134,4 +1185,8 @@ module.exports = {
   // Individual compiler phases for educational purposes
   tokenize, // Lexical analysis
   parse, // Syntax analysis
+  
+  // Token patterns and utilities for visualization and educational tools
+  TOKEN_PATTERNS,
+  WHITESPACE_REGEX
 };

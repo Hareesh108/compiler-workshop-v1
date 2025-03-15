@@ -44,7 +44,16 @@
     </div>
   </div>
 
-  <script src="compiler/parse.js"></script>
+  <!-- Bridge script to expose compiler constants to the browser -->
+  <script>
+    // This will hold compiler constants for the UI to use
+    window.CompilerModule = {};
+  </script>
+  
+  <!-- Modified version of parse.js that exposes patterns to the browser -->
+  <script src="ui/compiler-bridge.js"></script>
+  
+  <!-- Visualization script -->
   <script src="ui/visualizer.js"></script>
 </body>
 </html>
