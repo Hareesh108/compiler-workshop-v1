@@ -91,6 +91,11 @@ h2 {
   color: white;
 }
 
+.text-whitespace {
+  background-color: #aaaaaa;
+  color: white;
+}
+
 .controls {
   margin: 20px 0;
   display: flex;

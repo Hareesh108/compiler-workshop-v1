@@ -183,7 +183,7 @@ function createTokenDisplay(token) {
 }
 
 // Helper function to highlight source code
-function highlightCode(sourceCode, currentPosition, currentLength) {
+function highlightCode(sourceCode, currentPosition, currentLength, highlightClass = 'text-current') {
   // Convert source code to HTML with spans for highlighting
   const beforeCurrent = sourceCode.substring(0, currentPosition);
   const currentText = sourceCode.substring(currentPosition, currentPosition + currentLength);
@@ -191,7 +191,7 @@ function highlightCode(sourceCode, currentPosition, currentLength) {
   
   return [
     beforeCurrent.length > 0 ? `<span class="text-consumed">${escapeHtml(beforeCurrent)}</span>` : '',
-    currentText.length > 0 ? `<span class="text-current">${escapeHtml(currentText)}</span>` : '',
+    currentText.length > 0 ? `<span class="${highlightClass}">${escapeHtml(currentText)}</span>` : '',
     afterCurrent
   ].join('');
 }
@@ -275,10 +275,10 @@ const emptyReturn = () => {
       
       // Reset UI
       this.currentStepIndex = 0;
-      this.scrubber.max = this.visualizationSteps.length;
+      this.scrubber.max = Math.max(0, this.visualizationSteps.length - 1);
       this.scrubber.value = 0;
       
-      // Update the visualization
+      // Update the visualization (this will set currentStepIndex to 1, showing the first step)
       this.updateVisualization();
     } catch (error) {
       alert(`Tokenization error: ${error.message}`);
@@ -288,11 +288,12 @@ const emptyReturn = () => {
   
   updateVisualization() {
     const scrubberValue = parseInt(this.scrubber.value, 10);
-    const progress = Math.min(scrubberValue, this.visualizationSteps.length);
-    this.currentStepIndex = progress;
+    // Skip the initial step to avoid requiring two drags to see anything
+    const progress = Math.min(scrubberValue, this.visualizationSteps.length - 1);
+    this.currentStepIndex = progress + 1; // Add 1 to skip the initial step
     
     // Update progress info
-    const percentage = Math.round((progress / this.visualizationSteps.length) * 100);
+    const percentage = Math.round((progress / (this.visualizationSteps.length - 1)) * 100);
     this.progressInfo.textContent = `${percentage}%`;
     
     // Update tokens list first
@@ -313,11 +314,16 @@ const emptyReturn = () => {
       const currentPosition = currentStep.position;
       const currentLength = currentStep.length || 0;
       
+      // Determine highlight class based on the step type
+      // Use green highlight for token steps, gray for whitespace/comments
+      const highlightClass = currentStep.type === 'token' ? 'text-current' : 'text-whitespace';
+      
       // Apply highlighting - highlight the current token
       this.sourceCodeElement.innerHTML = highlightCode(
         this.sourceCode, 
         currentPosition, 
-        currentLength
+        currentLength,
+        highlightClass
       );
     }
   }
