@@ -26,7 +26,7 @@
  * Types supported by our type system
  *
  * Our language has the following basic types:
- * - Int: Integer numbers (e.g., 1, 2, 3)
+ * - Number: Integer numbers (e.g., 1, 2, 3)
  * - Float: Floating-point numbers (e.g., 1.5, 2.0)
  * - Bool: Boolean values (true, false)
  * - String: Text strings (e.g., "hello")
@@ -34,13 +34,13 @@
  * - Unknown: Used during inference when type is not yet determined
  */
 const Types = {
-  Int: "Int",
+  Number: "Number",
   Float: "Float",
   Bool: "Bool",
   String: "String",
   Function: "Function",
   Unknown: "Unknown",
-  Unit: "Unit",
+  Void: "Void",
   Array: "Array",
 };
 
@@ -67,13 +67,13 @@ function createArrayType(elementType) {
 }
 
 /**
- * Create a new concrete type
+ * Create a new primitive type like String, Bool, Number.
  *
  * @param {string} type - The name of the type
  * @returns {object} - A concrete type object
  */
-function concreteType(type) {
-  return { kind: "ConcreteType", type };
+function primitive(type) {
+  return { kind: "PrimitiveType", type };
 }
 
 /**
@@ -139,7 +139,7 @@ function typeToString(type) {
 
   if (type.kind === "TypeVariable") {
     return type.name;
-  } else if (type.kind === "ConcreteType") {
+  } else if (type.kind === "PrimitiveType") {
     return type.type;
   } else if (type.kind === "FunctionType") {
     // Parenthesize parameter type if it's a function to avoid ambiguity
@@ -198,7 +198,8 @@ function newTypeVar(state, name = null) {
 }
 
 /**
- * Create a fresh instance of a type
+ * Create a fresh instance of a type, where the shape of the new type is the same
+ * as the old one, but all the type variables have been replaced with fresh ones.
  *
  * This is used for polymorphic types, where each use of a type
  * should be independent. For example, if a function has type
@@ -315,7 +316,7 @@ function unify(state, t1, t2, node) {
     unify(state, t1.elementType, t2.elementType, node);
   }
   // Case 4: Both are concrete types
-  else if (t1.kind === "ConcreteType" && t2.kind === "ConcreteType") {
+  else if (t1.kind === "PrimitiveType" && t2.kind === "PrimitiveType") {
     // Check if they're the same type
     if (t1.type !== t2.type) {
       reportError(
@@ -481,9 +482,9 @@ function inferTypeCallExpression(state, node) {
       const returnType = newTypeVar(state);
 
       if (node.arguments.length === 0) {
-        // For zero arguments, create a Unit -> returnType function
+        // For zero arguments, create a Void -> returnType function
         const funcType = createFunctionType(
-          concreteType(Types.Unit),
+          primitive(Types.Void),
           returnType,
         );
         unify(state, fnType, funcType, node);
@@ -546,7 +547,7 @@ function inferTypeCallExpression(state, node) {
  * @returns {object} - Inferred type
  */
 function inferTypeProgram(state, node) {
-  let resultType = concreteType(Types.Unknown);
+  let resultType = primitive(Types.Unknown);
 
   for (const statement of node.body) {
     resultType = infer(state, statement);
@@ -568,9 +569,9 @@ function inferTypeProgram(state, node) {
 function inferTypeNumericLiteral(state, node) {
   // Check if the value has a decimal point
   if (Number.isInteger(node.value)) {
-    return concreteType(Types.Int);
+    return primitive(Types.Number);
   } else {
-    return concreteType(Types.Float);
+    return primitive(Types.Float);
   }
 }
 
@@ -582,7 +583,7 @@ function inferTypeNumericLiteral(state, node) {
  * @returns {object} - Inferred type
  */
 function inferTypeStringLiteral(state, node) {
-  return concreteType(Types.String);
+  return primitive(Types.String);
 }
 
 /**
@@ -593,7 +594,7 @@ function inferTypeStringLiteral(state, node) {
  * @returns {object} - Inferred type
  */
 function inferTypeBooleanLiteral(state, node) {
-  return concreteType(Types.Bool);
+  return primitive(Types.Bool);
 }
 
 /**
@@ -621,35 +622,35 @@ function inferTypeBinaryExpression(state, node) {
   switch (node.operator) {
     case "+": {
       // Check if both operands are strings for concatenation
-      const leftIsString = compress(leftType).kind === "ConcreteType" &&
+      const leftIsString = compress(leftType).kind === "PrimitiveType" &&
                           compress(leftType).type === Types.String;
-      const rightIsString = compress(rightType).kind === "ConcreteType" &&
+      const rightIsString = compress(rightType).kind === "PrimitiveType" &&
                            compress(rightType).type === Types.String;
 
       if (leftIsString || rightIsString) {
         // String concatenation - both operands must be strings
-        unify(state, leftType, concreteType(Types.String), node.left);
-        unify(state, rightType, concreteType(Types.String), node.right);
-        return concreteType(Types.String);
+        unify(state, leftType, primitive(Types.String), node.left);
+        unify(state, rightType, primitive(Types.String), node.right);
+        return primitive(Types.String);
       } else {
         // Numeric addition
         const numericType = newTypeVar(state);
         unify(state, leftType, numericType, node.left);
         unify(state, rightType, numericType, node.right);
 
-        // Try to unify with Int or Float
+        // Try to unify with Number or Float
         try {
-          unify(state, numericType, concreteType(Types.Int), node);
-          return concreteType(Types.Int);
+          unify(state, numericType, primitive(Types.Number), node);
+          return primitive(Types.Number);
         } catch (e) {
           try {
             unify(
               state,
               numericType,
-              concreteType(Types.Float),
+              primitive(Types.Float),
               node,
             );
-            return concreteType(Types.Float);
+            return primitive(Types.Float);
           } catch (e) {
             reportError(
               state.errors,
@@ -682,7 +683,7 @@ function inferTernary(state, node) {
   // condition ? thenBranch : elseBranch
 
   const conditionType = infer(state, node.condition);
-  unify(state, conditionType, concreteType(Types.Bool), node.condition);
+  unify(state, conditionType, primitive(Types.Bool), node.condition);
 
   const thenBranchType = infer(state, node.thenBranch);
   const elseBranchType = infer(state, node.elseBranch);
@@ -735,7 +736,7 @@ function inferTypeArrowFunction(state, node) {
 
   if (Array.isArray(node.body)) {
     // For block bodies, the return type is the type of the return statement,
-    // or Unit if there is no return statement
+    // or Void if there is no return statement
     const returnStatement = node.body.find(
       (stmt) => stmt.type === "ReturnStatement",
     );
@@ -744,7 +745,7 @@ function inferTypeArrowFunction(state, node) {
       if (returnStatement.argument) {
         inferredReturnType = infer(state, returnStatement.argument);
       } else {
-        inferredReturnType = concreteType(Types.Unit);
+        inferredReturnType = primitive(Types.Void);
       }
 
       // Process all statements for side effects and type checking
@@ -758,7 +759,7 @@ function inferTypeArrowFunction(state, node) {
       for (const statement of node.body) {
         infer(state, statement);
       }
-      inferredReturnType = concreteType(Types.Unit);
+      inferredReturnType = primitive(Types.Void);
     }
   } else {
     // For expression bodies, the return type is the type of the expression
@@ -778,7 +779,7 @@ function inferTypeArrowFunction(state, node) {
   let functionType;
   if (paramTypes.length === 0) {
     functionType = createFunctionType(
-      concreteType(Types.Unit),
+      primitive(Types.Void),
       returnType,
     );
   } else {
@@ -835,7 +836,7 @@ function inferTypeArrayLiteral(state, node) {
  *
  * For array indexing like arr[index], we:
  * 1. Ensure the object is an array type
- * 2. Ensure the index is a numeric type (Int)
+ * 2. Ensure the index is a numeric type (Number)
  * 3. Return the element type of the array
  *
  * @param {object} state - Current type inference state
@@ -849,8 +850,8 @@ function inferTypeMemberExpression(state, node) {
   // Get the type of the index
   let indexType = infer(state, node.index);
 
-  // The index should be an Int
-  unify(state, indexType, concreteType(Types.Int), node.index);
+  // The index should be a Number
+  unify(state, indexType, primitive(Types.Number), node.index);
 
   // If object is not already an array type, create a type variable for the element type
   // and unify the object with an array of that element type
@@ -881,21 +882,17 @@ function createTypeFromAnnotation(state, annotation) {
       // Convert string type names to our internal type system
       switch (annotation.valueType) {
         case "number":
-        case "Float":
-        case "Int":
           // Treat all numeric types the same for simplicity
-          return concreteType(Types.Int);
+          return primitive(Types.Number);
 
         case "string":
-          return concreteType(Types.String);
+          return primitive(Types.String);
 
         case "boolean":
-        case "Bool":
-          return concreteType(Types.Bool);
+          return primitive(Types.Bool);
 
         case "void":
-        case "Unit":
-          return concreteType(Types.Unit);
+          return primitive(Types.Void);
 
         case "any":
           // For 'any', use a fresh type variable
@@ -976,7 +973,7 @@ function inferTypeConstDeclaration(state, node) {
  */
 function inferTypeReturnStatement(state, node) {
   if (!node.argument) {
-    return concreteType(Types.Unit);
+    return primitive(Types.Void);
   }
 
   return infer(state, node.argument);

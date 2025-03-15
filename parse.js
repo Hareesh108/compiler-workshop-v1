@@ -42,11 +42,11 @@ function tokenize(sourceCode) {
     // Comments
     { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
     { type: "COMMENT", regex: /^\/\*[\s\S]*?\*\// }, // Multi-line comments
-    
+
     // Keywords
     { type: "CONST", regex: /^const\b/ }, // const keyword
     { type: "RETURN", regex: /^return\b/ }, // return keyword
-    
+
     // Type annotation keywords (must come before other identifiers)
     { type: "TYPE_NUMBER", regex: /^number\b/ }, // TypeScript's number type
     { type: "TYPE_STRING", regex: /^string\b/ }, // TypeScript's string type
@@ -54,7 +54,7 @@ function tokenize(sourceCode) {
     { type: "TYPE_ARRAY", regex: /^Array\b/ }, // Array type
     { type: "TYPE_ANY", regex: /^any\b/ }, // Any type
     { type: "TYPE_VOID", regex: /^void\b/ }, // Void type
-    { type: "TYPE_INT", regex: /^Int\b/ }, // Our Int type
+    { type: "TYPE_INT", regex: /^Void\b/ }, // Our Void type
     { type: "TYPE_FLOAT", regex: /^Float\b/ }, // Our Float type
     { type: "TYPE_BOOL", regex: /^Bool\b/ }, // Our Bool type
     { type: "TYPE_UNIT", regex: /^Unit\b/ }, // Our Unit type
@@ -123,7 +123,7 @@ function tokenize(sourceCode) {
           matched = true;
           break;
         }
-        
+
         // Create a token object with:
         // - type: the category of token (e.g., "IDENTIFIER", "NUMBER")
         // - value: the actual text from the source code
@@ -304,7 +304,7 @@ function parse(tokens) {
 
     // Get the variable name (identifier)
     const id = expect("IDENTIFIER", "Expected identifier after const").value;
-    
+
     // Check for optional type annotation
     let typeAnnotation = null;
     if (check("COLON")) {
@@ -417,7 +417,7 @@ function parse(tokens) {
    * Handles both formats:
    * 1. Parameter => expression
    * 2. (param1, param2) => { statements }
-   * 
+   *
    * Also handles TypeScript-style type annotations:
    * 1. (param: Type) => expression
    * 2. (param): ReturnType => expression
@@ -436,7 +436,7 @@ function parse(tokens) {
       // Case: No parameters - () => ...
       if (check("RIGHT_PAREN")) {
         next(); // consume ')'
-        
+
         // Check for return type annotation
         let returnTypeAnnotation = null;
         if (check("COLON")) {
@@ -496,26 +496,26 @@ function parse(tokens) {
         while (true) {
           // Get parameter name
           const paramName = expect("IDENTIFIER", "Expected parameter name").value;
-          
+
           // Check for parameter type annotation
           let paramTypeAnnotation = null;
           if (check("COLON")) {
             paramTypeAnnotation = parseTypeAnnotation();
           }
-          
+
           // Create the parameter node
           const param = {
             type: "Identifier",
             name: paramName,
             typeAnnotation: paramTypeAnnotation
           };
-          
+
           params.push(param);
 
           // If we hit the closing parenthesis
           if (check("RIGHT_PAREN")) {
             next(); // consume ')'
-            
+
             // Check for return type annotation
             let returnTypeAnnotation = null;
             if (check("COLON")) {
@@ -526,12 +526,12 @@ function parse(tokens) {
             if (check("ARROW")) {
               next(); // consume '=>'
               isArrowFunction = true;
-              
+
               // Store the return type annotation for later
               if (returnTypeAnnotation) {
                 returnTypeAnnotation = returnTypeAnnotation;
               }
-              
+
               break;
             } else {
               // Not an arrow function, restore position
@@ -554,7 +554,7 @@ function parse(tokens) {
         if (isArrowFunction) {
           let body;
           let returnTypeAnnotation = null;
-          
+
           // Check for return type annotation
           if (check("COLON")) {
             returnTypeAnnotation = parseTypeAnnotation();
@@ -609,7 +609,7 @@ function parse(tokens) {
 
   /**
    * Parse array literals
-   * 
+   *
    * @returns {Object} - ArrayLiteral node with elements
    */
   function parseArrayLiteral() {
@@ -649,52 +649,52 @@ function parse(tokens) {
       position,
     };
   }
-  
+
   /**
    * Parse array member access expression (e.g. arr[0])
-   * 
+   *
    * @param {Object} object - The array object being accessed
    * @returns {Object} - MemberExpression node
    */
   function parseMemberExpression(object) {
     next(); // consume LEFT_BRACKET
-    
+
     // Parse the index expression
     const index = parseExpression();
-    
+
     expect("RIGHT_BRACKET", "Expected closing bracket for array access");
-    
+
     const node = {
       type: "MemberExpression",
       object,
       index,
       position: object.position,
     };
-    
+
     // Handle chained access like arr[0][1]
     if (check("LEFT_BRACKET")) {
       return parseMemberExpression(node);
     }
-    
+
     // Handle function call on array element like arr[0]()
     if (check("LEFT_PAREN")) {
       return parseCallExpression(node);
     }
-    
+
     return node;
   }
 
   /**
    * Parse a type annotation
-   * 
+   *
    * This parses TypeScript-style type annotations like `: number`, `: string[]`,
    * or `: Array<number>`.
-   * 
+   *
    * @returns {Object} - A type annotation node
    */
   function parseTypeAnnotation() {
     next(); // consume COLON
-    
+
     // Parse the type
     if (check("TYPE_NUMBER") || check("TYPE_FLOAT")) {
       const token = next().type;
@@ -704,15 +704,15 @@ function parse(tokens) {
         valueType: typeName
       };
     }
-    
+
     if (check("TYPE_INT")) {
       next();
       return {
         type: "TypeAnnotation",
-        valueType: "Int"
+        valueType: "Void"
       };
     }
-    
+
     if (check("TYPE_STRING")) {
       next();
       return {
@@ -720,7 +720,7 @@ function parse(tokens) {
         valueType: "string"
       };
     }
-    
+
     if (check("TYPE_BOOLEAN") || check("TYPE_BOOL")) {
       const token = next().type;
       const typeName = token === "TYPE_BOOLEAN" ? "boolean" : "Bool";
@@ -729,7 +729,7 @@ function parse(tokens) {
         valueType: typeName
       };
     }
-    
+
     if (check("TYPE_ANY")) {
       next();
       return {
@@ -737,7 +737,7 @@ function parse(tokens) {
         valueType: "any"
       };
     }
-    
+
     if (check("TYPE_VOID") || check("TYPE_UNIT")) {
       const token = next().type;
       const typeName = token === "TYPE_VOID" ? "void" : "Unit";
@@ -746,80 +746,80 @@ function parse(tokens) {
         valueType: typeName
       };
     }
-    
+
     // Array<T> syntax
     if (check("TYPE_ARRAY")) {
       next(); // consume TYPE_ARRAY
-      
+
       // Check for generic parameter
       if (check("LESS_THAN")) {
         next(); // consume "<"
-        
+
         // Parse the element type between the < >
         if (check("TYPE_NUMBER")) {
           next(); // consume TYPE_NUMBER
           expect("GREATER_THAN", "Expected > to close Array type");
-          
+
           return {
             type: "ArrayTypeAnnotation",
             elementType: { type: "TypeAnnotation", valueType: "number" }
           };
         }
-        
+
         if (check("TYPE_STRING")) {
           next(); // consume TYPE_STRING
           expect("GREATER_THAN", "Expected > to close Array type");
-          
+
           return {
             type: "ArrayTypeAnnotation",
             elementType: { type: "TypeAnnotation", valueType: "string" }
           };
         }
-        
+
         if (check("TYPE_BOOLEAN")) {
           next(); // consume TYPE_BOOLEAN
           expect("GREATER_THAN", "Expected > to close Array type");
-          
+
           return {
             type: "ArrayTypeAnnotation",
             elementType: { type: "TypeAnnotation", valueType: "boolean" }
           };
         }
-        
+
         if (check("IDENTIFIER")) {
           const baseType = next().value;
           expect("GREATER_THAN", "Expected > to close Array type");
-          
+
           return {
             type: "ArrayTypeAnnotation",
             elementType: { type: "TypeAnnotation", valueType: baseType }
           };
         }
-        
+
         // More complex element type
         const elementType = parseTypeAnnotation();
         expect("GREATER_THAN", "Expected > to close Array type");
-        
+
         return {
           type: "ArrayTypeAnnotation",
           elementType
         };
       }
-      
+
       // Just "Array" without generic parameter
       return {
         type: "TypeAnnotation",
         valueType: "Array"
       };
     }
-    
+
     // T[] syntax
     if (check("IDENTIFIER")) {
       const baseType = {
         type: "TypeAnnotation",
         valueType: next().value
       };
-      
+
       // Check for array bracket notation
       if (check("LEFT_BRACKET")) {
         next(); // consume LEFT_BRACKET
@@ -829,63 +829,63 @@ function parse(tokens) {
           elementType: baseType
         };
       }
-      
+
       return baseType;
     }
-    
+
     // Function type syntax: (param: Type) => ReturnType
     if (check("LEFT_PAREN")) {
       const paramTypes = parseParameterTypeList();
       expect("ARROW", "Expected => in function type");
       const returnType = parseTypeAnnotation();
-      
+
       return {
         type: "FunctionTypeAnnotation",
         paramTypes,
         returnType
       };
     }
-    
+
     throw new Error(`Expected type annotation at position ${peek().position}`);
   }
-  
+
   /**
    * Parse a list of parameter types for function type annotations
-   * 
+   *
    * @returns {Array} - Array of parameter type objects
    */
   function parseParameterTypeList() {
     next(); // consume LEFT_PAREN
     const params = [];
-    
+
     // Empty parameter list: ()
     if (check("RIGHT_PAREN")) {
       next();
       return params;
     }
-    
+
     // Parse parameters with types
     do {
       const paramName = expect("IDENTIFIER", "Expected parameter name").value;
       expect("COLON", "Expected : after parameter name in type annotation");
       const paramType = parseTypeAnnotation();
-      
+
       params.push({
         name: paramName,
         typeAnnotation: paramType
       });
-      
+
       if (check("COMMA")) {
         next(); // consume COMMA
       } else {
         break;
       }
     } while (!check("RIGHT_PAREN") && !check("EOF"));
-    
+
     expect("RIGHT_PAREN", "Expected closing parenthesis in parameter type list");
     return params;
   }
-  
+
   /**
    * Parse primary expressions - the most basic building blocks like:
    * - identifiers (variable names)
@@ -899,7 +899,7 @@ function parse(tokens) {
     if (check("LEFT_BRACKET")) {
       return parseArrayLiteral();
     }
-    
+
     const token = next();
 
     switch (token.type) {
@@ -915,7 +915,7 @@ function parse(tokens) {
         if (check("LEFT_PAREN")) {
           return parseCallExpression(identifierNode);
         }
-        
+
         // Check if this identifier is being used with array indexing
         if (check("LEFT_BRACKET")) {
           return parseMemberExpression(identifierNode);
@@ -961,7 +961,7 @@ function parse(tokens) {
         if (check("LEFT_PAREN")) {
           return parseCallExpression(parenExpr);
         }
-        
+
         // Check if this parenthesized expression has array indexing
         if (check("LEFT_BRACKET")) {
           return parseMemberExpression(parenExpr);

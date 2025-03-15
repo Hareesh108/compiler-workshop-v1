@@ -38,7 +38,7 @@ The type checker uses a simplified implementation of the Hindley-Milner algorith
 
 2. **Constraint Collection**: As the algorithm traverses the AST, it collects constraints on what these type variables can be.
 
-   - For literals, their type is known immediately (e.g., numbers are `Int`)
+   - For literals, their type is known immediately (e.g., numbers are `Void`)
    - For operations, constraints are derived from the operation (e.g., `+` requires numeric operands)
    - For variables, constraints come from their declarations and uses
 
@@ -61,30 +61,30 @@ The type checker uses a simplified implementation of the Hindley-Milner algorith
 
 ```javascript
 // Inferred types shown as comments
-const x = 5; // x: Int
+const x = 5; // x: Void
 const y = "hello"; // y: String
 const id = (x) => x; // id: α -> α (polymorphic)
-const five = id(5); // five: Int
+const five = id(5); // five: Void
 const greeting = id("hi"); // greeting: String
 
 // With type annotations
-const z: number = 10; // z: Int
+const z: number = 10; // z: Void
 const name: string = "world"; // name: String
-const add = (x: number, y: number): number => x + y; // add: Int -> Int -> Int
+const add = (x: number, y: number): number => x + y; // add: Void -> Void -> Void
 
 // Array examples
-const nums = [1, 2, 3]; // nums: Array<Int>
+const nums = [1, 2, 3]; // nums: Array<Void>
 const emptyArray = []; // emptyArray: Array<α> (polymorphic)
-const matrix = [[1, 2], [3, 4]]; // matrix: Array<Array<Int>>
+const matrix = [[1, 2], [3, 4]]; // matrix: Array<Array<Void>>
 
 // Arrays with type annotations
 const strings: Array<string> = ["a", "b", "c"]; // strings: Array<String>
-const emptyNums: Array<number> = []; // emptyNums: Array<Int>
+const emptyNums: Array<number> = []; // emptyNums: Array<Void>
 
 // Polymorphic array function
 const first = (arr) => arr[0]; // first: Array<α> -> α (polymorphic)
-const firstNum = first(nums); // firstNum: Int
-const firstRow = first(matrix); // firstRow: Array<Int>
+const firstNum = first(nums); // firstNum: Void
+const firstRow = first(matrix); // firstRow: Array<Void>
 ```
 
 In this example, the `id` function is polymorphic - it can work with any type, and the specific type used in each call is inferred correctly.
@@ -107,7 +107,7 @@ The compiler supports optional TypeScript-style type annotations that integrate 
 
 1. **Variable Annotations**: `const x: number = 5;`
 2. **Parameter Annotations**: `(x: number, y: string) => {...}`
-3. **Return Type Annotations**: `(): number => 42` 
+3. **Return Type Annotations**: `(): number => 42`
 4. **Array Type Annotations**: `Array<number>` for arrays of numbers
 5. **Partial Annotations**: You can annotate some parts and let the compiler infer the rest
 
