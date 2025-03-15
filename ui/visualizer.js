@@ -1266,7 +1266,36 @@ function updateAstDisplay(state, astStepIndex) {
     Array.from(completedNodesMap.entries()).forEach(([key, node]) => {
       if (node._isComplete === true && node._inProgress !== true) {
         // Add only fully completed nodes
-        cleanMap.set(key, { ...node, _purged: true });
+        const completedNode = { ...node, _purged: true };
+        cleanMap.set(key, completedNode);
+        
+        // Special handling for nested expressions in const declarations
+        if (node.type === "ConstDeclaration" && node.init) {
+          // Define deep completion marking helper
+          const deepMarkComplete = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            
+            // Mark this node as complete
+            obj._isComplete = true;
+            obj._inProgress = false;
+            
+            // For ternary operations, recursively mark all parts
+            if (obj.type === 'ConditionalExpression') {
+              if (obj.test) deepMarkComplete(obj.test);
+              if (obj.consequent) deepMarkComplete(obj.consequent);  
+              if (obj.alternate) deepMarkComplete(obj.alternate);
+            }
+            
+            // For binary operations, recursively mark both sides
+            if (obj.type === 'BinaryExpression') {
+              if (obj.left) deepMarkComplete(obj.left);
+              if (obj.right) deepMarkComplete(obj.right);
+            }
+          };
+          
+          // Apply deep completion marking to init node
+          deepMarkComplete(completedNode.init);
+        }
       }
     });
 
@@ -1395,6 +1424,12 @@ function createAstNodeElement(node, forceHighlight = false) {
   const detailsElement = document.createElement("div");
   detailsElement.className = "ast-node-details";
 
+  // DEBUG: Add a data attribute showing the node's type and structure
+  nodeElement.setAttribute('data-node-type', filteredNode.type);
+  if (filteredNode.type === 'ConstDeclaration' && filteredNode.init) {
+    nodeElement.setAttribute('data-init-type', filteredNode.init.type || 'none');
+  }
+
   // We no longer have a Program root node to skip
   switch (filteredNode.type) {
     case "ConstDeclaration":
@@ -1406,12 +1441,121 @@ function createAstNodeElement(node, forceHighlight = false) {
       } else if (node.partial) {
         detailsElement.textContent = "(incomplete)";
       }
+      
+      // SPECIAL HANDLING FOR TERNARY EXPRESSIONS IN CONST DECLARATIONS
+      if (filteredNode.init && filteredNode.init.type === "ConditionalExpression") {
+        // Mark the init as already rendered to avoid duplicate rendering
+        filteredNode.init._isAlreadyRendered = true;
+        
+        // Create child container for the ternary expression
+        const ternaryContainer = document.createElement("div");
+        ternaryContainer.className = "ast-node-children";
+        const ternaryLabel = document.createElement("div");
+        ternaryLabel.className = "ast-node-child-label";
+        ternaryLabel.textContent = "initialized to:";
+        ternaryContainer.appendChild(ternaryLabel);
+        
+        // Create the ternary expression node
+        const ternaryNode = document.createElement("div");
+        ternaryNode.className = "ast-node ast-node-highlighted";
+        
+        // Add the node type
+        const ternaryTypeElement = document.createElement("span");
+        ternaryTypeElement.className = "ast-node-type";
+        ternaryTypeElement.textContent = "ConditionalExpression";
+        ternaryNode.appendChild(ternaryTypeElement);
+        
+        // Add details
+        const ternaryDetails = document.createElement("div");
+        ternaryDetails.className = "ast-node-details";
+        ternaryDetails.textContent = "condition ? then : else";
+        ternaryNode.appendChild(ternaryDetails);
+        
+        // Mark all child nodes as complete too
+        if (filteredNode.init.test) filteredNode.init.test._isComplete = true;
+        if (filteredNode.init.consequent) filteredNode.init.consequent._isComplete = true;
+        if (filteredNode.init.alternate) filteredNode.init.alternate._isComplete = true;
+        
+        // Add the condition
+        if (filteredNode.init.test) {
+          const condContainer = document.createElement("div");
+          condContainer.className = "ast-node-children";
+          const condLabel = document.createElement("div");
+          condLabel.className = "ast-node-child-label";
+          condLabel.textContent = "condition:";
+          condContainer.appendChild(condLabel);
+          
+          // Pass a clone to avoid modifying the original
+          const condElement = createAstNodeElement({
+            ...filteredNode.init.test,
+            _isComplete: true,
+            _inProgress: false
+          }, false);
+          
+          condContainer.appendChild(condElement);
+          ternaryNode.appendChild(condContainer);
+        }
+        
+        // Add the 'then' part
+        if (filteredNode.init.consequent) {
+          const thenContainer = document.createElement("div");
+          thenContainer.className = "ast-node-children";
+          const thenLabel = document.createElement("div");
+          thenLabel.className = "ast-node-child-label";
+          thenLabel.textContent = "then:";
+          thenContainer.appendChild(thenLabel);
+          
+          // Pass a clone to avoid modifying the original
+          const thenElement = createAstNodeElement({
+            ...filteredNode.init.consequent,
+            _isComplete: true,
+            _inProgress: false
+          }, false);
+          
+          thenContainer.appendChild(thenElement);
+          ternaryNode.appendChild(thenContainer);
+        }
+        
+        // Add the 'else' part
+        if (filteredNode.init.alternate) {
+          const elseContainer = document.createElement("div");
+          elseContainer.className = "ast-node-children";
+          const elseLabel = document.createElement("div");
+          elseLabel.className = "ast-node-child-label";
+          elseLabel.textContent = "else:";
+          elseContainer.appendChild(elseLabel);
+          
+          // Pass a clone to avoid modifying the original
+          const elseElement = createAstNodeElement({
+            ...filteredNode.init.alternate,
+            _isComplete: true,
+            _inProgress: false
+          }, false);
+          
+          elseContainer.appendChild(elseElement);
+          ternaryNode.appendChild(elseContainer);
+        }
+        
+        // Add the ternary node to the container
+        ternaryContainer.appendChild(ternaryNode);
+        
+        // Add to main node
+        nodeElement.appendChild(ternaryContainer);
+      }
       break;
 
     case "ReturnStatement":
       detailsElement.textContent = filteredNode.argument
         ? "with value"
         : "empty return";
+      break;
+        
+    case "ConditionalExpression":
+      detailsElement.textContent = "condition ? then : else";
+      break;
+        
+    case "BinaryExpression":
+      detailsElement.textContent = `${filteredNode.operator || '+'} operation`;
       break;
 
     case "Identifier":
@@ -1478,10 +1622,38 @@ function createAstNodeElement(node, forceHighlight = false) {
 
   // Handle special cases for other child relationships - these should be nested
   // Only show init if we're not at the final step OR the node is complete
-  if (filteredNode.init && typeof filteredNode.init === "object") {
+  // Skip for const declarations with ternary expressions (we've already handled them)
+  if (filteredNode.init && typeof filteredNode.init === "object" && 
+     !(filteredNode.type === "ConstDeclaration" && filteredNode.init.type === "ConditionalExpression")) {
     // Mark child nodes with the same completion status as parent
     if (node._isComplete) {
-      filteredNode.init._isComplete = true;
+      // Deep completion marking - mark all nodes in this subtree as complete
+      const deepMarkComplete = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        
+        // Mark this node as complete
+        obj._isComplete = true;
+        
+        // For ternary operations, mark all parts
+        if (obj.type === 'ConditionalExpression') {
+          deepMarkComplete(obj.test);
+          deepMarkComplete(obj.consequent);
+          deepMarkComplete(obj.alternate);
+        }
+        
+        // For binary operations, mark both sides
+        if (obj.type === 'BinaryExpression') {
+          deepMarkComplete(obj.left);
+          deepMarkComplete(obj.right);
+        }
+        
+        // Mark any other nested expressions
+        if (obj.init) deepMarkComplete(obj.init);
+        if (obj.argument) deepMarkComplete(obj.argument);
+      };
+      
+      // Apply deep completion marking to this init node
+      deepMarkComplete(filteredNode.init);
     }
 
     const childrenElement = document.createElement("div");
@@ -1499,7 +1671,33 @@ function createAstNodeElement(node, forceHighlight = false) {
   if (filteredNode.argument && typeof filteredNode.argument === "object") {
     // Mark child nodes with the same completion status as parent
     if (node._isComplete) {
-      filteredNode.argument._isComplete = true;
+      // Apply the same deep completion marking to the argument node
+      const deepMarkComplete = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        
+        // Mark this node as complete
+        obj._isComplete = true;
+        
+        // For ternary operations, mark all parts
+        if (obj.type === 'ConditionalExpression') {
+          deepMarkComplete(obj.test);
+          deepMarkComplete(obj.consequent);
+          deepMarkComplete(obj.alternate);
+        }
+        
+        // For binary operations, mark both sides
+        if (obj.type === 'BinaryExpression') {
+          deepMarkComplete(obj.left);
+          deepMarkComplete(obj.right);
+        }
+        
+        // Mark any other nested expressions
+        if (obj.init) deepMarkComplete(obj.init);
+        if (obj.argument) deepMarkComplete(obj.argument);
+      };
+      
+      // Apply deep completion marking
+      deepMarkComplete(filteredNode.argument);
     }
 
     const childrenElement = document.createElement("div");
@@ -1522,6 +1720,7 @@ function createAstNodeElement(node, forceHighlight = false) {
   ) {
     // Mark child nodes with the same completion status as parent
     if (node._isComplete) {
+      // Just mark the ID as complete - it doesn't have nested expressions
       filteredNode.id._isComplete = true;
     }
 
@@ -1544,6 +1743,7 @@ function createAstNodeElement(node, forceHighlight = false) {
   ) {
     // Mark child nodes with the same completion status as parent
     if (node._isComplete) {
+      // Just mark the type annotation as complete - it generally doesn't have nested expressions
       filteredNode.typeAnnotation._isComplete = true;
     }
 
@@ -1560,6 +1760,63 @@ function createAstNodeElement(node, forceHighlight = false) {
     );
     childrenElement.appendChild(childElement);
     nodeElement.appendChild(childrenElement);
+  }
+  
+  // Handle standalone ConditionalExpression nodes (not inside const declarations)
+  if (filteredNode.type === "ConditionalExpression" && 
+      !filteredNode._isAlreadyRendered) {
+      
+    // First, mark that we've rendered this ternary to avoid duplicates
+    filteredNode._isAlreadyRendered = true;
+    
+    // Mark all parts as complete if parent is complete
+    if (node._isComplete) {
+      if (filteredNode.test) filteredNode.test._isComplete = true;
+      if (filteredNode.consequent) filteredNode.consequent._isComplete = true;
+      if (filteredNode.alternate) filteredNode.alternate._isComplete = true;
+    }
+    
+    // Add condition part
+    if (filteredNode.test && typeof filteredNode.test === "object") {
+      const condContainer = document.createElement("div");
+      condContainer.className = "ast-node-children";
+      const condLabel = document.createElement("div");
+      condLabel.className = "ast-node-child-label";
+      condLabel.textContent = "condition:";
+      condContainer.appendChild(condLabel);
+      
+      const condElement = createAstNodeElement(filteredNode.test, false);
+      condContainer.appendChild(condElement);
+      nodeElement.appendChild(condContainer);
+    }
+    
+    // Add 'then' part
+    if (filteredNode.consequent && typeof filteredNode.consequent === "object") {
+      const thenContainer = document.createElement("div");
+      thenContainer.className = "ast-node-children";
+      const thenLabel = document.createElement("div");
+      thenLabel.className = "ast-node-child-label";
+      thenLabel.textContent = "then:";
+      thenContainer.appendChild(thenLabel);
+      
+      const thenElement = createAstNodeElement(filteredNode.consequent, false);
+      thenContainer.appendChild(thenElement);
+      nodeElement.appendChild(thenContainer);
+    }
+    
+    // Add 'else' part
+    if (filteredNode.alternate && typeof filteredNode.alternate === "object") {
+      const elseContainer = document.createElement("div");
+      elseContainer.className = "ast-node-children";
+      const elseLabel = document.createElement("div");
+      elseLabel.className = "ast-node-child-label";
+      elseLabel.textContent = "else:";
+      elseContainer.appendChild(elseLabel);
+      
+      const elseElement = createAstNodeElement(filteredNode.alternate, false);
+      elseContainer.appendChild(elseElement);
+      nodeElement.appendChild(elseContainer);
+    }
   }
 
   return nodeElement;
