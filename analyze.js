@@ -146,31 +146,23 @@ function reportError(errors, message, node) {
  * - Block statements
  *
  * @param {object} state - Current analyzer state
- * @returns {object} - Updated analyzer state with new current scope
  */
 function enterScope(state) {
   const previousScope = state.currentScope;
   // Create a new scope with the current scope as parent
   const newScope = createScope(previousScope);
 
-  return {
-    ...state,
-    currentScope: newScope,
-    previousScope,
-  };
+  state.previousScope = previousScope;
+  state.currentScope = newScope;
 }
 
 /**
  * Restore the previous scope when leaving a lexical environment
  *
  * @param {object} state - Current analyzer state
- * @returns {object} - Updated analyzer state with restored scope
  */
 function exitScope(state) {
-  return {
-    ...state,
-    currentScope: state.previousScope,
-  };
+  state.currentScope = state.previousScope;
 }
 
 /**
@@ -181,61 +173,71 @@ function exitScope(state) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - AST node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitNode(state, node) {
   // Skip null/undefined nodes and non-objects
   if (!node || typeof node !== "object") {
-    return state;
+    return;
   }
 
   // Dispatch to appropriate visitor function based on node type
   switch (node.type) {
     // Program is the root of the AST
     case "Program":
-      return visitProgram(state, node);
+      visitProgram(state, node);
+      break;
 
     // Variable declarations
     case "ConstDeclaration":
-      return visitConstDeclaration(state, node);
+      visitConstDeclaration(state, node);
+      break;
 
     // Functions
     case "ArrowFunctionExpression":
-      return visitArrowFunction(state, node);
+      visitArrowFunction(state, node);
+      break;
 
     // Variable references
     case "Identifier":
-      return visitIdentifier(state, node);
+      visitIdentifier(state, node);
+      break;
 
     // Statements
     case "ReturnStatement":
-      return visitReturnStatement(state, node);
+      visitReturnStatement(state, node);
+      break;
 
     // Expressions
     case "BinaryExpression":
-      return visitBinaryExpression(state, node);
+      visitBinaryExpression(state, node);
+      break;
 
     case "ConditionalExpression":
-      return visitConditionalExpression(state, node);
+      visitConditionalExpression(state, node);
+      break;
 
     case "CallExpression":
-      return visitCallExpression(state, node);
+      visitCallExpression(state, node);
+      break;
       
     case "ArrayLiteral":
-      return visitArrayLiteral(state, node);
+      visitArrayLiteral(state, node);
+      break;
       
     case "MemberExpression":
-      return visitMemberExpression(state, node);
+      visitMemberExpression(state, node);
+      break;
 
     // Literals don't need name resolution
     case "StringLiteral":
     case "NumericLiteral":
     case "BooleanLiteral":
-      return state;
+      break;
 
     default:
       // For unknown node types, traverse children generically
-      return visitChildren(state, node);
+      visitChildren(state, node);
+      break;
   }
 }
 
@@ -247,14 +249,11 @@ function visitNode(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - Node whose children should be visited
- * @returns {object} - Updated analyzer state
  */
 function visitChildren(state, node) {
   if (!node || typeof node !== "object") {
-    return state;
+    return;
   }
-
-  let currentState = state;
 
   // Iterate through all properties of the node
   for (const key in node) {
@@ -264,17 +263,15 @@ function visitChildren(state, node) {
       // Handle arrays (e.g., body of a block)
       if (Array.isArray(child)) {
         for (const item of child) {
-          currentState = visitNode(currentState, item);
+          visitNode(state, item);
         }
       }
       // Handle nested objects (other AST nodes)
       else if (child && typeof child === "object") {
-        currentState = visitNode(currentState, child);
+        visitNode(state, child);
       }
     }
   }
-
-  return currentState;
 }
 
 /**
@@ -285,17 +282,12 @@ function visitChildren(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - Program node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitProgram(state, node) {
   // Visit each statement in the program body
-  let currentState = state;
-
   for (const statement of node.body) {
-    currentState = visitNode(currentState, statement);
+    visitNode(state, statement);
   }
-
-  return currentState;
 }
 
 /**
@@ -307,18 +299,15 @@ function visitProgram(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - CallExpression node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitCallExpression(state, node) {
   // Visit the function being called
-  let currentState = visitNode(state, node.callee);
+  visitNode(state, node.callee);
 
   // Visit each argument passed to the function
   for (const arg of node.arguments) {
-    currentState = visitNode(currentState, arg);
+    visitNode(state, arg);
   }
-
-  return currentState;
 }
 
 /**
@@ -331,18 +320,16 @@ function visitCallExpression(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - ConstDeclaration node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitConstDeclaration(state, node) {
   // Get the variable name
   const name = node.id.name;
-  let currentState = state;
 
   // Try to declare it in the current scope
-  if (!declareInScope(currentState.currentScope, name, node)) {
+  if (!declareInScope(state.currentScope, name, node)) {
     // If declaration fails, report a duplicate declaration error
     reportError(
-      currentState.errors,
+      state.errors,
       `Duplicate declaration of '${name}'`,
       node,
     );
@@ -355,7 +342,7 @@ function visitConstDeclaration(state, node) {
   }
 
   // Process the initializer expression
-  return visitNode(currentState, node.init);
+  visitNode(state, node.init);
 }
 
 /**
@@ -369,19 +356,18 @@ function visitConstDeclaration(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - ArrowFunctionExpression node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitArrowFunction(state, node) {
   // Create a new scope for the function body
-  let currentState = enterScope(state);
+  enterScope(state);
 
   // Add each parameter to the function scope
   for (const param of node.params) {
     const name = param.name;
     // Check for duplicate parameter names
-    if (!declareInScope(currentState.currentScope, name, param)) {
+    if (!declareInScope(state.currentScope, name, param)) {
       reportError(
-        currentState.errors,
+        state.errors,
         `Duplicate parameter name '${name}'`,
         param,
       );
@@ -398,15 +384,15 @@ function visitArrowFunction(state, node) {
   if (Array.isArray(node.body)) {
     // Block body with statements: () => { statements }
     for (const statement of node.body) {
-      currentState = visitNode(currentState, statement);
+      visitNode(state, statement);
     }
   } else {
     // Expression body: () => expression
-    currentState = visitNode(currentState, node.body);
+    visitNode(state, node.body);
   }
 
   // Restore the previous scope when leaving the function
-  return exitScope(currentState);
+  exitScope(state);
 }
 
 /**
@@ -418,28 +404,24 @@ function visitArrowFunction(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - Identifier node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitIdentifier(state, node) {
   // Skip built-in literals (true, false)
   if (node.name === "true" || node.name === "false") {
-    return state;
+    return;
   }
 
   const name = node.name;
-  let currentState = state;
 
   // Check if the variable is declared in any accessible scope
-  if (!isDeclaredInScope(currentState.currentScope, name)) {
+  if (!isDeclaredInScope(state.currentScope, name)) {
     // If not, report an undeclared variable error
     reportError(
-      currentState.errors,
+      state.errors,
       `Reference to undeclared variable '${name}'`,
       node,
     );
   }
-
-  return currentState;
 }
 
 /**
@@ -449,14 +431,12 @@ function visitIdentifier(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - ReturnStatement node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitReturnStatement(state, node) {
   // Process the return value if it exists
   if (node.argument) {
-    return visitNode(state, node.argument);
+    visitNode(state, node.argument);
   }
-  return state;
 }
 
 /**
@@ -466,12 +446,11 @@ function visitReturnStatement(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - BinaryExpression node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitBinaryExpression(state, node) {
   // Visit both operands
-  let currentState = visitNode(state, node.left);
-  return visitNode(currentState, node.right);
+  visitNode(state, node.left);
+  visitNode(state, node.right);
 }
 
 /**
@@ -481,15 +460,14 @@ function visitBinaryExpression(state, node) {
  *
  * @param {object} state - Current analyzer state
  * @param {object} node - ConditionalExpression node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitConditionalExpression(state, node) {
   // Visit the condition expression
-  let currentState = visitNode(state, node.test);
+  visitNode(state, node.test);
 
   // Visit both branches
-  currentState = visitNode(currentState, node.consequent);
-  return visitNode(currentState, node.alternate);
+  visitNode(state, node.consequent);
+  visitNode(state, node.alternate);
 }
 
 /**
@@ -499,17 +477,12 @@ function visitConditionalExpression(state, node) {
  * 
  * @param {object} state - Current analyzer state
  * @param {object} node - ArrayLiteral node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitArrayLiteral(state, node) {
-  let currentState = state;
-
   // Visit each element in the array
   for (const element of node.elements) {
-    currentState = visitNode(currentState, element);
+    visitNode(state, element);
   }
-
-  return currentState;
 }
 
 /**
@@ -519,14 +492,13 @@ function visitArrayLiteral(state, node) {
  * 
  * @param {object} state - Current analyzer state
  * @param {object} node - MemberExpression node to visit
- * @returns {object} - Updated analyzer state
  */
 function visitMemberExpression(state, node) {
   // Visit the object being accessed
-  let currentState = visitNode(state, node.object);
+  visitNode(state, node.object);
   
   // Visit the index expression
-  return visitNode(currentState, node.index);
+  visitNode(state, node.index);
 }
 
 /**
@@ -542,19 +514,19 @@ function visitMemberExpression(state, node) {
  */
 function analyze(ast) {
   // Create initial analyzer state with global scope
-  const initialState = {
+  const state = {
     errors: [],
     currentScope: createScope(),
     previousScope: null,
   };
 
   // Start traversing the AST from the root
-  const finalState = visitNode(initialState, ast);
+  visitNode(state, ast);
 
   // Return the annotated AST and any errors found
   return {
     ast,
-    errors: finalState.errors,
+    errors: state.errors,
   };
 }
 

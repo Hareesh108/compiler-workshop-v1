@@ -359,31 +359,23 @@ function unify(state, t1, t2, node) {
  * or shadow existing ones.
  *
  * @param {object} state - Current type inference state
- * @returns {object} - Updated state with new scope
  */
 function enterScope(state) {
   const outerScope = state.currentScope;
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
 
-  return {
-    ...state,
-    currentScope: newScope,
-    previousScope: outerScope,
-  };
+  state.previousScope = outerScope;
+  state.currentScope = newScope;
 }
 
 /**
  * Exit the current scope and restore the previous one
  *
  * @param {object} state - Current type inference state
- * @returns {object} - Updated state with restored scope
  */
 function exitScope(state) {
-  return {
-    ...state,
-    currentScope: state.previousScope,
-  };
+  state.currentScope = state.previousScope;
 }
 
 /**
@@ -425,12 +417,12 @@ function checkReturnPosition(state, node, body) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - AST node to analyze
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferType(state, node) {
   // Handle null/undefined or non-object nodes
   if (!node || typeof node !== "object") {
-    return [state, freshTypeVariable()];
+    return freshTypeVariable();
   }
 
   // Dispatch based on node type
@@ -478,7 +470,7 @@ function inferType(state, node) {
 
     default:
       reportError(state.errors, `Unknown node type: ${node.type}`, node);
-      return [state, freshTypeVariable()];
+      return freshTypeVariable();
   }
 }
 
@@ -487,11 +479,11 @@ function inferType(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Call expression node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeCallExpression(state, node) {
   // Infer the type of the function being called
-  let [currentState, fnType] = inferType(state, node.callee);
+  let fnType = inferType(state, node.callee);
 
   // Handle the function call and its arguments
   if (fnType.kind !== "FunctionType") {
@@ -506,15 +498,14 @@ function inferTypeCallExpression(state, node) {
           createConcreteType(Types.Unit),
           returnType,
         );
-        unify(currentState, fnType, funcType, node);
-        return [currentState, returnType];
+        unify(state, fnType, funcType, node);
+        return returnType;
       } else {
         // For each argument, infer its type and create the function type
         let argTypes = [];
 
         for (const arg of node.arguments) {
-          const [newState, argType] = inferType(currentState, arg);
-          currentState = newState;
+          const argType = inferType(state, arg);
           argTypes.push(argType);
         }
 
@@ -524,12 +515,12 @@ function inferTypeCallExpression(state, node) {
           funcType = createFunctionType(argTypes[i], funcType);
         }
 
-        unify(currentState, fnType, funcType, node);
-        return [currentState, returnType];
+        unify(state, fnType, funcType, node);
+        return returnType;
       }
     } else {
-      reportError(currentState.errors, "Called value is not a function", node);
-      return [currentState, freshTypeVariable()];
+      reportError(state.errors, "Called value is not a function", node);
+      return freshTypeVariable();
     }
   }
 
@@ -540,24 +531,23 @@ function inferTypeCallExpression(state, node) {
   // Check each argument against the expected parameter type
   for (let i = 0; i < node.arguments.length; i++) {
     const arg = node.arguments[i];
-    const [newState, argType] = inferType(currentState, arg);
-    currentState = newState;
+    const argType = inferType(state, arg);
 
     if (currentFnType.kind !== "FunctionType") {
       reportError(
-        currentState.errors,
+        state.errors,
         `Too many arguments provided to function`,
         node,
       );
-      return [currentState, freshTypeVariable()];
+      return freshTypeVariable();
     }
 
-    unify(currentState, currentFnType.paramType, argType, arg);
+    unify(state, currentFnType.paramType, argType, arg);
     resultType = currentFnType.returnType;
     currentFnType = compress(resultType);
   }
 
-  return [currentState, resultType];
+  return resultType;
 }
 
 /**
@@ -565,22 +555,19 @@ function inferTypeCallExpression(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Program node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeProgram(state, node) {
-  let currentState = state;
   let resultType = createConcreteType(Types.Unknown);
 
   for (const statement of node.body) {
-    const [newState, statementType] = inferType(currentState, statement);
-    currentState = newState;
-    resultType = statementType;
+    resultType = inferType(state, statement);
 
     // Add type annotations to the AST
-    statement.inferredType = statementType;
+    statement.inferredType = resultType;
   }
 
-  return [currentState, resultType];
+  return resultType;
 }
 
 /**
@@ -588,14 +575,14 @@ function inferTypeProgram(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Numeric literal node
- * @returns {object} - Tuple of [state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeNumericLiteral(state, node) {
   // Check if the value has a decimal point
   if (Number.isInteger(node.value)) {
-    return [state, createConcreteType(Types.Int)];
+    return createConcreteType(Types.Int);
   } else {
-    return [state, createConcreteType(Types.Float)];
+    return createConcreteType(Types.Float);
   }
 }
 
@@ -604,10 +591,10 @@ function inferTypeNumericLiteral(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - String literal node
- * @returns {object} - Tuple of [state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeStringLiteral(state, node) {
-  return [state, createConcreteType(Types.String)];
+  return createConcreteType(Types.String);
 }
 
 /**
@@ -615,10 +602,10 @@ function inferTypeStringLiteral(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Boolean literal node
- * @returns {object} - Tuple of [state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeBooleanLiteral(state, node) {
-  return [state, createConcreteType(Types.Bool)];
+  return createConcreteType(Types.Bool);
 }
 
 /**
@@ -626,10 +613,10 @@ function inferTypeBooleanLiteral(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Identifier node
- * @returns {object} - Tuple of [state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeIdentifier(state, node) {
-  return [state, getType(state, node.name)];
+  return getType(state, node.name);
 }
 
 /**
@@ -637,12 +624,11 @@ function inferTypeIdentifier(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Binary expression node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeBinaryExpression(state, node) {
-  let [leftState, leftType] = inferType(state, node.left);
-  let [rightState, rightType] = inferType(leftState, node.right);
-  let currentState = rightState;
+  let leftType = inferType(state, node.left);
+  let rightType = inferType(state, node.right);
 
   switch (node.operator) {
     case "+": {
@@ -654,46 +640,46 @@ function inferTypeBinaryExpression(state, node) {
 
       if (leftIsString || rightIsString) {
         // String concatenation - both operands must be strings
-        unify(currentState, leftType, createConcreteType(Types.String), node.left);
-        unify(currentState, rightType, createConcreteType(Types.String), node.right);
-        return [currentState, createConcreteType(Types.String)];
+        unify(state, leftType, createConcreteType(Types.String), node.left);
+        unify(state, rightType, createConcreteType(Types.String), node.right);
+        return createConcreteType(Types.String);
       } else {
         // Numeric addition
         const numericType = freshTypeVariable();
-        unify(currentState, leftType, numericType, node.left);
-        unify(currentState, rightType, numericType, node.right);
+        unify(state, leftType, numericType, node.left);
+        unify(state, rightType, numericType, node.right);
 
         // Try to unify with Int or Float
         try {
-          unify(currentState, numericType, createConcreteType(Types.Int), node);
-          return [currentState, createConcreteType(Types.Int)];
+          unify(state, numericType, createConcreteType(Types.Int), node);
+          return createConcreteType(Types.Int);
         } catch (e) {
           try {
             unify(
-              currentState,
+              state,
               numericType,
               createConcreteType(Types.Float),
               node,
             );
-            return [currentState, createConcreteType(Types.Float)];
+            return createConcreteType(Types.Float);
           } catch (e) {
             reportError(
-              currentState.errors,
+              state.errors,
               `The '+' operator requires either numeric operands or string operands`,
               node,
             );
-            return [currentState, freshTypeVariable()];
+            return freshTypeVariable();
           }
         }
       }
     }
     default:
       reportError(
-        currentState.errors,
+        state.errors,
         `Unsupported binary operator: ${node.operator}`,
         node,
       );
-      return [currentState, freshTypeVariable()];
+      return freshTypeVariable();
   }
 }
 
@@ -702,22 +688,22 @@ function inferTypeBinaryExpression(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Conditional expression node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeConditionalExpression(state, node) {
   // condition ? thenBranch : elseBranch
 
-  let [conditionState, conditionType] = inferType(state, node.test);
-  unify(conditionState, conditionType, createConcreteType(Types.Bool), node.test);
+  let conditionType = inferType(state, node.test);
+  unify(state, conditionType, createConcreteType(Types.Bool), node.test);
 
-  let [consState, thenBranchType] = inferType(conditionState, node.thenBranch);
-  let [altState, elseBranchType] = inferType(consState, node.elseBranch);
+  let thenBranchType = inferType(state, node.thenBranch);
+  let elseBranchType = inferType(state, node.elseBranch);
 
   const answer = freshTypeVariable();
-  unify(altState, thenBranchType, answer, node.thenBranch);
-  unify(altState, elseBranchType, answer, node.elseBranch);
+  unify(state, thenBranchType, answer, node.thenBranch);
+  unify(state, elseBranchType, answer, node.elseBranch);
 
-  return [altState, answer];
+  return answer;
 }
 
 /**
@@ -725,19 +711,16 @@ function inferTypeConditionalExpression(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Arrow function node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeArrowFunction(state, node) {
-  let currentState = enterScope(state);
-  const outerNonGeneric = currentState.nonGeneric;
-  currentState = {
-    ...currentState,
-    nonGeneric: new Set(outerNonGeneric),
-  };
+  enterScope(state);
+  const outerNonGeneric = state.nonGeneric;
+  state.nonGeneric = new Set(outerNonGeneric);
 
   // Validate return statement position
   if (Array.isArray(node.body)) {
-    checkReturnPosition(currentState, node, node.body);
+    checkReturnPosition(state, node, node.body);
   }
 
   // Create types for parameters, using annotations if available
@@ -747,14 +730,14 @@ function inferTypeArrowFunction(state, node) {
 
     // If parameter has a type annotation, use it
     if (param.typeAnnotation) {
-      paramType = createTypeFromAnnotation(currentState, param.typeAnnotation);
+      paramType = createTypeFromAnnotation(state, param.typeAnnotation);
     } else {
       // Otherwise use a fresh type variable
       paramType = freshTypeVariable();
     }
 
-    currentState.currentScope[param.name] = paramType;
-    currentState.nonGeneric.add(paramType);
+    state.currentScope[param.name] = paramType;
+    state.nonGeneric.add(paramType);
     paramTypes.push(paramType);
   }
 
@@ -771,12 +754,7 @@ function inferTypeArrowFunction(state, node) {
 
     if (returnStatement) {
       if (returnStatement.argument) {
-        let [newState, argType] = inferType(
-          currentState,
-          returnStatement.argument,
-        );
-        currentState = newState;
-        inferredReturnType = argType;
+        inferredReturnType = inferType(state, returnStatement.argument);
       } else {
         inferredReturnType = createConcreteType(Types.Unit);
       }
@@ -784,29 +762,25 @@ function inferTypeArrowFunction(state, node) {
       // Process all statements for side effects and type checking
       for (const statement of node.body) {
         if (statement !== returnStatement) {
-          let [newState] = inferType(currentState, statement);
-          currentState = newState;
+          inferType(state, statement);
         }
       }
     } else {
       // No return statement, process all statements
       for (const statement of node.body) {
-        let [newState] = inferType(currentState, statement);
-        currentState = newState;
+        inferType(state, statement);
       }
       inferredReturnType = createConcreteType(Types.Unit);
     }
   } else {
     // For expression bodies, the return type is the type of the expression
-    let [newState, bodyType] = inferType(currentState, node.body);
-    currentState = newState;
-    inferredReturnType = bodyType;
+    inferredReturnType = inferType(state, node.body);
   }
 
   // If there's a return type annotation, use it and unify with inferred type
   if (node.returnTypeAnnotation) {
-    returnType = createTypeFromAnnotation(currentState, node.returnTypeAnnotation);
-    unify(currentState, inferredReturnType, returnType, node);
+    returnType = createTypeFromAnnotation(state, node.returnTypeAnnotation);
+    unify(state, inferredReturnType, returnType, node);
   } else {
     // No annotation, use the inferred type
     returnType = inferredReturnType;
@@ -827,13 +801,10 @@ function inferTypeArrowFunction(state, node) {
     );
   }
 
-  currentState = exitScope(currentState);
-  currentState = {
-    ...currentState,
-    nonGeneric: outerNonGeneric,
-  };
+  exitScope(state);
+  state.nonGeneric = outerNonGeneric;
 
-  return [currentState, functionType];
+  return functionType;
 }
 
 /**
@@ -846,33 +817,29 @@ function inferTypeArrowFunction(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Array literal node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeArrayLiteral(state, node) {
-  let currentState = state;
-
   // Handle empty array case
   if (node.elements.length === 0) {
     // For empty arrays, we create a parametric array type
     const elemType = freshTypeVariable();
-    return [currentState, createArrayType(elemType)];
+    return createArrayType(elemType);
   }
 
   // Get the type of the first element
-  let [newState, elementType] = inferType(currentState, node.elements[0]);
-  currentState = newState;
+  let elementType = inferType(state, node.elements[0]);
 
   // Unify all remaining elements with the first one to ensure homogeneity
   for (let i = 1; i < node.elements.length; i++) {
-    const [nextState, nextElemType] = inferType(currentState, node.elements[i]);
-    currentState = nextState;
+    const nextElemType = inferType(state, node.elements[i]);
 
     // Ensure all elements have the same type
-    unify(currentState, elementType, nextElemType, node.elements[i]);
+    unify(state, elementType, nextElemType, node.elements[i]);
   }
 
   // Create array type with the element type
-  return [currentState, createArrayType(elementType)];
+  return createArrayType(elementType);
 }
 
 /**
@@ -885,18 +852,17 @@ function inferTypeArrayLiteral(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Member expression node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeMemberExpression(state, node) {
   // Get the type of the object being indexed
-  let [objState, objectType] = inferType(state, node.object);
+  let objectType = inferType(state, node.object);
 
   // Get the type of the index
-  let [idxState, indexType] = inferType(objState, node.index);
-  let currentState = idxState;
+  let indexType = inferType(state, node.index);
 
   // The index should be an Int
-  unify(currentState, indexType, createConcreteType(Types.Int), node.index);
+  unify(state, indexType, createConcreteType(Types.Int), node.index);
 
   // If object is not already an array type, create a type variable for the element type
   // and unify the object with an array of that element type
@@ -904,10 +870,10 @@ function inferTypeMemberExpression(state, node) {
   const arrayType = createArrayType(elementType);
 
   // Unify the object type with the array type
-  unify(currentState, objectType, arrayType, node.object);
+  unify(state, objectType, arrayType, node.object);
 
   // The result type is the element type of the array
-  return [currentState, elementType];
+  return elementType;
 }
 
 /**
@@ -982,35 +948,35 @@ function createTypeFromAnnotation(state, annotation) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Const declaration node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeConstDeclaration(state, node) {
   // Infer type from the initializer
-  let [currentState, initType] = inferType(state, node.init);
+  let initType = inferType(state, node.init);
 
   // If there's a type annotation, create a concrete type from it
   if (node.typeAnnotation) {
-    const annotatedType = createTypeFromAnnotation(currentState, node.typeAnnotation);
+    const annotatedType = createTypeFromAnnotation(state, node.typeAnnotation);
 
     // Unify the inferred type with the annotated type
-    unify(currentState, initType, annotatedType, node);
+    unify(state, initType, annotatedType, node);
 
     // Use the annotated type
-    currentState.currentScope[node.id.name] = annotatedType;
+    state.currentScope[node.id.name] = annotatedType;
 
     // Add type information to the AST
     node.inferredType = annotatedType;
 
-    return [currentState, annotatedType];
+    return annotatedType;
   }
 
   // No annotation, use the inferred type
-  currentState.currentScope[node.id.name] = initType;
+  state.currentScope[node.id.name] = initType;
 
   // Add type information to the AST
   node.inferredType = initType;
 
-  return [currentState, initType];
+  return initType;
 }
 
 /**
@@ -1018,11 +984,11 @@ function inferTypeConstDeclaration(state, node) {
  *
  * @param {object} state - Current type inference state
  * @param {object} node - Return statement node
- * @returns {object} - Tuple of [updated state, inferred type]
+ * @returns {object} - Inferred type
  */
 function inferTypeReturnStatement(state, node) {
   if (!node.argument) {
-    return [state, createConcreteType(Types.Unit)];
+    return createConcreteType(Types.Unit);
   }
 
   return inferType(state, node.argument);
@@ -1036,18 +1002,18 @@ function inferTypeReturnStatement(state, node) {
  */
 function infer(ast) {
   // Initialize the typing environment
-  const initialState = {
+  const state = {
     errors: [],
     currentScope: {},
     previousScope: null,
     nonGeneric: new Set(),
   };
 
-  const [finalState] = inferType(initialState, ast);
+  inferType(state, ast);
 
   return {
     ast,
-    errors: finalState.errors,
+    errors: state.errors,
   };
 }
 
