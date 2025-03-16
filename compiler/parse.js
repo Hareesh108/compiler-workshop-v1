@@ -206,19 +206,17 @@ function tokenize(sourceCode, options = {}) {
 /**
  * Syntax Analysis (Parsing)
  *
- * The second phase of compilation converts tokens into an Abstract Syntax Tree (AST).
- * An AST is a tree-like data structure that represents the structure and meaning of the code.
- * Each node in the tree represents a construct in the source code.
+ * The second phase of compilation is parsing the token stream into an Abstract Syntax Tree (AST).
+ * The AST represents the structure of the code, with nodes for different syntax constructs.
  *
- * This is a recursive descent parser, which uses a set of mutually recursive functions
- * to build the AST according to the grammar rules of our language.
- *
- * @param {Array} tokens - The tokens produced by the lexer
- * @returns {Object} - The AST representing the program
+ * @param {Array} tokens - A list of tokens from the tokenizer
+ * @param {Object} [options] - Optional configuration
+ * @param {Function} [options.onNode] - Callback function triggered when an AST node is produced
+ * @returns {Object} - The root node of the Abstract Syntax Tree
  */
-function parse(tokens) {
-  // Current position in the token array
-  let current = 0;
+function parse(tokens, options = {}) {
+  let current = 0; // Current token index
+  const onNode = options.onNode || (() => {}); // Default to no-op if no callback provided
 
   /**
    * Look at the current token without consuming it
@@ -265,18 +263,41 @@ function parse(tokens) {
    * A program is a sequence of statements
    */
   function parseProgram() {
-    const body = [];
+    const statements = [];
 
-    // Keep parsing statements until we reach the end of the file
+    // Emit an event for the program start
+    onNode({
+      type: "ProgramStart",
+      position: peek().position
+    });
+
     while (!check("EOF")) {
-      body.push(parseStatement());
+      try {
+        statements.push(parseStatement());
+      } catch (error) {
+        // Skip to the next statement on error
+        console.error("Parse error:", error);
+        while (current < tokens.length && !check("SEMICOLON") && !check("EOF")) {
+          next();
+        }
+        if (check("SEMICOLON")) next();
+      }
     }
 
-    // Return a Program node with the list of statements
-    return {
+    // Create the program node
+    const programNode = {
       type: "Program",
-      body,
+      body: statements
     };
+
+    // Emit an event for the completed program
+    onNode({
+      type: "ProgramComplete",
+      node: programNode,
+      position: tokens[tokens.length - 1].position
+    });
+
+    return programNode;
   }
 
   /**
@@ -287,16 +308,34 @@ function parse(tokens) {
    * - expressions (anything that produces a value)
    */
   function parseStatement() {
+    // Emit an event for statement start
+    onNode({
+      type: "StatementStart",
+      position: peek().position
+    });
+
+    let statement;
     if (check("CONST")) {
-      return parseConstDeclaration();
+      statement = parseConstDeclaration();
+    } else if (check("RETURN")) {
+      statement = parseReturnStatement();
+    } else {
+      throw new Error(`Unexpected token type: ${peek().type}`);
     }
 
-    if (check("RETURN")) {
-      return parseReturnStatement();
+    // Eat the semicolon if present
+    if (check("SEMICOLON")) {
+      next();
     }
 
-    // If it's not a const or return, it must be an expression
-    return parseExpression();
+    // Emit an event for statement complete
+    onNode({
+      type: "StatementComplete",
+      node: statement,
+      position: tokens[current - 1].position
+    });
+
+    return statement;
   }
 
   /**
@@ -306,38 +345,36 @@ function parse(tokens) {
    * return expression;  // Return with a value
    */
   function parseReturnStatement() {
-    next(); // consume 'return' keyword
+    // Emit an event for return statement start
+    const startPosition = peek().position;
+    onNode({
+      type: "ReturnStatementStart",
+      position: startPosition
+    });
 
-    // Handle empty return statement (e.g., "return;")
-    if (check("SEMICOLON")) {
-      next(); // consume semicolon
-      return {
-        type: "ReturnStatement",
-        argument: null,
-      };
+    // Consume the 'return' keyword
+    expect("RETURN", "Expected 'return' keyword");
+
+    let argument = null;
+
+    // If there's an expression after return, parse it
+    if (!check("SEMICOLON") && !check("RIGHT_CURLY")) {
+      argument = parseExpression();
     }
 
-    // Handle return immediately followed by a closing brace (e.g., "return }")
-    // This is a convenient feature for returns without semicolons
-    if (check("RIGHT_CURLY")) {
-      return {
-        type: "ReturnStatement",
-        argument: null,
-      };
-    }
-
-    // Parse the expression being returned
-    const argument = parseExpression();
-
-    // Semicolons are optional in our language
-    if (check("SEMICOLON")) {
-      next(); // consume semicolon if present
-    }
-
-    return {
+    const returnStatement = {
       type: "ReturnStatement",
-      argument,
+      argument
     };
+
+    // Emit an event for return statement complete
+    onNode({
+      type: "ReturnStatementComplete",
+      node: returnStatement,
+      position: peek() ? peek().position : tokens[current - 1].position
+    });
+
+    return returnStatement;
   }
 
   /**
@@ -347,38 +384,58 @@ function parse(tokens) {
    * const identifier: Type = expression;
    */
   function parseConstDeclaration() {
-    next(); // consume 'const' keyword
+    // Emit event for const declaration start
+    const startPosition = peek().position;
+    onNode({
+      type: "ConstDeclarationStart",
+      position: startPosition
+    });
 
-    // Get the variable name (identifier)
-    const id = expect("IDENTIFIER", "Expected identifier after const").value;
+    // Consume the 'const' keyword
+    expect("CONST", "Expected 'const' keyword");
 
-    // Check for optional type annotation
+    // Get the variable name
+    const id = {
+      type: "Identifier",
+      name: expect("IDENTIFIER", "Expected variable name").value
+    };
+
+    // Emit event for identifier
+    onNode({
+      type: "Identifier",
+      node: id,
+      position: tokens[current - 1].position
+    });
+
+    // Parse type annotation if present (with colon)
     let typeAnnotation = null;
     if (check("COLON")) {
+      next(); // Consume the colon
       typeAnnotation = parseTypeAnnotation();
     }
 
-    // Expect an equals sign
-    expect("EQUAL", "Expected = after identifier in const declaration");
+    // Consume the equals sign
+    expect("EQUAL", "Expected '=' after variable name");
 
     // Parse the initializer expression
     const init = parseExpression();
 
-    // Semicolons are optional
-    if (check("SEMICOLON")) {
-      next(); // consume semicolon if present
-    }
-
-    // Return a ConstDeclaration node with optional type annotation
-    return {
+    // Create the const declaration node
+    const constDeclaration = {
       type: "ConstDeclaration",
-      id: {
-        type: "Identifier",
-        name: id,
-      },
-      typeAnnotation,
+      id,
       init,
+      typeAnnotation
     };
+
+    // Emit event for const declaration complete
+    onNode({
+      type: "ConstDeclarationComplete",
+      node: constDeclaration,
+      position: peek() ? peek().position : tokens[current - 1].position
+    });
+
+    return constDeclaration;
   }
 
   /**
@@ -387,8 +444,23 @@ function parse(tokens) {
    * based on a precedence hierarchy
    */
   function parseExpression() {
-    // Start with the highest precedence expression type
-    return parseTernary();
+    // Emit event for expression start
+    const startPosition = peek().position;
+    onNode({
+      type: "ExpressionStart",
+      position: startPosition
+    });
+
+    const expression = parseTernary();
+
+    // Emit event for expression complete
+    onNode({
+      type: "ExpressionComplete",
+      node: expression,
+      position: peek() ? peek().position : tokens[current - 1].position
+    });
+
+    return expression;
   }
 
   /**
@@ -399,33 +471,49 @@ function parse(tokens) {
    * This has lower precedence than binary expressions
    */
   function parseTernary() {
-    // First parse a binary expression as the condition
-    let test = parseBinaryExpression();
+    // Parse the condition (which may be any expression)
+    const condition = parseBinaryExpression();
 
     // If we see a question mark, this is a ternary expression
     if (check("TERNARY")) {
-      next(); // consume '?'
+      // Emit event for ternary start
+      onNode({
+        type: "TernaryStart",
+        position: peek().position
+      });
 
-      // Parse the "true" branch
+      // Consume the question mark
+      next();
+
+      // Parse the expression to use if condition is true
       const consequent = parseExpression();
 
-      // Expect a colon separating the branches
-      expect("COLON", "Expected : in ternary expression");
+      // Consume the colon
+      expect("COLON", "Expected ':' in ternary expression");
 
-      // Parse the "false" branch
+      // Parse the expression to use if condition is false
       const alternate = parseExpression();
 
-      // Return a ConditionalExpression node
-      return {
+      // Create the ternary expression node
+      const ternary = {
         type: "ConditionalExpression",
-        test,
+        test: condition,
         consequent,
-        alternate,
+        alternate
       };
+
+      // Emit event for ternary complete
+      onNode({
+        type: "TernaryComplete",
+        node: ternary,
+        position: peek() ? peek().position : tokens[current - 1].position
+      });
+
+      return ternary;
     }
 
-    // If there's no ?, just return what we parsed
-    return test;
+    // If no question mark, just return the binary expression
+    return condition;
   }
 
   /**
@@ -435,24 +523,37 @@ function parse(tokens) {
    * by building left-associative trees.
    */
   function parseBinaryExpression() {
-    // First parse a primary expression or arrow function as the left side
-    let left = parseArrowFunction();
+    // Parse the left-hand side of the expression
+    let left = parsePrimary();
 
-    // Keep consuming + operators and building a larger expression
-    // This creates left-associative binary expressions: ((a + b) + c)
+    // If we see a plus sign, this is a binary expression
     while (check("PLUS")) {
-      next(); // consume '+' operator
+      // Emit event for binary expression start
+      onNode({
+        type: "BinaryExpressionStart",
+        position: peek().position
+      });
 
-      // Parse the right side of the binary expression
-      const right = parseArrowFunction();
+      // Get the operator
+      const operator = next().value;
 
-      // Create a new BinaryExpression node, using the previous result as the left side
+      // Parse the right-hand side
+      const right = parsePrimary();
+
+      // Create the binary expression node
       left = {
         type: "BinaryExpression",
-        operator: "+",
         left,
-        right,
+        operator,
+        right
       };
+
+      // Emit event for binary expression complete
+      onNode({
+        type: "BinaryExpressionComplete",
+        node: left,
+        position: peek() ? peek().position : tokens[current - 1].position
+      });
     }
 
     return left;
@@ -471,190 +572,131 @@ function parse(tokens) {
    * 3. (param: Type): ReturnType => { statements }
    */
   function parseArrowFunction() {
-    // Check if we're at the start of an arrow function (a left parenthesis)
-    if (check("LEFT_PAREN")) {
-      // Save our current position in case this turns out not to be an arrow function
-      const backup = current;
+    // Emit event for arrow function start
+    const startPosition = peek().position;
+    onNode({
+      type: "ArrowFunctionStart",
+      position: startPosition
+    });
 
-      next(); // consume '('
+    // Start with a left parenthesis
+    expect("LEFT_PAREN", "Expected '(' at start of arrow function");
 
-      const params = []; // List to hold function parameters
+    const params = [];
 
-      // Case: No parameters - () => ...
-      if (check("RIGHT_PAREN")) {
-        next(); // consume ')'
+    // If there are parameters, parse them
+    if (!check("RIGHT_PAREN")) {
+      do {
+        // Parse the parameter name
+        const paramToken = expect("IDENTIFIER", "Expected parameter name");
 
-        // Check for return type annotation
-        let returnTypeAnnotation = null;
+        // Start with a parameter without a type annotation
+        let param = {
+          type: "Identifier",
+          name: paramToken.value
+        };
+
+        // Emit event for parameter identifier
+        onNode({
+          type: "Identifier",
+          node: param,
+          position: tokens[current - 1].position
+        });
+
+        // Check for type annotation (with colon)
         if (check("COLON")) {
-          returnTypeAnnotation = parseTypeAnnotation();
+          next(); // Consume the colon
+
+          // Parse the type annotation
+          const typeAnnotation = parseTypeAnnotation();
+
+          // Add the type annotation to the parameter
+          param.typeAnnotation = typeAnnotation;
         }
 
-        // If we see the arrow, it's an arrow function
-        if (check("ARROW")) {
-          next(); // consume '=>'
+        // Add this parameter to the list
+        params.push(param);
 
-          // Parse the function body
-          let body;
-
-          // Block body: () => { statements }
-          if (check("LEFT_CURLY")) {
-            next(); // consume '{'
-            body = [];
-
-            // Parse statements in the block until we hit the closing brace
-            while (!check("RIGHT_CURLY") && !check("EOF")) {
-              // Skip any explicit semicolons between statements
-              while (check("SEMICOLON")) {
-                next(); // consume semicolon
-              }
-
-              // If we've reached the end of the block, break
-              if (check("RIGHT_CURLY")) {
-                break;
-              }
-
-              // Parse a statement and add it to the body
-              body.push(parseStatement());
-            }
-
-            next(); // consume '}'
-          }
-          // Expression body: () => expression
-          else {
-            body = parseExpression();
-          }
-
-          // Return the completed ArrowFunctionExpression node
-          return {
-            type: "ArrowFunctionExpression",
-            params: [], // Empty parameters array
-            body,
-            returnTypeAnnotation,
-            expression: !Array.isArray(body), // Is this an expression or block body?
-          };
-        }
-      }
-      // Case: With parameters - (a, b) => ...
-      else if (check("IDENTIFIER")) {
-        let isArrowFunction = false;
-
-        // Parse parameters
-        while (true) {
-          // Get parameter name
-          const paramName = expect(
-            "IDENTIFIER",
-            "Expected parameter name",
-          ).value;
-
-          // Check for parameter type annotation
-          let paramTypeAnnotation = null;
-          if (check("COLON")) {
-            paramTypeAnnotation = parseTypeAnnotation();
-          }
-
-          // Create the parameter node
-          const param = {
-            type: "Identifier",
-            name: paramName,
-            typeAnnotation: paramTypeAnnotation,
-          };
-
-          params.push(param);
-
-          // If we hit the closing parenthesis
-          if (check("RIGHT_PAREN")) {
-            next(); // consume ')'
-
-            // Check for return type annotation
-            let returnTypeAnnotation = null;
-            if (check("COLON")) {
-              returnTypeAnnotation = parseTypeAnnotation();
-            }
-
-            // Check if the next token is an arrow
-            if (check("ARROW")) {
-              next(); // consume '=>'
-              isArrowFunction = true;
-
-              // Store the return type annotation for later
-              if (returnTypeAnnotation) {
-                returnTypeAnnotation = returnTypeAnnotation;
-              }
-
-              break;
-            } else {
-              // Not an arrow function, restore position
-              current = backup;
-              break;
-            }
-          }
-
-          // If we see a comma, expect another parameter
-          if (check("COMMA")) {
-            next(); // consume ','
-          } else {
-            // Not a well-formed parameter list
-            current = backup;
-            break;
-          }
-        }
-
-        // If we confirmed this is an arrow function, parse its body
-        if (isArrowFunction) {
-          let body;
-          let returnTypeAnnotation = null;
-
-          // Check for return type annotation
-          if (check("COLON")) {
-            returnTypeAnnotation = parseTypeAnnotation();
-          }
-
-          // Block body: (params) => { statements }
-          if (check("LEFT_CURLY")) {
-            next(); // consume '{'
-            body = [];
-
-            // Parse statements until closing brace
-            while (!check("RIGHT_CURLY") && !check("EOF")) {
-              // Skip semicolons between statements
-              while (check("SEMICOLON")) {
-                next(); // consume semicolon
-              }
-
-              // Break if we've reached the end
-              if (check("RIGHT_CURLY")) {
-                break;
-              }
-
-              body.push(parseStatement());
-            }
-
-            next(); // consume '}'
-          }
-          // Expression body: (params) => expression
-          else {
-            body = parseExpression();
-          }
-
-          // Return the ArrowFunctionExpression with parameters
-          return {
-            type: "ArrowFunctionExpression",
-            params,
-            body,
-            returnTypeAnnotation,
-            expression: !Array.isArray(body),
-          };
-        }
-      }
-
-      // If we get here, it wasn't an arrow function after all
-      // Restore the position to before the left parenthesis
-      current = backup;
+        // Continue if we see a comma
+      } while (check("COMMA") && next());
     }
 
-    // If not an arrow function, parse a primary expression
-    return parsePrimary();
+    // End with a right parenthesis
+    expect("RIGHT_PAREN", "Expected ')' after parameters");
+
+    // Parse the return type annotation if present
+    let returnType = null;
+    if (check("COLON")) {
+      next(); // Consume the colon
+      returnType = parseTypeAnnotation();
+    }
+
+    // Expect the arrow token
+    expect("ARROW", "Expected '=>' after parameters");
+
+    // Parse the function body, which can be an expression or a block
+    let body;
+    let expression = false;
+
+    if (check("LEFT_CURLY")) {
+      // Block body with curly braces - parse as block statement
+      next(); // Consume the {
+
+      const blockStatements = [];
+      while (!check("RIGHT_CURLY") && !check("EOF")) {
+        try {
+          blockStatements.push(parseStatement());
+        } catch (error) {
+          // Skip to the next statement on error
+          console.error("Parse error in function body:", error);
+          while (
+            current < tokens.length &&
+            !check("SEMICOLON") &&
+            !check("RIGHT_CURLY") &&
+            !check("EOF")
+          ) {
+            next();
+          }
+          if (check("SEMICOLON")) next();
+        }
+      }
+
+      expect("RIGHT_CURLY", "Expected '}' at end of function body");
+
+      body = {
+        type: "BlockStatement",
+        body: blockStatements
+      };
+
+      // Emit event for block statement
+      onNode({
+        type: "BlockStatement",
+        node: body,
+        position: tokens[current - 1].position
+      });
+    } else {
+      // Expression body without braces - parse as expression
+      body = parseExpression();
+      expression = true;
+    }
+
+    // Create the arrow function node
+    const arrowFunction = {
+      type: "ArrowFunctionExpression",
+      params,
+      body,
+      expression, // true if body is an expression, false if it's a block
+      returnType
+    };
+
+    // Emit event for arrow function complete
+    onNode({
+      type: "ArrowFunctionComplete",
+      node: arrowFunction,
+      position: peek() ? peek().position : tokens[current - 1].position
+    });
+
+    return arrowFunction;
   }
 
   /**
@@ -954,87 +996,210 @@ function parse(tokens) {
    * - parenthesized expressions
    */
   function parsePrimary() {
-    // Check for array literals
-    if (check("LEFT_BRACKET")) {
-      return parseArrayLiteral();
+    // Emit event for primary expression start
+    const startPosition = peek().position;
+    onNode({
+      type: "PrimaryStart",
+      position: startPosition
+    });
+
+    let node;
+
+    // Check what kind of primary expression this is
+    if (check("LEFT_PAREN")) {
+      // This could be a parenthesized expression or an arrow function
+
+      // Look ahead to see if this is an arrow function
+      // We check by looking for ')' followed by '=>'
+      let isArrowFunction = false;
+
+      // Save the current position so we can rewind
+      const savedPosition = current;
+
+      try {
+        // Skip the '('
+        next();
+
+        // Check for empty parameter list
+        if (check("RIGHT_PAREN")) {
+          next(); // Skip the ')'
+          if (check("ARROW")) {
+            isArrowFunction = true;
+          }
+        } else {
+          // Skip an identifier (potential parameter)
+          if (check("IDENTIFIER")) {
+            next();
+
+            // Check for type annotation
+            if (check("COLON")) {
+              next(); // Skip the colon
+              // Skip the type
+              if (
+                check("TYPE_NUMBER") ||
+                check("TYPE_STRING") ||
+                check("TYPE_BOOLEAN") ||
+                check("TYPE_VOID") ||
+                check("TYPE_ARRAY") ||
+                check("IDENTIFIER")
+              ) {
+                next();
+              }
+            }
+
+            // Skip comma and more parameters if present
+            while (check("COMMA")) {
+              next(); // Skip the comma
+
+              // Skip another parameter
+              if (check("IDENTIFIER")) {
+                next();
+
+                // Skip type annotation if present
+                if (check("COLON")) {
+                  next(); // Skip the colon
+                  // Skip the type
+                  if (
+                    check("TYPE_NUMBER") ||
+                    check("TYPE_STRING") ||
+                    check("TYPE_BOOLEAN") ||
+                    check("TYPE_VOID") ||
+                    check("TYPE_ARRAY") ||
+                    check("IDENTIFIER")
+                  ) {
+                    next();
+                  }
+                }
+              }
+            }
+
+            // Now check for ')' followed by '=>'
+            if (check("RIGHT_PAREN")) {
+              next(); // Skip the ')'
+
+              // Check for optional return type
+              if (check("COLON")) {
+                next(); // Skip the colon
+                // Skip the type
+                if (
+                  check("TYPE_NUMBER") ||
+                  check("TYPE_STRING") ||
+                  check("TYPE_BOOLEAN") ||
+                  check("TYPE_VOID") ||
+                  check("TYPE_ARRAY") ||
+                  check("IDENTIFIER")
+                ) {
+                  next();
+                }
+              }
+
+              if (check("ARROW")) {
+                isArrowFunction = true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // If we hit an error, it's not an arrow function
+      }
+
+      // Reset to where we started
+      current = savedPosition;
+
+      if (isArrowFunction) {
+        // Parse as an arrow function
+        node = parseArrowFunction();
+      } else {
+        // Parse as a parenthesized expression
+        next(); // Skip the '('
+        node = parseExpression();
+        expect("RIGHT_PAREN", "Expected ')' after expression");
+      }
+    } else if (check("STRING")) {
+      // String literal
+      const token = next();
+      node = {
+        type: "StringLiteral",
+        value: token.value.slice(1, -1) // Remove the quotes
+      };
+
+      // Emit event for string literal
+      onNode({
+        type: "StringLiteral",
+        node,
+        position: tokens[current - 1].position
+      });
+    } else if (check("NUMBER")) {
+      // Number literal
+      const token = next();
+      const value = parseFloat(token.value);
+
+      node = {
+        type: "NumericLiteral",
+        value
+      };
+
+      // Emit event for number literal
+      onNode({
+        type: "NumericLiteral",
+        node,
+        position: tokens[current - 1].position
+      });
+    } else if (check("BOOLEAN")) {
+      // Boolean literal
+      const token = next();
+      node = {
+        type: "BooleanLiteral",
+        value: token.value === "true"
+      };
+
+      // Emit event for boolean literal
+      onNode({
+        type: "BooleanLiteral",
+        node,
+        position: tokens[current - 1].position
+      });
+    } else if (check("IDENTIFIER")) {
+      // Variable reference or function call
+      const token = next();
+      node = {
+        type: "Identifier",
+        name: token.value
+      };
+
+      // Emit event for identifier
+      onNode({
+        type: "Identifier",
+        node,
+        position: tokens[current - 1].position
+      });
+
+      // If the next token is a '(', this is a function call
+      if (check("LEFT_PAREN")) {
+        node = parseCallExpression(node);
+      }
+    } else if (check("LEFT_BRACKET")) {
+      // Array literal
+      node = parseArrayLiteral();
+    } else {
+      throw new Error(
+        `Unexpected token type in expression: ${peek().type} at position ${peek().position}`,
+      );
     }
 
-    const token = next();
-
-    switch (token.type) {
-      case "IDENTIFIER": {
-        // Create an identifier node
-        const identifierNode = {
-          type: "Identifier",
-          name: token.value,
-          position: token.position,
-        };
-
-        // Check if this identifier is being called as a function
-        if (check("LEFT_PAREN")) {
-          return parseCallExpression(identifierNode);
-        }
-
-        // Check if this identifier is being used with array indexing
-        if (check("LEFT_BRACKET")) {
-          return parseMemberExpression(identifierNode);
-        }
-
-        return identifierNode;
-      }
-
-      case "NUMBER": {
-        // Parse numeric literals and convert string values to actual numbers
-        return {
-          type: "NumericLiteral",
-          value: parseFloat(token.value),
-          position: token.position,
-        };
-      }
-
-      case "STRING": {
-        // Remove the quotes from string literals
-        const value = token.value.slice(1, -1);
-        return {
-          type: "StringLiteral",
-          value,
-          position: token.position,
-        };
-      }
-
-      case "BOOLEAN": {
-        // Parse boolean literals (true/false)
-        return {
-          type: "BooleanLiteral",
-          value: token.value === "true", // Convert to actual boolean
-          position: token.position,
-        };
-      }
-
-      case "LEFT_PAREN": {
-        // Handle parenthesized expressions: (expression)
-        const parenExpr = parseExpression();
-        expect("RIGHT_PAREN", "Expected closing parenthesis");
-
-        // Check if this parenthesized expression is being called as a function
-        if (check("LEFT_PAREN")) {
-          return parseCallExpression(parenExpr);
-        }
-
-        // Check if this parenthesized expression has array indexing
-        if (check("LEFT_BRACKET")) {
-          return parseMemberExpression(parenExpr);
-        }
-
-        return parenExpr;
-      }
-
-      default:
-        // If we don't recognize the token, report an error
-        throw new Error(
-          `Unexpected token: ${token.type} at position ${token.position}`,
-        );
+    // Check for member expressions with dot notation
+    while (check("DOT")) {
+      node = parseMemberExpression(node);
     }
+
+    // Emit event for primary expression complete
+    onNode({
+      type: "PrimaryComplete",
+      node,
+      position: peek() ? peek().position : tokens[current - 1].position
+    });
+
+    return node;
   }
 
   /**
@@ -1044,47 +1209,32 @@ function parse(tokens) {
    * @returns {Object} - A CallExpression AST node
    */
   function parseCallExpression(callee) {
-    next(); // consume LEFT_PAREN after the function name
+    expect("LEFT_PAREN", "Expected '(' after function name");
 
-    const args = []; // Array to hold function arguments
+    const args = [];
 
     // Parse arguments if there are any
     if (!check("RIGHT_PAREN")) {
       do {
-        // Each argument is an expression
         args.push(parseExpression());
 
-        // If we see a comma, expect another argument
-        if (check("COMMA")) {
-          next(); // consume comma
-        } else {
-          break;
-        }
-      } while (!check("RIGHT_PAREN") && !check("EOF"));
+        // If we see a comma, continue to the next argument
+      } while (check("COMMA") && next());
     }
 
-    // The argument list must end with a closing parenthesis
-    expect("RIGHT_PAREN", "Expected closing parenthesis for function call");
+    expect("RIGHT_PAREN", "Expected ')' after function arguments");
 
-    // Handle chained function calls: foo()()
-    if (check("LEFT_PAREN")) {
-      // Use the current call expression as the callee for the next call
-      return parseCallExpression({
-        type: "CallExpression",
-        callee,
-        arguments: args,
-      });
-    }
-
-    // Return the function call expression node
     return {
       type: "CallExpression",
       callee,
-      arguments: args,
+      arguments: args
     };
   }
 
-  // Start parsing
+  // Reset the token index
+  current = 0;
+
+  // Run the parser
   return parseProgram();
 }
 

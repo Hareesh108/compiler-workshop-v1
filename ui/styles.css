@@ -88,6 +88,18 @@ h2 {
   overflow: hidden;
 }
 
+.ast-container {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .code-display {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   white-space: pre-wrap;
@@ -99,6 +111,13 @@ h2 {
 }
 
 .tokens-display {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 14px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.ast-tree-display {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 14px;
   flex: 1;
@@ -333,4 +352,76 @@ input[type="range"]:focus::-moz-range-thumb {
 
 .hidden {
   display: none;
+}
+
+/* AST tree styles */
+.ast-node {
+  margin: 3px 0;
+  padding: 5px;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.ast-node-type {
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.ast-node-details {
+  margin-left: 5px;
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+.ast-node-children {
+  margin-left: 20px;
+  padding-left: 10px;
+  border-left: 1px dotted #bdc3c7;
+}
+
+.ast-node-child-label {
+  font-size: 12px;
+  color: #95a5a6;
+  margin-bottom: 2px;
+}
+
+.ast-node-highlighted {
+  background-color: #e8f4f8;
+}
+
+.ast-node-current {
+  background-color: #3498db;
+  color: white;
+}
+
+.ast-node-current .ast-node-type,
+.ast-node-current .ast-node-details {
+  color: white;
+}
+
+.ast-node-partial {
+  background-color: #fef9e7;
+  border-left: 3px solid #f1c40f;
+}
+
+.ast-expander {
+  cursor: pointer;
+  margin-right: 5px;
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.ast-node-collapsed .ast-node-children {
+  display: none;
+}
+
+.ast-node-collapsed .ast-expander:before {
+  content: "+";
+}
+
+.ast-node-expanded .ast-expander:before {
+  content: "-";
 }

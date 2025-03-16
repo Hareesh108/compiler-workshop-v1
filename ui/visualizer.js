@@ -64,6 +64,58 @@ function buildTokenizationData(sourceCode) {
 }
 
 /**
+ * Build an AST data structure that records AST node events for visualization
+ *
+ * @param {string} sourceCode - Source code to parse
+ * @param {Array} tokens - Tokens from tokenization
+ * @returns {Object} - Contains AST nodes and events
+ */
+function buildAstData(sourceCode, tokens) {
+  // Initialize data structure
+  const astData = {
+    sourceCode,
+    tokens,
+    nodes: [],
+    events: [],
+    rootNode: null
+  };
+
+  // Node ID counter to assign unique IDs to each node
+  let nodeIdCounter = 0;
+
+  // Run the parser with the onNode callback
+  window.CompilerModule.parse(tokens, {
+    onNode: (nodeEvent) => {
+      // Add node ID to track nodes
+      nodeEvent.id = nodeIdCounter++;
+
+      // Add this event to our list
+      astData.events.push(nodeEvent);
+
+      // If this is a completed node, store it
+      if (nodeEvent.type.endsWith('Complete')) {
+        // Store the node with its ID
+        const nodeWithId = {
+          ...nodeEvent.node,
+          _id: nodeEvent.id,
+          _type: nodeEvent.type
+        };
+
+        // Add to nodes list
+        astData.nodes.push(nodeWithId);
+
+        // If this is the program root, store it as rootNode
+        if (nodeEvent.type === 'ProgramComplete') {
+          astData.rootNode = nodeWithId;
+        }
+      }
+    }
+  });
+
+  return astData;
+}
+
+/**
  * Skip whitespace in the source code - reimplemented to match original
  *
  * @param {Object} state - Tokenizer state
@@ -172,6 +224,7 @@ function initializeVisualization() {
 
     // AST visualization state
     ast: null,
+    astData: null,
     astSteps: [],
     totalSteps: 0, // Total steps across both tokenization and parsing
 
@@ -203,6 +256,7 @@ const emptyReturn = () => {
   state.ui = {
     sourceCodeElement: document.getElementById("source-code"),
     tokensListElement: document.getElementById("tokens-list"),
+    astTreeElement: document.getElementById("ast-tree"),
     scrubber: document.getElementById("scrubber"),
     exampleSelect: document.getElementById("example-select"),
     customInputContainer: document.getElementById("custom-input-container"),
@@ -251,30 +305,34 @@ function setupEventHandlers(state) {
     }
 
     state.sourceCode = customCode;
-    runTokenization(state);
+    runCompilation(state);
   });
 }
 
 /**
- * Load an example into the visualizer
+ * Load an example from the predefined examples
  *
  * @param {Object} state - Visualization state
  * @param {string} exampleKey - Key of the example to load
  */
 function loadExample(state, exampleKey) {
+  // Set the source code from the example
   state.sourceCode = state.examples[exampleKey];
-  runTokenization(state);
+
+  // Run tokenization and parsing
+  runCompilation(state);
 }
 
 /**
- * Run tokenization on the current source code
+ * Run the full compilation pipeline (tokenization and parsing)
  *
  * @param {Object} state - Visualization state
  */
-function runTokenization(state) {
+function runCompilation(state) {
   try {
     // Clear previous displays
     state.ui.tokensListElement.innerHTML = "";
+    state.ui.astTreeElement.innerHTML = "";
 
     // Build tokenization data using events
     const tokenizationData = buildTokenizationData(state.sourceCode);
@@ -286,13 +344,17 @@ function runTokenization(state) {
     // Initialize the source code display with character spans
     initializeSourceCodeDisplay(state);
 
-    // Filter the events to only include token events (skip whitespace and comments)
-    // This ensures each scrubber step corresponds to a new token
+    // Build AST data using the tokens
+    const astData = buildAstData(state.sourceCode, state.tokens);
+    state.astData = astData;
+    state.ast = astData.rootNode;
+
+    // Filter the tokenization events to only include token events
     const tokenEvents = tokenizationData.events.filter(event =>
       event.type !== "WHITESPACE" && event.type !== "COMMENT"
     );
 
-    // Convert filtered events to visualization steps for the scrubber
+    // Convert tokenization events to visualization steps
     state.visualizationSteps = tokenEvents.map((event, index) => {
       // Find all tokens up to and including this token
       const tokensUpToHere = tokenizationData.tokens.slice(0, index + 1);
@@ -316,18 +378,29 @@ function runTokenization(state) {
       eventIndex: -1
     });
 
-    // Calculate total steps (tokenization only)
-    state.totalSteps = state.visualizationSteps.length;
+    // Convert AST events to visualization steps
+    state.astSteps = astData.events.map((event, index) => {
+      // Clone the event to avoid modifying the original
+      return {
+        ...event,
+        stepIndex: index,
+        isComplete: event.type.endsWith("Complete")
+      };
+    });
+
+    // Calculate total steps (tokenization + parsing)
+    state.totalSteps = state.visualizationSteps.length + state.astSteps.length;
 
     // Reset UI
     state.currentStepIndex = 0;
-    // Set max to the number of tokenization steps
+    // Set max to the number of steps
     state.ui.scrubber.max = Math.max(0, state.totalSteps - 1);
     state.ui.scrubber.value = 0;
 
     // Reset scroll positions
     state.ui.tokensListElement.scrollTop = 0;
     state.ui.sourceCodeElement.scrollTop = 0;
+    state.ui.astTreeElement.scrollTop = 0;
 
     // Update the visualization
     updateVisualization(state);
@@ -347,38 +420,64 @@ function runTokenization(state) {
  */
 function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
+  const totalTokenizationSteps = state.visualizationSteps.length;
   const totalSteps = state.totalSteps;
 
-  // Skip the initial step to avoid requiring two drags to see anything
-  let progress = Math.min(scrubberValue, totalSteps - 1);
+  // Determine if we're in tokenization or parsing phase
+  if (scrubberValue < totalTokenizationSteps) {
+    // We're in the tokenization phase
+    state.currentStepIndex = scrubberValue;
 
-  // We're only in the tokenization phase now
-  state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
+    // Update tokens list
+    updateTokensDisplay(state);
 
-  // Update tokens list
-  updateTokensDisplay(state);
+    // Update source code highlighting
+    updateSourceCodeHighlighting(state);
 
-  // Update source code highlighting
-  updateSourceCodeHighlighting(state);
+    // Clear AST display
+    state.ui.astTreeElement.innerHTML = "";
+  } else {
+    // We're in the parsing phase
+    const astStepIndex = scrubberValue - totalTokenizationSteps;
+
+    // Show all tokens
+    updateTokensDisplay(state, true);
+
+    // Show all source code
+    updateSourceCodeHighlighting(state, true);
+
+    // Update AST tree
+    updateAstDisplay(state, astStepIndex);
+  }
 }
 
 /**
  * Update the tokens display based on current step
  *
  * @param {Object} state - Visualization state
+ * @param {boolean} [showAll=false] - Whether to show all tokens
  */
-function updateTokensDisplay(state) {
+function updateTokensDisplay(state, showAll = false) {
   // Clear tokens list
   state.ui.tokensListElement.innerHTML = "";
 
-  if (state.currentStepIndex === 0) {
+  if (state.currentStepIndex === 0 && !showAll) {
     return;
   }
 
-  // In tokenization mode, show tokens up to current step
-  const step = state.visualizationSteps[state.currentStepIndex - 1];
-  const tokens = step.currentTokens || [];
-  const currentTokenIndex = tokens.length - 1;
+  // Determine which tokens to show
+  let tokens = [];
+  let currentTokenIndex = -1;
+
+  if (showAll) {
+    // Show all tokens
+    tokens = state.tokens;
+  } else {
+    // In tokenization mode, show tokens up to current step
+    const step = state.visualizationSteps[state.currentStepIndex];
+    tokens = step.currentTokens || [];
+    currentTokenIndex = tokens.length - 1;
+  }
 
   // Variable to keep track of the current token element
   let currentTokenElement = null;
@@ -388,20 +487,13 @@ function updateTokensDisplay(state) {
     // Add index to token for easy retrieval
     token.tokenIndex = index;
 
-    const tokenElement = document.createElement("div");
-    tokenElement.className = "token";
-    tokenElement.textContent = `${token.type}: "${token.value || ""}" (pos: ${token.position})`;
-    tokenElement.dataset.position = token.position;
-    tokenElement.dataset.tokenIndex = token.tokenIndex;
-
-    // Add click handler directly to the token element
-    tokenElement.addEventListener("click", () => {
+    const tokenElement = createTokenDisplay(token, (token) => {
       // When a token is clicked, highlight both the token and its source code
       highlightToken(state, token.tokenIndex);
       highlightSourceRange(state, token.tokenIndex);
     });
 
-    if (index === currentTokenIndex && step.type === "token") {
+    if (index === currentTokenIndex && !showAll) {
       // Highlight the most recently added token
       tokenElement.classList.add("token-current");
       currentTokenElement = tokenElement;
@@ -425,9 +517,10 @@ function updateTokensDisplay(state) {
  * Update the source code highlighting based on current step
  *
  * @param {Object} state - Visualization state
+ * @param {boolean} [showAll=false] - Whether to show all source code
  */
-function updateSourceCodeHighlighting(state) {
-  if (state.currentStepIndex === 0) {
+function updateSourceCodeHighlighting(state, showAll = false) {
+  if (state.currentStepIndex === 0 && !showAll) {
     // Reset all source code highlighting
     const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
     allChars.forEach(char => {
@@ -436,7 +529,17 @@ function updateSourceCodeHighlighting(state) {
     return;
   }
 
-  const currentStep = state.visualizationSteps[state.currentStepIndex - 1];
+  // If showing all, mark everything as consumed
+  if (showAll) {
+    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+    allChars.forEach(char => {
+      char.classList.remove('text-current', 'text-whitespace', 'text-clicked');
+      char.classList.add('text-consumed');
+    });
+    return;
+  }
+
+  const currentStep = state.visualizationSteps[state.currentStepIndex];
   const currentPosition = currentStep.position;
   const currentLength = currentStep.length || 0;
 
@@ -555,10 +658,10 @@ function highlightSourceRange(state, tokenIndex) {
 }
 
 /**
- * Update the AST tree display based on current parsing step
+ * Update the AST display based on the current AST step
  *
  * @param {Object} state - Visualization state
- * @param {number} astStepIndex - Index of the current AST step
+ * @param {number} astStepIndex - Index into the AST steps array
  */
 function updateAstDisplay(state, astStepIndex) {
   // Clear the AST tree
@@ -569,742 +672,405 @@ function updateAstDisplay(state, astStepIndex) {
   }
 
   // Get the current step
-  const step = state.astSteps[astStepIndex];
-
-  // Instead of a program node, we'll just have a collection of top-level nodes
-  const topLevelNodes = [];
-
-  // Completed nodes by ID to avoid duplication
-  const completedNodesMap = new Map();
-
-  let currentNode = null; // Tracks the node that's currently being built
-
-  // First pass: find all completed nodes
-  // This helps us determine which in-progress nodes to exclude
-  for (let i = 0; i <= astStepIndex; i++) {
-    const currentStep = state.astSteps[i];
-
-    // Skip steps without nodes
-    if (!currentStep.node) continue;
-
-    const isCurrentStep = i === astStepIndex;
-
-    // Only process complete steps in this pass
-    if (currentStep.isComplete || currentStep.type.endsWith("Complete")) {
-      const completedNode = {
-        ...currentStep.node,
-        _isCurrentStep: isCurrentStep,
-        _tokensUsed: currentStep.tokensUsed || [],
-        _stepIndex: i, // Track which step created this node
-        _isComplete: true, // Explicitly mark as completed
-      };
-
-      // Add top-level nodes to the map
-      if (
-        completedNode.type === "ConstDeclaration" ||
-        completedNode.type === "ReturnStatement"
-      ) {
-        // Create a unique ID for this node to avoid duplication
-        const nodeId = `${completedNode.type}-${completedNode.id?.name || "anonymous"}-${i}`;
-        completedNodesMap.set(nodeId, completedNode);
-      }
-    }
+  const currentStep = state.astSteps[astStepIndex];
+  if (!currentStep) {
+    return;
   }
 
-  // Process all steps up to the current one again
-  // Now we can properly filter out in-progress nodes that end up completed
-  currentNode = null;
-  for (let i = 0; i <= astStepIndex; i++) {
-    const currentStep = state.astSteps[i];
+  // Collect all completed nodes up to this step
+  const completedNodes = new Map();
+  const inProgressNodes = new Map();
 
-    // Skip steps without nodes
-    if (!currentStep.node) continue;
+  // First pass: collect all nodes
+  for (let i = 0; i <= astStepIndex; i++) {
+    const step = state.astSteps[i];
+    if (!step) continue;
 
     const isCurrentStep = i === astStepIndex;
-    const isCompleteStep =
-      currentStep.isComplete || currentStep.type.endsWith("Complete");
 
-    // Handle the node based on step type
-    if (isCompleteStep) {
-      // We already added these in the first pass
-      // Reset current node since we've completed it
-      currentNode = null;
-    } else if (
-      currentStep.type.includes("Start") ||
-      currentStep.type === "exprStart" ||
-      currentStep.type.includes("Peek")
-    ) {
-      // This is a node that's currently being built
-      currentNode = {
-        ...currentStep.node,
-        _isCurrentStep: isCurrentStep,
-        _tokensUsed: currentStep.tokensUsed || [],
-        _inProgress: true,
-        _stepIndex: i,
-      };
-
-      // Only add in-progress nodes if there's no completed version of them
-      if (
-        currentNode.type === "ConstDeclaration" ||
-        currentNode.type === "ReturnStatement" ||
-        currentNode.type === "Expression"
-      ) {
-        // More thorough check for completed nodes
-        const nodeAlreadyCompleted = Array.from(
-          completedNodesMap.values(),
-        ).some((node) => {
-          // For const declarations, match by type and identifier name
-          if (
-            node.type === currentNode.type &&
-            currentNode.type === "ConstDeclaration"
-          ) {
-            return node.id?.name === currentNode.id?.name;
-          }
-          // For return statements, match by type and if they both have arguments or both don't
-          else if (
-            node.type === currentNode.type &&
-            currentNode.type === "ReturnStatement"
-          ) {
-            return !!node.argument === !!currentNode.argument;
-          }
-          // For expressions, match by type and value if available
-          else if (
-            node.type === currentNode.type &&
-            (node.type === "NumericLiteral" ||
-              node.type === "StringLiteral" ||
-              node.type === "BooleanLiteral")
-          ) {
-            return node.value === currentNode.value;
-          }
-          // For identifiers, match by name
-          else if (
-            node.type === currentNode.type &&
-            node.type === "Identifier"
-          ) {
-            return node.name === currentNode.name;
-          }
-          return false;
+    if (step.node) {
+      if (step.type && step.type.endsWith('Complete')) {
+        // This is a completed node
+        completedNodes.set(step.id, {
+          ...step.node,
+          _id: step.id,
+          _type: step.type,
+          _isCurrentStep: isCurrentStep
         });
-
-        // Only add in-progress nodes if they're not already completed
-        if (!nodeAlreadyCompleted) {
-          // Create a unique ID for this in-progress node
-          const nodeId = `in-progress-${currentNode.type}-${currentNode.id?.name || "anonymous"}-${i}`;
-          // Only add if we don't already have this exact node
-          if (!Array.from(completedNodesMap.keys()).includes(nodeId)) {
-            completedNodesMap.set(nodeId, currentNode);
-          }
-        }
-      }
-    } else {
-      // Other intermediate steps - update current node if it exists
-      if (currentNode) {
-        // Extend the current node with any new properties
-        currentNode = {
-          ...currentNode,
-          ...currentStep.node,
+      } else if (step.type && !step.type.endsWith('Complete') && !step.type.endsWith('Start')) {
+        // This is a partial node (like an identifier)
+        completedNodes.set(step.id, {
+          ...step.node,
+          _id: step.id,
+          _type: step.type,
+          _isCurrentStep: isCurrentStep
+        });
+      } else if (step.type) {
+        // This is a node in progress
+        inProgressNodes.set(step.id, {
+          _id: step.id,
+          _type: step.type,
           _isCurrentStep: isCurrentStep,
-          _tokensUsed: currentStep.tokensUsed || [],
           _inProgress: true,
-        };
-      }
-    }
-  }
-
-  // Handle the final step differently - only show fully completed nodes
-  let nodesToRender;
-
-  // If we're at the very last step, only show explicitly completed nodes
-  // This is a very aggressive approach to ensure no in-progress nodes appear
-  if (astStepIndex === state.astSteps.length - 1) {
-    // Filter map to only contain explicitly completed top-level nodes
-    const cleanMap = new Map();
-
-    // First pass: only add completed nodes
-    Array.from(completedNodesMap.entries()).forEach(([key, node]) => {
-      if (node._isComplete === true && node._inProgress !== true) {
-        // Add only fully completed nodes
-        const completedNode = { ...node, _purged: true };
-        cleanMap.set(key, completedNode);
-
-        // Special handling for nested expressions in const declarations
-        if (node.type === "ConstDeclaration" && node.init) {
-          // Define deep completion marking helper
-          const deepMarkComplete = (obj) => {
-            if (!obj || typeof obj !== "object") return;
-
-            // Mark this node as complete
-            obj._isComplete = true;
-            obj._inProgress = false;
-
-            // For ternary operations, recursively mark all parts
-            if (obj.type === "ConditionalExpression") {
-              if (obj.test) deepMarkComplete(obj.test);
-              if (obj.consequent) deepMarkComplete(obj.consequent);
-              if (obj.alternate) deepMarkComplete(obj.alternate);
-            }
-
-            // For binary operations, recursively mark both sides
-            if (obj.type === "BinaryExpression") {
-              if (obj.left) deepMarkComplete(obj.left);
-              if (obj.right) deepMarkComplete(obj.right);
-            }
-          };
-
-          // Apply deep completion marking to init node
-          deepMarkComplete(completedNode.init);
-        }
-      }
-    });
-
-    // Empty out our map and replace with clean one
-    completedNodesMap.clear();
-    Array.from(cleanMap.entries()).forEach(([key, node]) => {
-      completedNodesMap.set(key, node);
-    });
-
-    // Final filter for nodes to render - strict filtering
-    nodesToRender = Array.from(completedNodesMap.values()).filter(
-      (node) => node._isComplete === true && node._inProgress !== true,
-    );
-  } else {
-    // For intermediate steps, show both completed and in-progress nodes
-    // But filter out in-progress nodes that already have completed versions
-    nodesToRender = Array.from(completedNodesMap.values()).filter((node) => {
-      // If this is an incomplete node
-      if (node._inProgress) {
-        // Check if there's any completed node that matches this one
-        return !Array.from(completedNodesMap.values()).some((completedNode) => {
-          if (!completedNode._inProgress) {
-            // Check for different types of nodes
-            if (node.type === completedNode.type) {
-              // For const declarations
-              if (node.type === "ConstDeclaration") {
-                return node.id?.name === completedNode.id?.name;
-              }
-              // For return statements
-              else if (node.type === "ReturnStatement") {
-                return !!node.argument === !!completedNode.argument;
-              }
-              // For literals
-              else if (
-                ["NumericLiteral", "StringLiteral", "BooleanLiteral"].includes(
-                  node.type,
-                )
-              ) {
-                return node.value === completedNode.value;
-              }
-              // For identifiers
-              else if (node.type === "Identifier") {
-                return node.name === completedNode.name;
-              }
-            }
-          }
-          return false;
+          type: step.type.replace('Start', '')
         });
       }
-
-      // Include all completed nodes
-      return !node._inProgress;
-    });
+    }
   }
 
-  // Sort by type to have const declarations first, then returns, then others
-  nodesToRender.sort((a, b) => {
-    // Put ConstDeclarations first
-    if (a.type === "ConstDeclaration" && b.type !== "ConstDeclaration")
-      return -1;
-    if (b.type === "ConstDeclaration" && a.type !== "ConstDeclaration")
-      return 1;
+  // Check if we have a Program node
+  const programNode = Array.from(completedNodes.values())
+    .find(node => node && node.type === 'Program');
 
-    // Then ReturnStatements
-    if (a.type === "ReturnStatement" && b.type !== "ReturnStatement") return -1;
-    if (b.type === "ReturnStatement" && a.type !== "ReturnStatement") return 1;
+  if (programNode) {
+    // Render the program node and its children
+    const programElement = createAstNodeElement(programNode, true);
+    state.ui.astTreeElement.appendChild(programElement);
+  } else {
+    // If we don't have a complete program yet, show all completed top-level nodes
+    const topLevelNodes = Array.from(completedNodes.values())
+      .filter(node => {
+        return node && (
+          node.type === 'ConstDeclaration' ||
+          node.type === 'ReturnStatement' ||
+          node.type === 'ArrowFunctionExpression'
+        );
+      });
 
-    // If both same type, sort by step index
-    return (a._stepIndex || 0) - (b._stepIndex || 0);
-  });
+    // Add any in-progress top-level nodes
+    const inProgressTopLevelNodes = Array.from(inProgressNodes.values())
+      .filter(node => {
+        return node && node._type && (
+          node._type === 'ConstDeclarationStart' ||
+          node._type === 'ReturnStatementStart' ||
+          node._type === 'ArrowFunctionStart'
+        );
+      });
 
-  // Render all top-level nodes directly (no program wrapper)
-  nodesToRender.forEach((node) => {
-    const nodeElement = createAstNodeElement(node, false);
-    state.ui.astTreeElement.appendChild(nodeElement);
-  });
+    // Combine and sort by ID (roughly chronological order)
+    const allTopLevelNodes = [...topLevelNodes, ...inProgressTopLevelNodes]
+      .sort((a, b) => a._id - b._id);
 
-  // Add the sticky status message at the bottom
-  const descriptionElement = document.createElement("div");
-  descriptionElement.className = "ast-step-description";
-  descriptionElement.textContent = step.description || "Parsing...";
-  state.ui.astTreeElement.appendChild(descriptionElement);
-
-  // Find and scroll to the current AST node
-  setTimeout(() => {
-    const currentNode =
-      state.ui.astTreeElement.querySelector(".ast-node-current");
-    if (currentNode) {
-      scrollIntoViewIfNeeded(currentNode, state.ui.astTreeElement);
-    }
-  }, 0);
+    // Render each top-level node
+    allTopLevelNodes.forEach(node => {
+      if (node) {
+        const nodeElement = createAstNodeElement(node, node._isCurrentStep);
+        state.ui.astTreeElement.appendChild(nodeElement);
+      }
+    });
+  }
 }
 
 /**
- * Create an AST node element for visualization
+ * Create an AST node element for visualization with expand/collapse functionality
  *
  * @param {Object} node - AST node
- * @param {boolean} forceHighlight - Whether to force highlighting this node
+ * @param {boolean} isCurrentStep - Whether this node is part of the current step
  * @returns {HTMLElement} - DOM element representing the node
  */
-function createAstNodeElement(node, forceHighlight = false) {
+function createAstNodeElement(node, isCurrentStep = false) {
   const nodeElement = document.createElement("div");
   nodeElement.className = "ast-node";
 
-  // Check if this is the current node being processed
+  // Add expandable/collapsible functionality
+  const hasChildren = hasAstNodeChildren(node);
+  if (hasChildren) {
+    nodeElement.classList.add("ast-node-expanded");
+  }
+
+  // Add appropriate class based on node state
   if (node._isCurrentStep) {
     nodeElement.classList.add("ast-node-current");
-  } else if (node._inProgress && !node._isComplete) {
+  } else if (node._inProgress) {
     nodeElement.classList.add("ast-node-partial");
   } else {
     nodeElement.classList.add("ast-node-highlighted");
   }
 
-  // Skip internal properties that start with '_'
-  const filteredNode = Object.fromEntries(
-    Object.entries(node).filter(([key]) => !key.startsWith("_")),
-  );
+  // Create expander if there are children
+  if (hasChildren) {
+    const expander = document.createElement("span");
+    expander.className = "ast-expander";
+    expander.textContent = "-";
+    expander.addEventListener("click", (e) => {
+      e.stopPropagation(); // Prevent node click event
+      toggleAstNodeExpansion(nodeElement);
+    });
+    nodeElement.appendChild(expander);
+  }
 
   // Add the node type
   const typeElement = document.createElement("span");
   typeElement.className = "ast-node-type";
-  typeElement.textContent = filteredNode.type;
+  typeElement.textContent = node.type || node._type?.replace('Start', '');
   nodeElement.appendChild(typeElement);
 
   // Add node details based on type
-  const detailsElement = document.createElement("div");
+  const detailsElement = document.createElement("span");
   detailsElement.className = "ast-node-details";
 
-  // DEBUG: Add a data attribute showing the node's type and structure
-  nodeElement.setAttribute("data-node-type", filteredNode.type);
-  if (filteredNode.type === "ConstDeclaration" && filteredNode.init) {
-    nodeElement.setAttribute(
-      "data-init-type",
-      filteredNode.init.type || "none",
-    );
-  }
-
-  // We no longer have a Program root node to skip
-  switch (filteredNode.type) {
+  switch (node.type) {
     case "ConstDeclaration":
-      if (filteredNode.id) {
-        detailsElement.textContent = `${filteredNode.id.name}`;
-        if (filteredNode.typeAnnotation) {
-          detailsElement.textContent += `: ${filteredNode.typeAnnotation.valueType}`;
+      if (node.id) {
+        detailsElement.textContent = `const ${node.id.name}`;
+        if (node.typeAnnotation) {
+          detailsElement.textContent += `: ${node.typeAnnotation.valueType}`;
         }
-      } else if (node.partial) {
-        detailsElement.textContent = "(incomplete)";
+      } else {
+        detailsElement.textContent = "const (incomplete)";
       }
-
-      // SPECIAL HANDLING FOR TERNARY EXPRESSIONS IN CONST DECLARATIONS
-      if (
-        filteredNode.init &&
-        filteredNode.init.type === "ConditionalExpression"
-      ) {
-        // Mark the init as already rendered to avoid duplicate rendering
-        filteredNode.init._isAlreadyRendered = true;
-
-        // Create child container for the ternary expression
-        const ternaryContainer = document.createElement("div");
-        ternaryContainer.className = "ast-node-children";
-        const ternaryLabel = document.createElement("div");
-        ternaryLabel.className = "ast-node-child-label";
-        ternaryLabel.textContent = "initialized to:";
-        ternaryContainer.appendChild(ternaryLabel);
-
-        // Create the ternary expression node
-        const ternaryNode = document.createElement("div");
-        ternaryNode.className = "ast-node ast-node-highlighted";
-
-        // Add the node type
-        const ternaryTypeElement = document.createElement("span");
-        ternaryTypeElement.className = "ast-node-type";
-        ternaryTypeElement.textContent = "ConditionalExpression";
-        ternaryNode.appendChild(ternaryTypeElement);
-
-        // Add details
-        const ternaryDetails = document.createElement("div");
-        ternaryDetails.className = "ast-node-details";
-        ternaryDetails.textContent = "condition ? then : else";
-        ternaryNode.appendChild(ternaryDetails);
-
-        // Mark all child nodes as complete too
-        if (filteredNode.init.test) filteredNode.init.test._isComplete = true;
-        if (filteredNode.init.consequent)
-          filteredNode.init.consequent._isComplete = true;
-        if (filteredNode.init.alternate)
-          filteredNode.init.alternate._isComplete = true;
-
-        // Add the condition
-        if (filteredNode.init.test) {
-          const condContainer = document.createElement("div");
-          condContainer.className = "ast-node-children";
-          const condLabel = document.createElement("div");
-          condLabel.className = "ast-node-child-label";
-          condLabel.textContent = "condition:";
-          condContainer.appendChild(condLabel);
-
-          // Pass a clone to avoid modifying the original
-          const condElement = createAstNodeElement(
-            {
-              ...filteredNode.init.test,
-              _isComplete: true,
-              _inProgress: false,
-            },
-            false,
-          );
-
-          condContainer.appendChild(condElement);
-          ternaryNode.appendChild(condContainer);
-        }
-
-        // Add the 'then' part
-        if (filteredNode.init.consequent) {
-          const thenContainer = document.createElement("div");
-          thenContainer.className = "ast-node-children";
-          const thenLabel = document.createElement("div");
-          thenLabel.className = "ast-node-child-label";
-          thenLabel.textContent = "then:";
-          thenContainer.appendChild(thenLabel);
-
-          // Pass a clone to avoid modifying the original
-          const thenElement = createAstNodeElement(
-            {
-              ...filteredNode.init.consequent,
-              _isComplete: true,
-              _inProgress: false,
-            },
-            false,
-          );
-
-          thenContainer.appendChild(thenElement);
-          ternaryNode.appendChild(thenContainer);
-        }
-
-        // Add the 'else' part
-        if (filteredNode.init.alternate) {
-          const elseContainer = document.createElement("div");
-          elseContainer.className = "ast-node-children";
-          const elseLabel = document.createElement("div");
-          elseLabel.className = "ast-node-child-label";
-          elseLabel.textContent = "else:";
-          elseContainer.appendChild(elseLabel);
-
-          // Pass a clone to avoid modifying the original
-          const elseElement = createAstNodeElement(
-            {
-              ...filteredNode.init.alternate,
-              _isComplete: true,
-              _inProgress: false,
-            },
-            false,
-          );
-
-          elseContainer.appendChild(elseElement);
-          ternaryNode.appendChild(elseContainer);
-        }
-
-        // Add the ternary node to the container
-        ternaryContainer.appendChild(ternaryNode);
-
-        // Add to main node
-        nodeElement.appendChild(ternaryContainer);
-      }
-      break;
-
-    case "ReturnStatement":
-      detailsElement.textContent = filteredNode.argument
-        ? "with value"
-        : "empty return";
-      break;
-
-    case "ConditionalExpression":
-      detailsElement.textContent = "condition ? then : else";
-      break;
-
-    case "BinaryExpression":
-      detailsElement.textContent = `${filteredNode.operator || "+"} operation`;
       break;
 
     case "Identifier":
-      detailsElement.textContent = filteredNode.name || "";
-      break;
-
-    case "NumericLiteral":
-      detailsElement.textContent =
-        filteredNode.value !== undefined ? filteredNode.value : "";
+      detailsElement.textContent = node.name || "";
       break;
 
     case "StringLiteral":
-      detailsElement.textContent = `"${filteredNode.value || ""}"`;
+      detailsElement.textContent = `"${node.value}"`;
+      break;
+
+    case "NumericLiteral":
+      detailsElement.textContent = node.value;
       break;
 
     case "BooleanLiteral":
-      detailsElement.textContent =
-        filteredNode.value !== undefined ? filteredNode.value : "";
+      detailsElement.textContent = node.value ? "true" : "false";
       break;
 
-    case "TypeAnnotation":
-      detailsElement.textContent = filteredNode.valueType || "";
+    case "BinaryExpression":
+      detailsElement.textContent = `${node.operator}`;
       break;
 
-    case "Expression":
-      if (filteredNode.tokenType) {
-        detailsElement.textContent = `Processing ${filteredNode.tokenType}`;
+    case "ConditionalExpression":
+      detailsElement.textContent = "? :";
+      break;
+
+    case "ReturnStatement":
+      detailsElement.textContent = "return";
+      break;
+
+    case "Program":
+      detailsElement.textContent = `${node.body?.length || 0} statements`;
+      break;
+
+    case "ArrowFunctionExpression":
+      const paramCount = node.params?.length || 0;
+      detailsElement.textContent = `(${paramCount} params) =>`;
+      break;
+
+    case "BlockStatement":
+      detailsElement.textContent = `{ ${node.body?.length || 0} statements }`;
+      break;
+
+    case "CallExpression":
+      if (node.callee?.name) {
+        detailsElement.textContent = `${node.callee.name}(${node.arguments?.length || 0} args)`;
       } else {
-        detailsElement.textContent = "Processing expression";
+        detailsElement.textContent = `(...)(${node.arguments?.length || 0} args)`;
       }
       break;
 
     default:
-      // For any other node type, filter out internal properties and show relevant details
-      const details = Object.entries(filteredNode)
-        .filter(
-          ([key]) =>
-            key !== "type" &&
-            key !== "body" &&
-            key !== "children" &&
-            key !== "partial",
-        )
-        .map(([key, value]) => {
-          if (typeof value === "object" && value !== null) {
-            return `${key}: ${value.type || JSON.stringify(value)}`;
-          }
-          return `${key}: ${value}`;
-        })
-        .join(", ");
-
-      if (details) {
-        detailsElement.textContent = details;
+      // For in-progress nodes
+      if (node._inProgress) {
+        detailsElement.textContent = "(building...)";
       }
   }
 
-  if (detailsElement.textContent) {
-    nodeElement.appendChild(detailsElement);
+  nodeElement.appendChild(detailsElement);
+
+  // Add children if there are any
+  if (hasChildren) {
+    const childrenContainer = document.createElement("div");
+    childrenContainer.className = "ast-node-children";
+
+    // Add appropriate children based on node type
+    if (node.type === "Program" && node.body) {
+      // Add program statements
+      node.body.forEach(statement => {
+        const statementElement = createAstNodeElement(statement);
+        childrenContainer.appendChild(statementElement);
+      });
+    } else if (node.type === "ConstDeclaration") {
+      // Add initializer
+      if (node.init) {
+        const initLabel = document.createElement("div");
+        initLabel.className = "ast-node-child-label";
+        initLabel.textContent = "initialized to:";
+        childrenContainer.appendChild(initLabel);
+
+        const initElement = createAstNodeElement(node.init);
+        childrenContainer.appendChild(initElement);
+      }
+    } else if (node.type === "ReturnStatement") {
+      // Add return value if there is one
+      if (node.argument) {
+        const argLabel = document.createElement("div");
+        argLabel.className = "ast-node-child-label";
+        argLabel.textContent = "value:";
+        childrenContainer.appendChild(argLabel);
+
+        const argElement = createAstNodeElement(node.argument);
+        childrenContainer.appendChild(argElement);
+      }
+    } else if (node.type === "BinaryExpression") {
+      // Add left and right operands
+      if (node.left) {
+        const leftLabel = document.createElement("div");
+        leftLabel.className = "ast-node-child-label";
+        leftLabel.textContent = "left:";
+        childrenContainer.appendChild(leftLabel);
+
+        const leftElement = createAstNodeElement(node.left);
+        childrenContainer.appendChild(leftElement);
+      }
+
+      if (node.right) {
+        const rightLabel = document.createElement("div");
+        rightLabel.className = "ast-node-child-label";
+        rightLabel.textContent = "right:";
+        childrenContainer.appendChild(rightLabel);
+
+        const rightElement = createAstNodeElement(node.right);
+        childrenContainer.appendChild(rightElement);
+      }
+    } else if (node.type === "ConditionalExpression") {
+      // Add test, consequent, and alternate
+      if (node.test) {
+        const testLabel = document.createElement("div");
+        testLabel.className = "ast-node-child-label";
+        testLabel.textContent = "condition:";
+        childrenContainer.appendChild(testLabel);
+
+        const testElement = createAstNodeElement(node.test);
+        childrenContainer.appendChild(testElement);
+      }
+
+      if (node.consequent) {
+        const consLabel = document.createElement("div");
+        consLabel.className = "ast-node-child-label";
+        consLabel.textContent = "if true:";
+        childrenContainer.appendChild(consLabel);
+
+        const consElement = createAstNodeElement(node.consequent);
+        childrenContainer.appendChild(consElement);
+      }
+
+      if (node.alternate) {
+        const altLabel = document.createElement("div");
+        altLabel.className = "ast-node-child-label";
+        altLabel.textContent = "if false:";
+        childrenContainer.appendChild(altLabel);
+
+        const altElement = createAstNodeElement(node.alternate);
+        childrenContainer.appendChild(altElement);
+      }
+    } else if (node.type === "ArrowFunctionExpression") {
+      // Add parameters
+      if (node.params && node.params.length > 0) {
+        const paramsLabel = document.createElement("div");
+        paramsLabel.className = "ast-node-child-label";
+        paramsLabel.textContent = "parameters:";
+        childrenContainer.appendChild(paramsLabel);
+
+        node.params.forEach(param => {
+          const paramElement = createAstNodeElement(param);
+          childrenContainer.appendChild(paramElement);
+        });
+      }
+
+      // Add function body
+      if (node.body) {
+        const bodyLabel = document.createElement("div");
+        bodyLabel.className = "ast-node-child-label";
+        bodyLabel.textContent = "body:";
+        childrenContainer.appendChild(bodyLabel);
+
+        const bodyElement = createAstNodeElement(node.body);
+        childrenContainer.appendChild(bodyElement);
+      }
+    } else if (node.type === "BlockStatement") {
+      // Add block statements
+      if (node.body && node.body.length > 0) {
+        node.body.forEach(statement => {
+          const statementElement = createAstNodeElement(statement);
+          childrenContainer.appendChild(statementElement);
+        });
+      }
+    } else if (node.type === "CallExpression") {
+      // Add callee
+      if (node.callee) {
+        const calleeLabel = document.createElement("div");
+        calleeLabel.className = "ast-node-child-label";
+        calleeLabel.textContent = "callee:";
+        childrenContainer.appendChild(calleeLabel);
+
+        const calleeElement = createAstNodeElement(node.callee);
+        childrenContainer.appendChild(calleeElement);
+      }
+
+      // Add arguments
+      if (node.arguments && node.arguments.length > 0) {
+        const argsLabel = document.createElement("div");
+        argsLabel.className = "ast-node-child-label";
+        argsLabel.textContent = "arguments:";
+        childrenContainer.appendChild(argsLabel);
+
+        node.arguments.forEach(arg => {
+          const argElement = createAstNodeElement(arg);
+          childrenContainer.appendChild(argElement);
+        });
+      }
+    }
+
+    nodeElement.appendChild(childrenContainer);
   }
 
-  // We're removing the 'Uses X tokens' indicator as requested
-
-  // We no longer need special handling for Program node body statements,
-  // as we're directly rendering top-level nodes
-
-  // Handle special cases for other child relationships - these should be nested
-  // Only show init if we're not at the final step OR the node is complete
-  // Skip for const declarations with ternary expressions (we've already handled them)
-  if (
-    filteredNode.init &&
-    typeof filteredNode.init === "object" &&
-    !(
-      filteredNode.type === "ConstDeclaration" &&
-      filteredNode.init.type === "ConditionalExpression"
-    )
-  ) {
-    // Mark child nodes with the same completion status as parent
-    if (node._isComplete) {
-      // Deep completion marking - mark all nodes in this subtree as complete
-      const deepMarkComplete = (obj) => {
-        if (!obj || typeof obj !== "object") return;
-
-        // Mark this node as complete
-        obj._isComplete = true;
-
-        // For ternary operations, mark all parts
-        if (obj.type === "ConditionalExpression") {
-          deepMarkComplete(obj.test);
-          deepMarkComplete(obj.consequent);
-          deepMarkComplete(obj.alternate);
-        }
-
-        // For binary operations, mark both sides
-        if (obj.type === "BinaryExpression") {
-          deepMarkComplete(obj.left);
-          deepMarkComplete(obj.right);
-        }
-
-        // Mark any other nested expressions
-        if (obj.init) deepMarkComplete(obj.init);
-        if (obj.argument) deepMarkComplete(obj.argument);
-      };
-
-      // Apply deep completion marking to this init node
-      deepMarkComplete(filteredNode.init);
+  // Add click handler to toggle expansion
+  nodeElement.addEventListener("click", (e) => {
+    if (hasChildren) {
+      toggleAstNodeExpansion(nodeElement);
     }
-
-    const childrenElement = document.createElement("div");
-    childrenElement.className = "ast-node-children";
-    const label = document.createElement("div");
-    label.className = "ast-node-child-label";
-    label.textContent = "initialized to:";
-    childrenElement.appendChild(label);
-
-    const childElement = createAstNodeElement(filteredNode.init, false);
-    childrenElement.appendChild(childElement);
-    nodeElement.appendChild(childrenElement);
-  }
-
-  if (filteredNode.argument && typeof filteredNode.argument === "object") {
-    // Mark child nodes with the same completion status as parent
-    if (node._isComplete) {
-      // Apply the same deep completion marking to the argument node
-      const deepMarkComplete = (obj) => {
-        if (!obj || typeof obj !== "object") return;
-
-        // Mark this node as complete
-        obj._isComplete = true;
-
-        // For ternary operations, mark all parts
-        if (obj.type === "ConditionalExpression") {
-          deepMarkComplete(obj.test);
-          deepMarkComplete(obj.consequent);
-          deepMarkComplete(obj.alternate);
-        }
-
-        // For binary operations, mark both sides
-        if (obj.type === "BinaryExpression") {
-          deepMarkComplete(obj.left);
-          deepMarkComplete(obj.right);
-        }
-
-        // Mark any other nested expressions
-        if (obj.init) deepMarkComplete(obj.init);
-        if (obj.argument) deepMarkComplete(obj.argument);
-      };
-
-      // Apply deep completion marking
-      deepMarkComplete(filteredNode.argument);
-    }
-
-    const childrenElement = document.createElement("div");
-    childrenElement.className = "ast-node-children";
-    const label = document.createElement("div");
-    label.className = "ast-node-child-label";
-    label.textContent = "returns:";
-    childrenElement.appendChild(label);
-
-    const childElement = createAstNodeElement(filteredNode.argument, false);
-    childrenElement.appendChild(childElement);
-    nodeElement.appendChild(childrenElement);
-  }
-
-  if (
-    filteredNode.id &&
-    typeof filteredNode.id === "object" &&
-    filteredNode.id.type === "Identifier" &&
-    !filteredNode.id.position
-  ) {
-    // Mark child nodes with the same completion status as parent
-    if (node._isComplete) {
-      // Just mark the ID as complete - it doesn't have nested expressions
-      filteredNode.id._isComplete = true;
-    }
-
-    // Add identifier as a child node for better tree visualization
-    const childrenElement = document.createElement("div");
-    childrenElement.className = "ast-node-children";
-    const label = document.createElement("div");
-    label.className = "ast-node-child-label";
-    label.textContent = "name:";
-    childrenElement.appendChild(label);
-
-    const childElement = createAstNodeElement(filteredNode.id, false);
-    childrenElement.appendChild(childElement);
-    nodeElement.appendChild(childrenElement);
-  }
-
-  if (
-    filteredNode.typeAnnotation &&
-    typeof filteredNode.typeAnnotation === "object"
-  ) {
-    // Mark child nodes with the same completion status as parent
-    if (node._isComplete) {
-      // Just mark the type annotation as complete - it generally doesn't have nested expressions
-      filteredNode.typeAnnotation._isComplete = true;
-    }
-
-    const childrenElement = document.createElement("div");
-    childrenElement.className = "ast-node-children";
-    const label = document.createElement("div");
-    label.className = "ast-node-child-label";
-    label.textContent = "type:";
-    childrenElement.appendChild(label);
-
-    const childElement = createAstNodeElement(
-      filteredNode.typeAnnotation,
-      false,
-    );
-    childrenElement.appendChild(childElement);
-    nodeElement.appendChild(childrenElement);
-  }
-
-  // Handle standalone ConditionalExpression nodes (not inside const declarations)
-  if (
-    filteredNode.type === "ConditionalExpression" &&
-    !filteredNode._isAlreadyRendered
-  ) {
-    // First, mark that we've rendered this ternary to avoid duplicates
-    filteredNode._isAlreadyRendered = true;
-
-    // Mark all parts as complete if parent is complete
-    if (node._isComplete) {
-      if (filteredNode.test) filteredNode.test._isComplete = true;
-      if (filteredNode.consequent) filteredNode.consequent._isComplete = true;
-      if (filteredNode.alternate) filteredNode.alternate._isComplete = true;
-    }
-
-    // Add condition part
-    if (filteredNode.test && typeof filteredNode.test === "object") {
-      const condContainer = document.createElement("div");
-      condContainer.className = "ast-node-children";
-      const condLabel = document.createElement("div");
-      condLabel.className = "ast-node-child-label";
-      condLabel.textContent = "condition:";
-      condContainer.appendChild(condLabel);
-
-      const condElement = createAstNodeElement(filteredNode.test, false);
-      condContainer.appendChild(condElement);
-      nodeElement.appendChild(condContainer);
-    }
-
-    // Add 'then' part
-    if (
-      filteredNode.consequent &&
-      typeof filteredNode.consequent === "object"
-    ) {
-      const thenContainer = document.createElement("div");
-      thenContainer.className = "ast-node-children";
-      const thenLabel = document.createElement("div");
-      thenLabel.className = "ast-node-child-label";
-      thenLabel.textContent = "then:";
-      thenContainer.appendChild(thenLabel);
-
-      const thenElement = createAstNodeElement(filteredNode.consequent, false);
-      thenContainer.appendChild(thenElement);
-      nodeElement.appendChild(thenContainer);
-    }
-
-    // Add 'else' part
-    if (filteredNode.alternate && typeof filteredNode.alternate === "object") {
-      const elseContainer = document.createElement("div");
-      elseContainer.className = "ast-node-children";
-      const elseLabel = document.createElement("div");
-      elseLabel.className = "ast-node-child-label";
-      elseLabel.textContent = "else:";
-      elseContainer.appendChild(elseLabel);
-
-      const elseElement = createAstNodeElement(filteredNode.alternate, false);
-      elseContainer.appendChild(elseElement);
-      nodeElement.appendChild(elseContainer);
-    }
-  }
+    e.stopPropagation();
+  });
 
   return nodeElement;
+}
+
+/**
+ * Toggle the expansion state of an AST node
+ *
+ * @param {HTMLElement} nodeElement - DOM element for the AST node
+ */
+function toggleAstNodeExpansion(nodeElement) {
+  if (nodeElement.classList.contains("ast-node-expanded")) {
+    nodeElement.classList.remove("ast-node-expanded");
+    nodeElement.classList.add("ast-node-collapsed");
+  } else {
+    nodeElement.classList.remove("ast-node-collapsed");
+    nodeElement.classList.add("ast-node-expanded");
+  }
+}
+
+/**
+ * Check if an AST node has children that should be rendered
+ *
+ * @param {Object} node - AST node
+ * @returns {boolean} - True if the node has children
+ */
+function hasAstNodeChildren(node) {
+  if (!node || !node.type) return false;
+
+  return (
+    (node.type === "Program" && node.body && node.body.length > 0) ||
+    (node.type === "ConstDeclaration" && node.init) ||
+    (node.type === "ReturnStatement" && node.argument) ||
+    (node.type === "BinaryExpression" && (node.left || node.right)) ||
+    (node.type === "ConditionalExpression" && (node.test || node.consequent || node.alternate)) ||
+    (node.type === "ArrowFunctionExpression" && ((node.params && node.params.length > 0) || node.body)) ||
+    (node.type === "BlockStatement" && node.body && node.body.length > 0) ||
+    (node.type === "CallExpression" && ((node.arguments && node.arguments.length > 0) || node.callee))
+  );
 }
 
 /**
