@@ -87,11 +87,14 @@ if (typeof window !== "undefined") {
  * or punctuation.
  *
  * @param {string} sourceCode - The raw source code to tokenize
+ * @param {Object} [options] - Optional configuration
+ * @param {Function} [options.onToken] - Callback function triggered when a token is produced
  * @returns {Array} - A list of token objects
  */
-function tokenize(sourceCode) {
+function tokenize(sourceCode, options = {}) {
   const tokens = [];
   let position = 0; // Current position in the source code
+  const onToken = options.onToken || (() => {}); // Default to no-op if no callback provided
 
   /**
    * Helper function to skip over whitespace characters
@@ -101,7 +104,15 @@ function tokenize(sourceCode) {
   function skipWhitespace() {
     const match = sourceCode.slice(position).match(WHITESPACE_REGEX);
     if (match) {
-      position += match[0].length;
+      const whitespaceText = match[0];
+      onToken({
+        type: "WHITESPACE",
+        value: whitespaceText,
+        position,
+        length: whitespaceText.length,
+        consumedText: whitespaceText
+      });
+      position += whitespaceText.length;
     }
   }
 
@@ -125,9 +136,19 @@ function tokenize(sourceCode) {
 
       if (match) {
         const value = match[0];
+        const startPosition = position;
 
         // Skip comments, don't add them to the token stream
         if (pattern.type === "COMMENT") {
+          // Emit comment event before changing position
+          onToken({
+            type: "COMMENT",
+            value,
+            position: startPosition,
+            length: value.length,
+            consumedText: value
+          });
+
           position += value.length;
           matched = true;
           break;
@@ -137,10 +158,19 @@ function tokenize(sourceCode) {
         // - type: the category of token (e.g., "IDENTIFIER", "NUMBER")
         // - value: the actual text from the source code
         // - position: where in the source this token appears
-        tokens.push({
+        const token = {
           type: pattern.type,
           value,
-          position,
+          position: startPosition
+        };
+
+        tokens.push(token);
+
+        // Emit token event before changing position
+        onToken({
+          ...token,
+          length: value.length,
+          consumedText: value
         });
 
         // Advance our position by the length of the matched token
@@ -160,7 +190,15 @@ function tokenize(sourceCode) {
 
   // Add a special End-Of-File token to mark the end of the source
   // This simplifies the parser logic by avoiding special cases for the end
-  tokens.push({ type: "EOF", position });
+  const eofToken = { type: "EOF", position };
+  tokens.push(eofToken);
+
+  // Emit EOF token event
+  onToken({
+    ...eofToken,
+    length: 0,
+    consumedText: ""
+  });
 
   return tokens;
 }

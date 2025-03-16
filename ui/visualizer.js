@@ -14,136 +14,66 @@
 // Reference the compiler functions and patterns (exposed as globals in the browser)
 
 /**
- * Runs a tokenizer simulation that records each step for visualization
+ * Build a tokenization data structure that records token events for visualization
  *
  * @param {string} sourceCode - Source code to tokenize
- * @returns {Object} - Contains tokens and visualization steps
+ * @returns {Object} - Contains tokens, events, and mappings between source code and tokens
  */
-function runTokenizerSimulation(sourceCode) {
-  // Initialize state
-  const state = {
+function buildTokenizationData(sourceCode) {
+  // Initialize data structure
+  const tokenizationData = {
     sourceCode,
-    position: 0,
     tokens: [],
-    steps: [
-      // Add initial step with empty tokens
-      {
-        type: "initial",
-        position: 0,
-        length: 0,
-        currentTokens: [],
-      },
-    ],
+    events: [],
+    // Mapping from source code positions to tokens
+    sourceToToken: {},
+    // Mapping from token index to source code range
+    tokenToSource: {}
   };
 
-  // Main tokenization loop - mirrors the logic in the original tokenizer
-  while (state.position < state.sourceCode.length) {
-    skipWhitespace(state);
+  // Run the tokenizer with the onToken callback
+  window.CompilerModule.tokenize(sourceCode, {
+    onToken: (tokenEvent) => {
+      // Add this event to our list
+      tokenizationData.events.push(tokenEvent);
 
-    if (state.position >= state.sourceCode.length) {
-      break;
-    }
+      // Only track actual tokens (not whitespace or comments)
+      if (tokenEvent.type !== "WHITESPACE" && tokenEvent.type !== "COMMENT") {
+        // Store the token
+        const tokenIndex = tokenizationData.tokens.length;
+        tokenizationData.tokens.push(tokenEvent);
 
-    let matched = false;
-
-    for (const pattern of window.CompilerModule.TOKEN_PATTERNS) {
-      const match = state.sourceCode.slice(state.position).match(pattern.regex);
-
-      if (match) {
-        const value = match[0];
-        const startPosition = state.position;
-
-        // Skip comments but still record the step
-        if (pattern.type === "COMMENT") {
-          // Record step BEFORE changing position
-          state.steps.push({
-            type: "comment",
-            position: startPosition,
-            length: value.length,
-            value,
-            currentTokens: [...state.tokens],
-          });
-
-          // Update position AFTER recording the step
-          state.position += value.length;
-          matched = true;
-          break;
+        // Create mappings
+        // Map each character position in source to this token
+        for (let i = 0; i < tokenEvent.length; i++) {
+          const pos = tokenEvent.position + i;
+          tokenizationData.sourceToToken[pos] = tokenIndex;
         }
 
-        // Create token object
-        const token = {
-          type: pattern.type,
-          value,
-          position: startPosition,
+        // Map this token to its source range
+        tokenizationData.tokenToSource[tokenIndex] = {
+          start: tokenEvent.position,
+          end: tokenEvent.position + tokenEvent.length,
+          text: tokenEvent.consumedText
         };
-
-        // Add token to the array
-        state.tokens.push(token);
-
-        // Record step BEFORE changing position
-        state.steps.push({
-          type: "token",
-          token: { ...token },
-          position: startPosition,
-          length: value.length,
-          currentTokens: [...state.tokens],
-        });
-
-        // Update position AFTER recording the step
-        state.position += value.length;
-        matched = true;
-        break;
       }
     }
-
-    if (!matched) {
-      throw new Error(
-        `Unexpected character at position ${state.position}: "${state.sourceCode.charAt(state.position)}"`,
-      );
-    }
-  }
-
-  // Add EOF token
-  const eofToken = { type: "EOF", position: state.position };
-  state.tokens.push(eofToken);
-
-  state.steps.push({
-    type: "token",
-    token: { ...eofToken },
-    position: state.position,
-    length: 0,
-    currentTokens: [...state.tokens],
   });
 
-  return {
-    tokens: state.tokens,
-    steps: state.steps,
-  };
+  return tokenizationData;
 }
 
 /**
- * Skip whitespace characters and record the step
+ * Skip whitespace in the source code - reimplemented to match original
  *
- * @param {Object} state - Current tokenization state
+ * @param {Object} state - Tokenizer state
  */
 function skipWhitespace(state) {
   const match = state.sourceCode
     .slice(state.position)
     .match(window.CompilerModule.WHITESPACE_REGEX);
   if (match) {
-    const startPosition = state.position;
-    const length = match[0].length;
-
-    // Record step BEFORE changing position
-    state.steps.push({
-      type: "whitespace",
-      position: startPosition,
-      length: length,
-      currentTokens: [...state.tokens],
-    });
-
-    // Update position AFTER recording the step
-    state.position += length;
+    state.position += match[0].length;
   }
 }
 
@@ -161,13 +91,23 @@ function getTokens(sourceCode) {
  * Helper function to create colored token display
  *
  * @param {Object} token - Token object to display
+ * @param {Function} onTokenClick - Callback for when a token is clicked
  * @returns {HTMLElement} - DOM element for the token
  */
-function createTokenDisplay(token) {
+function createTokenDisplay(token, onTokenClick) {
   const tokenElement = document.createElement("div");
   tokenElement.className = "token";
   tokenElement.textContent = `${token.type}: "${token.value || ""}" (pos: ${token.position})`;
   tokenElement.dataset.position = token.position;
+  tokenElement.dataset.tokenIndex = token.tokenIndex;
+
+  // Add click handler
+  tokenElement.addEventListener("click", () => {
+    if (onTokenClick) {
+      onTokenClick(token);
+    }
+  });
+
   return tokenElement;
 }
 
@@ -199,17 +139,17 @@ function highlightCode(
       ? `<span class="text-consumed">${escapeHtml(beforeCurrent)}</span>`
       : "",
     currentText.length > 0
-      ? `<span class="${highlightClass}">${escapeHtml(currentText)}</span>`
+      ? `<span class="${highlightClass}" data-position="${currentPosition}" data-length="${currentLength}">${escapeHtml(currentText)}</span>`
       : "",
     afterCurrent,
   ].join("");
 }
 
 /**
- * Helper function to escape HTML
+ * Helper function to escape HTML special characters
  *
  * @param {string} text - Text to escape
- * @returns {string} - HTML-escaped text
+ * @returns {string} - Escaped HTML
  */
 function escapeHtml(text) {
   const element = document.createElement("div");
@@ -336,18 +276,47 @@ function runTokenization(state) {
     // Clear previous displays
     state.ui.tokensListElement.innerHTML = "";
 
-    // Run the tokenizer simulation
-    const tokenResult = runTokenizerSimulation(state.sourceCode);
+    // Build tokenization data using events
+    const tokenizationData = buildTokenizationData(state.sourceCode);
 
-    // Get the actual tokens from the original tokenizer
-    state.tokens = getTokens(state.sourceCode);
+    // Store tokens and data
+    state.tokens = tokenizationData.tokens;
+    state.tokenizationData = tokenizationData;
 
-    // Store visualization steps
-    state.visualizationSteps = tokenResult.steps;
-    state.astSteps = []; // We've removed the AST visualizer
-    state.ast = null; // No AST to store
+    // Initialize the source code display with character spans
+    initializeSourceCodeDisplay(state);
 
-    // Calculate total steps (tokenization only, since we removed AST)
+    // Filter the events to only include token events (skip whitespace and comments)
+    // This ensures each scrubber step corresponds to a new token
+    const tokenEvents = tokenizationData.events.filter(event =>
+      event.type !== "WHITESPACE" && event.type !== "COMMENT"
+    );
+
+    // Convert filtered events to visualization steps for the scrubber
+    state.visualizationSteps = tokenEvents.map((event, index) => {
+      // Find all tokens up to and including this token
+      const tokensUpToHere = tokenizationData.tokens.slice(0, index + 1);
+
+      return {
+        type: "token",
+        token: event,
+        position: event.position,
+        length: event.length,
+        currentTokens: tokensUpToHere,
+        eventIndex: index
+      };
+    });
+
+    // Add an initial step
+    state.visualizationSteps.unshift({
+      type: "initial",
+      position: 0,
+      length: 0,
+      currentTokens: [],
+      eventIndex: -1
+    });
+
+    // Calculate total steps (tokenization only)
     state.totalSteps = state.visualizationSteps.length;
 
     // Reset UI
@@ -394,47 +363,6 @@ function updateVisualization(state) {
 }
 
 /**
- * Update the source code highlighting based on current step
- *
- * @param {Object} state - Visualization state
- */
-function updateSourceCodeHighlighting(state) {
-  // Start with the raw source code
-  state.ui.sourceCodeElement.textContent = state.sourceCode;
-
-  if (state.currentStepIndex > 0) {
-    const currentStep = state.visualizationSteps[state.currentStepIndex - 1];
-
-    // Current token position and length
-    const currentPosition = currentStep.position;
-    const currentLength = currentStep.length || 0;
-
-    // Determine highlight class based on the step type
-    // Use green highlight for token steps, gray for whitespace/comments
-    const highlightClass =
-      currentStep.type === "token" ? "text-current" : "text-whitespace";
-
-    // Apply highlighting - highlight the current token
-    state.ui.sourceCodeElement.innerHTML = highlightCode(
-      state.sourceCode,
-      currentPosition,
-      currentLength,
-      highlightClass,
-    );
-
-    // Find the highlighted element and scroll it into view if not already visible
-    setTimeout(() => {
-      const highlightedElement = state.ui.sourceCodeElement.querySelector(
-        `.${highlightClass}`,
-      );
-      if (highlightedElement) {
-        scrollIntoViewIfNeeded(highlightedElement, state.ui.sourceCodeElement);
-      }
-    }, 0);
-  }
-}
-
-/**
  * Update the tokens display based on current step
  *
  * @param {Object} state - Visualization state
@@ -457,7 +385,21 @@ function updateTokensDisplay(state) {
 
   // Add tokens to display
   tokens.forEach((token, index) => {
-    const tokenElement = createTokenDisplay(token);
+    // Add index to token for easy retrieval
+    token.tokenIndex = index;
+
+    const tokenElement = document.createElement("div");
+    tokenElement.className = "token";
+    tokenElement.textContent = `${token.type}: "${token.value || ""}" (pos: ${token.position})`;
+    tokenElement.dataset.position = token.position;
+    tokenElement.dataset.tokenIndex = token.tokenIndex;
+
+    // Add click handler directly to the token element
+    tokenElement.addEventListener("click", () => {
+      // When a token is clicked, highlight both the token and its source code
+      highlightToken(state, token.tokenIndex);
+      highlightSourceRange(state, token.tokenIndex);
+    });
 
     if (index === currentTokenIndex && step.type === "token") {
       // Highlight the most recently added token
@@ -480,490 +422,136 @@ function updateTokensDisplay(state) {
 }
 
 /**
- * Parse AST simulation that records each step for visualization
+ * Update the source code highlighting based on current step
  *
- * @param {Array} tokens - Tokens produced by the tokenizer
- * @returns {Object} - Contains AST and visualization steps
+ * @param {Object} state - Visualization state
  */
-function runParseSimulation(tokens) {
-  // Initialize state for recording parse steps
-  const state = {
-    tokens: [...tokens], // Make a copy of tokens to avoid modifying the original
-    current: 0, // Current position in the token array
-    ast: null, // Will hold the final AST
-    astSteps: [], // Will hold steps for visualization
-  };
-
-  // Helper function to record a step in the parsing process
-  function recordStep(nodeType, node, description, tokensUsed = []) {
-    // Skip "start" and general placeholder steps - we want to show concrete parsing actions
-    if (
-      nodeType === "start" ||
-      nodeType === "statement" ||
-      nodeType === "expression" ||
-      nodeType === "primary"
-    ) {
-      return;
-    }
-
-    // Determine if this is a complete step or in-progress step
-    const isCompleteStep = nodeType.endsWith("Complete");
-
-    // Add _inProgress and _isComplete properties to node
-    const nodeWithFlags = JSON.parse(JSON.stringify(node)); // Deep copy
-
-    // Explicitly mark if the node is complete or in progress
-    if (isCompleteStep) {
-      nodeWithFlags._isComplete = true;
-      nodeWithFlags._inProgress = false;
-    } else {
-      nodeWithFlags._inProgress = true;
-      nodeWithFlags._isComplete = false;
-    }
-
-    state.astSteps.push({
-      type: nodeType,
-      node: nodeWithFlags,
-      description,
-      tokenPosition: state.current, // Current token position
-      tokensUsed: [...tokensUsed], // Which tokens were used for this node
-      tokens: state.tokens.slice(0, state.current), // Tokens consumed so far
-      isComplete: isCompleteStep,
+function updateSourceCodeHighlighting(state) {
+  if (state.currentStepIndex === 0) {
+    // Reset all source code highlighting
+    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+    allChars.forEach(char => {
+      char.classList.remove('text-consumed', 'text-current');
     });
+    return;
   }
 
-  // Modified versions of the original parse.js helper functions that record steps
-  function peek() {
-    return state.tokens[state.current];
-  }
+  const currentStep = state.visualizationSteps[state.currentStepIndex - 1];
+  const currentPosition = currentStep.position;
+  const currentLength = currentStep.length || 0;
 
-  function next() {
-    return state.tokens[state.current++];
-  }
+  // Find the end position of the current token
+  const currentEndPosition = currentPosition + currentLength;
 
-  function check(type) {
-    return peek() && peek().type === type;
-  }
+  // Determine highlight class based on the step type (always "token" now)
+  const highlightClass = "text-current";
 
-  function expect(type, message) {
-    if (check(type)) {
-      return next();
+  // Clear previous highlighting
+  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+  allChars.forEach(char => {
+    char.classList.remove('text-consumed', 'text-current', 'text-whitespace', 'text-clicked');
+
+    // Mark all characters before the current position as consumed
+    const charPos = parseInt(char.dataset.pos, 10);
+    if (charPos < currentEndPosition) {
+      // The current token being processed is highlighted differently
+      if (charPos >= currentPosition && charPos < currentEndPosition) {
+        char.classList.add(highlightClass);
+      } else {
+        char.classList.add('text-consumed');
+      }
     }
-    // If we don't find what we expect, record an error step
-    const errorMsg =
-      message ||
-      `Expected ${type} but got ${peek() ? peek().type : "EOF"} at position ${peek() ? peek().position : "end"}`;
-    recordStep("error", { error: errorMsg }, errorMsg);
-    throw new Error(errorMsg);
+  });
+
+  // Scroll to the current highlighted section if not in view
+  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector(`.${highlightClass}`);
+  if (firstHighlightedChar) {
+    setTimeout(() => {
+      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
+    }, 0);
   }
+}
 
-  // Simplified parse function implementations that record visualization steps
+/**
+ * Highlight a specific token
+ *
+ * @param {Object} state - Visualization state
+ * @param {number} tokenIndex - Index of the token to highlight
+ */
+function highlightToken(state, tokenIndex) {
+  // Clear any existing token highlighting
+  const allTokens = state.ui.tokensListElement.querySelectorAll('.token');
+  allTokens.forEach(el => {
+    el.classList.remove('token-clicked');
+  });
 
-  // Main parse function - entry point
-  function parseProgram() {
-    const body = [];
+  // Find and highlight the specified token
+  const tokenElement = state.ui.tokensListElement.querySelector(`[data-token-index="${tokenIndex}"]`);
+  if (tokenElement) {
+    tokenElement.classList.add('token-clicked');
+    scrollIntoViewIfNeeded(tokenElement, state.ui.tokensListElement);
+    return true;
+  }
+  return false;
+}
 
-    // Keep parsing statements until we reach the end of the file
-    while (state.current < state.tokens.length && !check("EOF")) {
-      try {
-        const stmt = parseStatement();
-        if (stmt) {
-          body.push(stmt);
+/**
+ * Highlight a specific range in the source code
+ *
+ * @param {Object} state - Visualization state
+ * @param {number} tokenIndex - Index of the token to highlight in source
+ */
+function highlightSourceRange(state, tokenIndex) {
+  // Get the range of source code for this token
+  const sourceRange = state.tokenizationData.tokenToSource[tokenIndex];
+  if (!sourceRange) return false;
+
+  // Get the current scrubber position to determine what should be marked as consumed
+  const currentStep = state.visualizationSteps[state.currentStepIndex - 1] || { position: 0, length: 0 };
+  const currentTokenEndPos = currentStep.position + currentStep.length;
+
+  // Clear highlighting for clicked state
+  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+  allChars.forEach(char => {
+    char.classList.remove('text-clicked');
+
+    // Ensure consumed text is still marked as consumed
+    const charPos = parseInt(char.dataset.pos, 10);
+
+    // We want to preserve the consumed/current highlighting from the scrubber
+    if (state.currentStepIndex > 0) {
+      if (charPos < currentTokenEndPos) {
+        // Only remove current highlighting, keep consumed
+        char.classList.remove('text-current');
+
+        // The characters of the current token are highlighted with text-current
+        if (charPos >= currentStep.position && charPos < currentTokenEndPos) {
+          // Do nothing, we're removing this class
+        } else {
+          // Make sure consumed text stays consumed
+          char.classList.add('text-consumed');
         }
-      } catch (error) {
-        console.error("Parse error:", error);
-        break;
       }
     }
+  });
 
-    const program = {
-      type: "Program",
-      body,
-    };
-
-    // Record the final program, but we won't show this in the visualization
-    // since we've already been showing the individual nodes as they're parsed
-    recordStep(
-      "complete",
-      program,
-      "Completed parsing program",
-      state.tokens.slice(0, state.current),
-    );
-
-    return program;
-  }
-
-  // Parse statements (const declarations, return, expressions)
-  function parseStatement() {
-    recordStep("statement", { type: "Statement" }, "Parsing statement");
-
-    if (check("CONST")) {
-      return parseConstDeclaration();
-    }
-
-    if (check("RETURN")) {
-      return parseReturnStatement();
-    }
-
-    // If not a specific statement type, parse as expression
-    return parseExpression();
-  }
-
-  // Parse const declarations: const x = value
-  function parseConstDeclaration() {
-    const startPos = state.current;
-    const constToken = next(); // consume 'const'
-
-    // After consuming 'const', show this as parsing a const declaration
-    // Using only the tokens consumed so far
-    const tokensConsumedSoFar = state.tokens.slice(startPos, state.current);
-    recordStep(
-      "constDeclStart",
-      { type: "ConstDeclaration", partial: true },
-      `Parsing const declaration`,
-      tokensConsumedSoFar,
-    );
-
-    // Get the variable name
-    const idToken = expect("IDENTIFIER", "Expected identifier after const");
-
-    // After consuming the identifier, update the visualization
-    const tokensAfterIdent = state.tokens.slice(startPos, state.current);
-    recordStep(
-      "constDeclId",
-      {
-        type: "ConstDeclaration",
-        id: { type: "Identifier", name: idToken.value },
-        partial: true,
-      },
-      `Parsing const declaration for '${idToken.value}'`,
-      tokensAfterIdent,
-    );
-
-    // Check for type annotation
-    let typeAnnotation = null;
-    if (check("COLON")) {
-      typeAnnotation = parseTypeAnnotation();
-
-      // After parsing type annotation, update the visualization
-      const tokensAfterType = state.tokens.slice(startPos, state.current);
-      recordStep(
-        "constDeclWithType",
-        {
-          type: "ConstDeclaration",
-          id: { type: "Identifier", name: idToken.value },
-          typeAnnotation,
-          partial: true,
-        },
-        `Parsing const declaration with type annotation`,
-        tokensAfterType,
-      );
-    }
-
-    // Expect equals sign
-    const equalToken = expect(
-      "EQUAL",
-      "Expected = after identifier in const declaration",
-    );
-
-    // After consuming equals sign, update the visualization
-    const tokensAfterEqual = state.tokens.slice(startPos, state.current);
-    recordStep(
-      "constDeclBeforeInit",
-      {
-        type: "ConstDeclaration",
-        id: { type: "Identifier", name: idToken.value },
-        typeAnnotation,
-        partial: true,
-      },
-      `Parsing const declaration initializer`,
-      tokensAfterEqual,
-    );
-
-    // Parse the initializer expression
-    const init = parseExpression();
-
-    // Optional semicolon
-    let semicolonToken = null;
-    if (check("SEMICOLON")) {
-      semicolonToken = next();
-    }
-
-    // Get all tokens used for this declaration
-    const tokensUsed = state.tokens.slice(startPos, state.current);
-
-    const constDecl = {
-      type: "ConstDeclaration",
-      id: {
-        type: "Identifier",
-        name: idToken.value,
-      },
-      typeAnnotation,
-      init,
-    };
-
-    recordStep(
-      "constDeclComplete",
-      constDecl,
-      `Completed const declaration for '${idToken.value}'`,
-      tokensUsed,
-    );
-
-    return constDecl;
-  }
-
-  // Parse return statements: return expr
-  function parseReturnStatement() {
-    const startPos = state.current;
-    const returnToken = next(); // consume 'return'
-
-    // After consuming 'return', show this as parsing a return statement
-    const tokensConsumedSoFar = state.tokens.slice(startPos, state.current);
-    recordStep(
-      "returnStmtStart",
-      { type: "ReturnStatement", partial: true },
-      "Parsing return statement",
-      tokensConsumedSoFar,
-    );
-
-    // Check for empty return
-    if (check("SEMICOLON") || check("RIGHT_CURLY")) {
-      let semicolonToken = null;
-      if (check("SEMICOLON")) {
-        semicolonToken = next();
-      }
-
-      const tokensUsed = state.tokens.slice(startPos, state.current);
-
-      const returnStmt = {
-        type: "ReturnStatement",
-        argument: null,
-      };
-
-      recordStep(
-        "returnStmtComplete",
-        returnStmt,
-        "Completed empty return statement",
-        tokensUsed,
-      );
-
-      return returnStmt;
-    }
-
-    // Parse return expression
-    const argument = parseExpression();
-
-    // Optional semicolon
-    let semicolonToken = null;
-    if (check("SEMICOLON")) {
-      semicolonToken = next();
-    }
-
-    const tokensUsed = state.tokens.slice(startPos, state.current);
-
-    const returnStmt = {
-      type: "ReturnStatement",
-      argument,
-    };
-
-    recordStep(
-      "returnStmtComplete",
-      returnStmt,
-      "Completed return statement",
-      tokensUsed,
-    );
-
-    return returnStmt;
-  }
-
-  // Parse expressions (anything that produces a value)
-  function parseExpression() {
-    // We're simplifying for this demo, so directly parse primary expressions
-    return parsePrimary();
-  }
-
-  // Parse primary expressions (identifiers, literals, etc.)
-  function parsePrimary() {
-    const startPos = state.current;
-
-    if (check("EOF")) {
-      // We've reached the end
-      return null;
-    }
-
-    // Peek at the next token before consuming it
-    const nextToken = peek();
-
-    // Prepare to mark this token as being processed
-    const tokensBeingProcessed = [nextToken];
-    recordStep(
-      "exprStart",
-      { type: "Expression", partial: true, tokenType: nextToken.type },
-      `Processing token: ${nextToken.type} "${nextToken.value}"`,
-      tokensBeingProcessed,
-    );
-
-    // Now consume the token
-    const token = next();
-
-    let expr;
-
-    switch (token.type) {
-      case "IDENTIFIER": {
-        expr = {
-          type: "Identifier",
-          name: token.value,
-          position: token.position,
-        };
-
-        const tokensUsed = state.tokens.slice(startPos, state.current);
-        recordStep(
-          "identifier",
-          expr,
-          `Parsed identifier: ${token.value}`,
-          tokensUsed,
-        );
-        break;
-      }
-
-      case "NUMBER": {
-        expr = {
-          type: "NumericLiteral",
-          value: parseFloat(token.value),
-          position: token.position,
-        };
-
-        const tokensUsed = state.tokens.slice(startPos, state.current);
-        recordStep(
-          "numberLiteral",
-          expr,
-          `Parsed number: ${token.value}`,
-          tokensUsed,
-        );
-        break;
-      }
-
-      case "STRING": {
-        const value = token.value.slice(1, -1); // Remove quotes
-        expr = {
-          type: "StringLiteral",
-          value,
-          position: token.position,
-        };
-
-        const tokensUsed = state.tokens.slice(startPos, state.current);
-        recordStep(
-          "stringLiteral",
-          expr,
-          `Parsed string: "${value}"`,
-          tokensUsed,
-        );
-        break;
-      }
-
-      case "BOOLEAN": {
-        expr = {
-          type: "BooleanLiteral",
-          value: token.value === "true",
-          position: token.position,
-        };
-
-        const tokensUsed = state.tokens.slice(startPos, state.current);
-        recordStep(
-          "booleanLiteral",
-          expr,
-          `Parsed boolean: ${token.value}`,
-          tokensUsed,
-        );
-        break;
-      }
-
-      default: {
-        // For simplicity, we'll just make a placeholder node for any other token
-        expr = {
-          type: "Unknown",
-          tokenType: token.type,
-          value: token.value,
-          position: token.position,
-        };
-
-        const tokensUsed = state.tokens.slice(startPos, state.current);
-        recordStep(
-          "unknown",
-          expr,
-          `Encountered token: ${token.type}`,
-          tokensUsed,
-        );
-      }
-    }
-
-    return expr;
-  }
-
-  // Simplified version of type annotation parsing
-  function parseTypeAnnotation() {
-    const startPos = state.current;
-    const colonToken = next(); // consume colon
-
-    // After consuming ':', show this as parsing a type annotation
-    const tokensAfterColon = state.tokens.slice(startPos, state.current);
-    recordStep(
-      "typeAnnotationStart",
-      { type: "TypeAnnotation", partial: true },
-      "Parsing type annotation",
-      tokensAfterColon,
-    );
-
-    // Peek at the type token before consuming it
-    const nextToken = peek();
-    const peekTokens = state.tokens
-      .slice(startPos, state.current)
-      .concat([nextToken]);
-    recordStep(
-      "typeAnnotationPeek",
-      { type: "TypeAnnotation", partial: true, nextToken: nextToken.value },
-      `Type annotation will use token: ${nextToken.type} "${nextToken.value}"`,
-      peekTokens,
-    );
-
-    // Now consume the type token
-    const typeToken = next();
-
-    const tokensUsed = state.tokens.slice(startPos, state.current);
-
-    const typeAnnotation = {
-      type: "TypeAnnotation",
-      valueType: typeToken.value,
-    };
-
-    recordStep(
-      "typeAnnotationComplete",
-      typeAnnotation,
-      `Completed type annotation: ${typeToken.value}`,
-      tokensUsed,
-    );
-
-    return typeAnnotation;
-  }
-
-  // Start parsing
-  try {
-    state.ast = parseProgram();
-  } catch (error) {
-    console.error("Parse simulation error:", error);
-    // Add a final error step if we crashed
-    if (
-      state.astSteps.length === 0 ||
-      state.astSteps[state.astSteps.length - 1].type !== "error"
-    ) {
-      recordStep("error", { error: error.message }, error.message);
+  // Add the clicked highlighting to the selected token's characters
+  for (let i = sourceRange.start; i < sourceRange.end; i++) {
+    const charSpan = state.ui.sourceCodeElement.querySelector(`[data-pos="${i}"]`);
+    if (charSpan) {
+      charSpan.classList.add('text-clicked');
     }
   }
 
-  return {
-    ast: state.ast,
-    steps: state.astSteps,
-  };
+  // Scroll to the highlighted source if not in view
+  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector('.text-clicked');
+  if (firstHighlightedChar) {
+    setTimeout(() => {
+      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
+    }, 0);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1720,9 +1308,100 @@ function createAstNodeElement(node, forceHighlight = false) {
 }
 
 /**
- * Helper function to scroll an element into view only if it's not already visible
+ * Display a toast notification
  *
- * @param {HTMLElement} element - The element to scroll into view
+ * @param {string} message - Message to display
+ */
+function showToast(message) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // Show the toast
+  setTimeout(() => toast.classList.add('show'), 10);
+
+  // Hide and remove the toast after 3 seconds
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => document.body.removeChild(toast), 300);
+  }, 3000);
+}
+
+/**
+ * Update the source code display with original source and prepare for interactive highlighting
+ *
+ * @param {Object} state - Visualization state
+ */
+function initializeSourceCodeDisplay(state) {
+  // Clear the source code display
+  state.ui.sourceCodeElement.innerHTML = '';
+
+  // Create a document fragment to batch DOM operations
+  const fragment = document.createDocumentFragment();
+
+  // Process each character with special handling for newlines
+  for (let i = 0; i < state.sourceCode.length; i++) {
+    const char = state.sourceCode[i];
+
+    if (char === '\n') {
+      // For newlines, add a line break element
+      fragment.appendChild(document.createElement('br'));
+
+      // Also add a hidden span to track the newline character's position
+      const newlineMarker = document.createElement('span');
+      newlineMarker.style.display = 'none';
+      newlineMarker.dataset.pos = i;
+      newlineMarker.className = 'source-char newline-char';
+
+      // Find which token this newline belongs to (if any)
+      const tokenIndex = state.tokenizationData.sourceToToken[i];
+      if (tokenIndex !== undefined) {
+        newlineMarker.dataset.tokenIndex = tokenIndex;
+      }
+
+      fragment.appendChild(newlineMarker);
+    } else {
+      // For regular characters, create a visible span
+      const charSpan = document.createElement('span');
+      charSpan.textContent = char;
+      charSpan.dataset.pos = i;
+      charSpan.className = 'source-char';
+
+      // Find which token this character belongs to
+      const tokenIndex = state.tokenizationData.sourceToToken[i];
+      if (tokenIndex !== undefined) {
+        charSpan.dataset.tokenIndex = tokenIndex;
+      }
+
+      fragment.appendChild(charSpan);
+    }
+  }
+
+  // Add all spans at once
+  state.ui.sourceCodeElement.appendChild(fragment);
+
+  // Add click handler to the source code container
+  state.ui.sourceCodeElement.addEventListener('click', (event) => {
+    // Find the closest character span that was clicked
+    const charSpan = event.target.closest('.source-char');
+    if (!charSpan) return;
+
+    const position = parseInt(charSpan.dataset.pos, 10);
+    const tokenIndex = state.tokenizationData.sourceToToken[position];
+
+    if (tokenIndex !== undefined) {
+      // Highlight both the source code and the token
+      highlightSourceRange(state, tokenIndex);
+      highlightToken(state, tokenIndex);
+    }
+  });
+}
+
+/**
+ * Helper function to scroll an element into view if not already visible
+ *
+ * @param {HTMLElement} element - Element to scroll into view
  * @param {HTMLElement} container - The scrollable container
  */
 function scrollIntoViewIfNeeded(element, container) {
@@ -1742,62 +1421,9 @@ function scrollIntoViewIfNeeded(element, container) {
     element.scrollIntoView({
       behavior: "auto",
       block: "nearest",
-      inline: "nearest",
+      inline: "nearest"
     });
   }
-}
-
-/**
- * Shows a toast notification
- *
- * @param {string} message - The message to display in the toast
- */
-function showToast(message) {
-  // Create toast container if it doesn't exist
-  let toastContainer = document.querySelector(".toast-container");
-  if (!toastContainer) {
-    toastContainer = document.createElement("div");
-    toastContainer.className = "toast-container";
-    document.body.appendChild(toastContainer);
-  }
-
-  // Create the toast element
-  const toast = document.createElement("div");
-  toast.className = "toast";
-
-  // Create the message element
-  const msgElement = document.createElement("div");
-  msgElement.className = "toast-message";
-  msgElement.textContent = message;
-  toast.appendChild(msgElement);
-
-  // Create close button
-  const closeBtn = document.createElement("button");
-  closeBtn.className = "toast-close";
-  closeBtn.innerHTML = "&times;";
-  closeBtn.setAttribute("aria-label", "Close notification");
-  toast.appendChild(closeBtn);
-
-  // Add toast to container
-  toastContainer.appendChild(toast);
-
-  // Handle close button click
-  closeBtn.addEventListener("click", () => {
-    toast.remove();
-  });
-
-  // Handle Escape key to dismiss toast
-  document.addEventListener("keydown", function escapeHandler(e) {
-    if (e.key === "Escape") {
-      toast.remove();
-      document.removeEventListener("keydown", escapeHandler);
-    }
-  });
-
-  // Auto remove after 3 seconds
-  setTimeout(() => {
-    toast.remove();
-  }, 3000);
 }
 
 // Initialize the visualizer when the page loads
