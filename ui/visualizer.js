@@ -135,10 +135,10 @@ function buildNameResolutionData(sourceCode, ast) {
 
   // Scope ID counter to assign unique IDs
   let scopeIdCounter = 0;
-  
+
   // Reference the original createScope function
   const origCreateScope = window.CompilerModule.createScope;
-  
+
   // Create custom state for our name resolution traversal
   const state = {
     ast,
@@ -146,27 +146,27 @@ function buildNameResolutionData(sourceCode, ast) {
     currentScope: null,
     previousScope: null,
     currentNode: null,
-    
+
     // Custom enter scope handler that emits events
     enterScope: function() {
       // Get the parent scope
       const parentScope = this.currentScope;
-      
+
       // Create a new scope with the current one as parent
       const newScope = origCreateScope(parentScope);
       const scopeId = scopeIdCounter++;
-      
+
       // Add scope ID for tracking
       newScope.id = scopeId;
       newScope.parentId = parentScope ? parentScope.id : null;
-      
+
       // Save previous scope and set new current scope
       this.previousScope = parentScope;
       this.currentScope = newScope;
-      
+
       // Add to our scopes list
       nameResolutionData.scopes.push(newScope);
-      
+
       // Emit enter scope event
       nameResolutionData.events.push({
         type: 'EnterScope',
@@ -175,7 +175,7 @@ function buildNameResolutionData(sourceCode, ast) {
         parentScopeId: newScope.parentId
       });
     },
-    
+
     // Custom exit scope handler that emits events
     exitScope: function() {
       // Emit exit scope event
@@ -183,17 +183,17 @@ function buildNameResolutionData(sourceCode, ast) {
         type: 'ExitScope',
         scopeId: this.currentScope.id
       });
-      
+
       // Restore previous scope
       this.currentScope = this.previousScope;
     },
-    
+
     // Declare a variable in the current scope and emit event
     declareVariable: function(name, node) {
       if (!this.currentScope) return false;
-      
+
       const success = window.CompilerModule.declareInScope(this.currentScope, name, node);
-      
+
       // Emit declare event
       nameResolutionData.events.push({
         type: 'DeclareVariable',
@@ -201,17 +201,43 @@ function buildNameResolutionData(sourceCode, ast) {
         name,
         node
       });
-      
+
       return success;
     },
-    
+
     // Resolve a variable reference and emit event
     resolveReference: function(name, node) {
       if (!this.currentScope) return null;
-      
+
+      // Get the declaration from the current scope or parent scopes
       const declaration = window.CompilerModule.getDeclarationFromScope(this.currentScope, name);
-      
-      // Emit resolve event
+
+      // Track which scope the variable was found in, if any
+      let foundInScope = null;
+      if (declaration) {
+        // Find which scope contains this declaration
+        let scope = this.currentScope;
+        while (scope) {
+          if (scope.declarations && scope.declarations[name]) {
+            foundInScope = scope;
+            break;
+          }
+          scope = scope.parent;
+        }
+      }
+
+      // Emit lookup event with more detailed information
+      nameResolutionData.events.push({
+        type: 'VariableLookup',
+        scopeId: this.currentScope.id,
+        name,
+        node,
+        resolvedInScopeId: foundInScope ? foundInScope.id : null,
+        declaration,
+        resolved: !!declaration
+      });
+
+      // Also emit the standard resolve reference event for backward compatibility
       nameResolutionData.events.push({
         type: 'ResolveReference',
         scopeId: this.currentScope.id,
@@ -220,15 +246,15 @@ function buildNameResolutionData(sourceCode, ast) {
         declaration,
         resolved: !!declaration
       });
-      
+
       return declaration;
     },
-    
+
     // Report an error and emit error event
     reportError: function(message, node) {
       const error = { message, node };
       nameResolutionData.errors.push(error);
-      
+
       // Emit error event
       nameResolutionData.events.push({
         type: 'Error',
@@ -236,7 +262,7 @@ function buildNameResolutionData(sourceCode, ast) {
         node,
         error
       });
-      
+
       this.errors.push(error);
     }
   };
@@ -245,104 +271,120 @@ function buildNameResolutionData(sourceCode, ast) {
     // Process the AST to perform name resolution with our custom state object
     const visitNode = function(node) {
       if (!node) return;
-      
+
       // Set current node on state
       state.currentNode = node;
-      
+
       // Handle different node types
       switch (node.type) {
         case 'Program':
           // Create the global scope
           state.enterScope();
-          
+
           // Visit all statements
           if (node.body && Array.isArray(node.body)) {
             node.body.forEach(stmt => visitNode(stmt));
           }
-          
+
           // Exit global scope
           state.exitScope();
           break;
-          
+
         case 'ConstDeclaration':
           // Declare the variable in current scope
           if (node.id && node.id.value) {
             state.declareVariable(node.id.value, node);
           }
-          
+
           // Visit the initializer
           if (node.init) {
             visitNode(node.init);
           }
           break;
-          
+
         case 'ArrowFunctionExpression':
           // Create a new scope for the function
           state.enterScope();
-          
+
           // Add parameters to the function scope
           if (node.params) {
             if (Array.isArray(node.params)) {
               // Multiple parameters
               node.params.forEach(param => {
                 if (param && param.value) {
+                  // Emit specific event for function parameter declaration
+                  nameResolutionData.events.push({
+                    type: 'FunctionParameter',
+                    scopeId: state.currentScope.id,
+                    name: param.value,
+                    node: param
+                  });
+
                   state.declareVariable(param.value, param);
                 }
               });
             } else if (node.params.value) {
               // Single parameter
+              // Emit specific event for function parameter declaration
+              nameResolutionData.events.push({
+                type: 'FunctionParameter',
+                scopeId: state.currentScope.id,
+                name: node.params.value,
+                node: node.params
+              });
+
               state.declareVariable(node.params.value, node.params);
             }
           }
-          
+
           // Visit the function body
           if (node.body) {
             visitNode(node.body);
           }
-          
+
           // Exit function scope
           state.exitScope();
           break;
-          
+
         case 'CallExpression':
           // Visit the callee
           if (node.callee) {
             visitNode(node.callee);
           }
-          
+
           // Visit all arguments
           if (node.arguments && Array.isArray(node.arguments)) {
             node.arguments.forEach(arg => visitNode(arg));
           }
           break;
-          
+
         case 'Identifier':
           // Resolve the variable reference
           if (node.value) {
             state.resolveReference(node.value, node);
           }
           break;
-          
+
         case 'BinaryExpression':
           // Visit left and right sides
           if (node.left) visitNode(node.left);
           if (node.right) visitNode(node.right);
           break;
-          
+
         case 'ConditionalExpression':
           // Visit test, consequent, and alternate
           if (node.test) visitNode(node.test);
           if (node.consequent) visitNode(node.consequent);
           if (node.alternate) visitNode(node.alternate);
           break;
-          
+
         case 'ReturnStatement':
           // Visit the argument if any
           if (node.argument) {
             visitNode(node.argument);
           }
           break;
-          
+
         // Handle other node types as needed
         default:
           // Generic handling for unknown nodes - visit children
@@ -362,7 +404,7 @@ function buildNameResolutionData(sourceCode, ast) {
           });
       }
     };
-    
+
     // Start visiting from the root AST node
     visitNode(ast);
   } catch (e) {
@@ -473,40 +515,10 @@ function escapeHtml(text) {
 }
 
 /**
- * Initialize the visualization with example code
- *
- * @returns {Object} - Visualization state
+ * Initialize the compiler visualization
  */
-function initializeVisualization() {
-  // Initial state for the visualization
-  const state = {
-    sourceCode: "",
-    tokenizationData: null,
-    astData: null,
-    nameResolutionData: null,
-    currentTokenizationStep: 0,
-    currentAstStep: 0,
-    currentNameResolutionStep: 0,
-    highlightedTokenIndex: null,
-    highlightedAstNode: null,
-    highlightedNameResolutionElement: null,
-    // Add predefined code examples
-    examples: {
-      example1: `// Simple constant declaration
-const message = "Hello, world!";`,
-      example2: `// Function expression with a parameter
-const greet = (name) => {
-  return "Hello, " + name;
-};`,
-      example3: `// Multiple declarations and function calls
-const x = 10;
-const y = 20;
-const sum = (a, b) => a + b;
-const result = sum(x, y);`
-    }
-  };
-
-  // Initialize UI references in state
+function initializeVisualizer() {
+  // Initialize UI references
   state.ui = {
     scrubber: document.getElementById("scrubber"),
     exampleSelect: document.getElementById("example-select"),
@@ -519,39 +531,24 @@ const result = sum(x, y);`
     nameResolution: document.getElementById("name-resolution")
   };
 
-  // Load the default example
-  loadExample(state, "example1");
+  // Load the first example by default
+  state.sourceCode = state.examples.example1;
 
-  // Set up event handlers
-  setupEventHandlers(state);
-
-  return state;
-}
-
-/**
- * Set up event handlers for the UI
- *
- * @param {Object} state - Visualization state
- */
-function setupEventHandlers(state) {
-  // Scrubber input handler
-  state.ui.scrubber.addEventListener("input", () => {
-    updateVisualization(state);
-  });
-
-  // Example selector handler
+  // Set event listeners
   state.ui.exampleSelect.addEventListener("change", () => {
     const selectedExample = state.ui.exampleSelect.value;
 
     if (selectedExample === "custom") {
+      // Show custom input container
       state.ui.customInputContainer.classList.remove("hidden");
     } else {
+      // Use predefined example
       state.ui.customInputContainer.classList.add("hidden");
       loadExample(state, selectedExample);
     }
   });
 
-  // Custom code run button handler
+  // Set up custom code run button
   state.ui.runCustomButton.addEventListener("click", () => {
     const customCode = state.ui.customInput.value.trim();
     if (!customCode) {
@@ -560,150 +557,192 @@ function setupEventHandlers(state) {
     }
 
     state.sourceCode = customCode;
-    runCompilation(state);
+    compileAndVisualize(state);
   });
+
+  // Set up scrubber
+  state.ui.scrubber.addEventListener("input", () => {
+    updateVisualization(state);
+  });
+
+  // Load initial example
+  loadExample(state, "example1");
 }
 
 /**
- * Load an example from the predefined examples
- *
- * @param {Object} state - Visualization state
- * @param {string} exampleKey - Key of the example to load
+ * Compile source code and update visualization
  */
-function loadExample(state, exampleKey) {
-  // Set the source code from the example
-  state.sourceCode = state.examples[exampleKey];
+function compileAndVisualize(state) {
+  if (!state) {
+    console.error("No state object provided to compileAndVisualize");
+    return;
+  }
 
-  // Run tokenization and parsing
-  runCompilation(state);
-}
+  // Clear previous results
+  state.ui.tokensList.innerHTML = "";
+  state.ui.astTree.innerHTML = "";
+  state.ui.nameResolution.innerHTML = "";
 
-/**
- * Run the full compilation pipeline (tokenization and parsing)
- *
- * @param {Object} state - Visualization state
- */
-function runCompilation(state) {
   try {
     // Get the current source code
     const sourceCode = state.sourceCode;
-
-    // Clear previous results
-    state.ui.tokensList.innerHTML = "";
-    state.ui.astTree.innerHTML = "";
-    state.ui.nameResolution.innerHTML = "";
 
     // Reset scrubber
     const scrubber = state.ui.scrubber;
     scrubber.value = 0;
 
-    // Step 1: Tokenize
-    const tokenizationData = buildTokenizationData(sourceCode);
-    state.tokenizationData = tokenizationData;
+    // Step 1: Tokenize - with explicit error handling
+    let tokenizationData;
+    try {
+      tokenizationData = buildTokenizationData(sourceCode);
+      // Make sure it's valid before assigning
+      if (!tokenizationData || !tokenizationData.events || !tokenizationData.tokens) {
+        throw new Error("Invalid tokenization data structure");
+      }
+      state.tokenizationData = tokenizationData;
+    } catch (tokenizeError) {
+      console.error("Tokenization error:", tokenizeError);
+      throw new Error(`Tokenization failed: ${tokenizeError.message}`);
+    }
 
-    // Step 2: Parse
-    const astData = buildAstData(sourceCode, tokenizationData.tokens);
-    state.astData = astData;
+    // Now that we have tokenization data, initialize source code display
+    initializeSourceCodeDisplay(state);
 
-    // Step 3: Name resolution
-    const nameResolutionData = buildNameResolutionData(sourceCode, astData.rootNode);
-    state.nameResolutionData = nameResolutionData;
+    // Step 2: Parse - with explicit error handling
+    let astData;
+    try {
+      astData = buildAstData(sourceCode, tokenizationData.tokens);
+      // Make sure it's valid before assigning
+      if (!astData || !astData.events || !astData.rootNode) {
+        throw new Error("Invalid AST data structure");
+      }
+      state.astData = astData;
+    } catch (parseError) {
+      console.error("Parsing error:", parseError);
+      throw new Error(`Parsing failed: ${parseError.message}`);
+    }
+
+    // Step 3: Name resolution - with explicit error handling
+    let nameResolutionData;
+    try {
+      nameResolutionData = buildNameResolutionData(sourceCode, astData.rootNode);
+      // Make sure it's valid before assigning
+      if (!nameResolutionData || !nameResolutionData.events) {
+        throw new Error("Invalid name resolution data structure");
+      }
+      state.nameResolutionData = nameResolutionData;
+    } catch (analysisError) {
+      console.error("Name resolution error:", analysisError);
+      throw new Error(`Name resolution failed: ${analysisError.message}`);
+    }
 
     // Calculate total events
     const totalTokenEvents = tokenizationData.events.length;
     const totalAstEvents = astData.events.length;
     const totalNameResolutionEvents = nameResolutionData.events.length;
-    const totalEvents = totalTokenEvents + totalAstEvents + totalNameResolutionEvents;
 
-    // Update scrubber max value to total events - 1
-    scrubber.max = totalEvents > 0 ? totalEvents - 1 : 0;
+    // Set the max value for the scrubber based on total events
+    scrubber.max = totalTokenEvents + totalAstEvents + totalNameResolutionEvents;
 
-    // Initialize displays
-    initializeSourceCodeDisplay(state);
-
-    // Update initial visualization step
+    // Update the visualization at step 0
     updateVisualization(state);
-
-    // Show a success message
-    showToast(`Compilation successful. ${totalTokenEvents} tokenization events, ${totalAstEvents} AST events, ${totalNameResolutionEvents} name resolution events.`);
   } catch (error) {
     console.error("Compilation error:", error);
-    showToast(`Error: ${error.message}`);
+
+    // Show error message in the UI
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "error-message";
+    errorDiv.textContent = `Compilation error: ${error.message}`;
+    state.ui.tokensList.appendChild(errorDiv);
+
+    // Create empty data structures if necessary
+    if (!state.tokenizationData) {
+      state.tokenizationData = { events: [], tokens: [], sourceToToken: {}, tokenToSource: {} };
+    }
+    if (!state.astData) {
+      state.astData = { events: [], rootNode: null };
+    }
+    if (!state.nameResolutionData) {
+      state.nameResolutionData = { events: [], scopes: [] };
+    }
+
+    // Initialize source code display even in error case
+    initializeSourceCodeDisplay(state);
   }
 }
 
 /**
- * Update the visualization based on current scrubber position
+ * Main update function to update the visualization based on the scrubber position
  *
- * @param {Object} state - Visualization state
+ * @param {Object} state - Global state object
  */
 function updateVisualization(state) {
-  // Get the current position from the scrubber
-  const scrubber = state.ui.scrubber;
-  const currentPosition = parseInt(scrubber.value);
+  // Check if we have state data
+  if (!state) {
+    console.error("No state object provided to updateVisualization");
+    return;
+  }
 
-  // Calculate which phase (tokenization, AST, or name resolution) we're in
-  const totalTokenizationEvents = state.tokenizationData?.events.length || 0;
-  const totalAstEvents = state.astData?.events.length || 0;
-  
-  // In tokenization phase
-  if (currentPosition < totalTokenizationEvents) {
-    state.currentTokenizationStep = currentPosition;
-    state.currentAstStep = 0;
-    state.currentNameResolutionStep = 0;
-    
-    updateTokensDisplay(state);
-    updateSourceCodeHighlighting(state);
-    
-    // Clear AST and name resolution displays if we're back in tokenization
-    if (currentPosition === 0) {
-      state.ui.astTree.innerHTML = "";
-      state.ui.nameResolution.innerHTML = "";
-    }
+  // Get scrubber position
+  const scrubber = state.ui.scrubber;
+  const scrubberValue = parseInt(scrubber.value || 0);
+
+  // Ensure we have data structures (even if empty)
+  if (!state.tokenizationData) {
+    console.error("No tokenization data available");
+    state.tokenizationData = { events: [], tokens: [] };
   }
-  // In AST phase
-  else if (currentPosition < totalTokenizationEvents + totalAstEvents) {
-    state.currentTokenizationStep = totalTokenizationEvents - 1;
-    state.currentAstStep = currentPosition - totalTokenizationEvents;
-    state.currentNameResolutionStep = 0;
-    
-    // Show all tokens
-    updateTokensDisplay(state, true);
-    
-    // Update the AST display
-    updateAstDisplay(state, state.currentAstStep);
-    
-    // Clear name resolution display if we're back in AST phase
-    if (state.currentAstStep === 0) {
-      state.ui.nameResolution.innerHTML = "";
-    }
+
+  if (!state.astData) {
+    console.error("No AST data available");
+    state.astData = { events: [], rootNode: null };
   }
-  // In name resolution phase
-  else {
-    state.currentTokenizationStep = totalTokenizationEvents - 1;
-    state.currentAstStep = totalAstEvents - 1;
-    state.currentNameResolutionStep = currentPosition - totalTokenizationEvents - totalAstEvents;
-    
-    // Show all tokens and full AST
-    updateTokensDisplay(state, true);
-    updateAstDisplay(state, state.currentAstStep);
-    
-    // Update name resolution display
-    updateNameResolutionDisplay(state, state.currentNameResolutionStep);
+
+  if (!state.nameResolutionData) {
+    console.error("No name resolution data available");
+    state.nameResolutionData = { events: [], scopes: [] };
   }
+
+  // Calculate which phase we're in and which step within that phase
+  const tokenEvents = state.tokenizationData.events.length || 0;
+  const astEvents = state.astData.events.length || 0;
+  const nameResolutionEvents = state.nameResolutionData.events.length || 0;
+
+  let tokenizationStep = 0;
+  let astStep = 0;
+  let nameResolutionStep = 0;
+
+  if (scrubberValue < tokenEvents) {
+    // In tokenization phase
+    tokenizationStep = scrubberValue;
+  } else if (scrubberValue < tokenEvents + astEvents) {
+    // In AST phase - all tokens complete
+    tokenizationStep = tokenEvents;
+    astStep = scrubberValue - tokenEvents;
+  } else {
+    // In name resolution phase - all tokens and AST complete
+    tokenizationStep = tokenEvents;
+    astStep = astEvents;
+    nameResolutionStep = scrubberValue - tokenEvents - astEvents;
+  }
+
+  // Update all visualizations to the current step
+  updateTokensDisplay(state, tokenizationStep);
+  updateAstDisplay(state, astStep);
+  updateNameResolutionDisplay(state, nameResolutionStep);
 }
 
 /**
  * Update the tokens display based on current step
  *
  * @param {Object} state - Visualization state
- * @param {boolean} [showAll=false] - Whether to show all tokens
+ * @param {number} tokenizationStep - Current tokenization step
  */
-function updateTokensDisplay(state, showAll = false) {
+function updateTokensDisplay(state, tokenizationStep) {
   // Clear tokens list
   state.ui.tokensList.innerHTML = "";
 
-  if (state.currentTokenizationStep === 0 && !showAll) {
+  if (tokenizationStep === 0) {
     return;
   }
 
@@ -711,15 +750,10 @@ function updateTokensDisplay(state, showAll = false) {
   let tokens = [];
   let currentTokenIndex = -1;
 
-  if (showAll) {
-    // Show all tokens
-    tokens = state.tokenizationData.tokens;
-  } else {
   // In tokenization mode, show tokens up to current step
-    const step = state.tokenizationData.events[state.currentTokenizationStep];
-    tokens = step.currentTokens || [];
-    currentTokenIndex = tokens.length - 1;
-  }
+  const step = state.tokenizationData.events[tokenizationStep];
+  tokens = step.currentTokens || [];
+  currentTokenIndex = tokens.length - 1;
 
   // Variable to keep track of the current token element
   let currentTokenElement = null;
@@ -735,7 +769,7 @@ function updateTokensDisplay(state, showAll = false) {
       highlightSourceRange(state, token.tokenIndex);
     });
 
-    if (index === currentTokenIndex && !showAll) {
+    if (index === currentTokenIndex) {
       // Highlight the most recently added token
       tokenElement.classList.add("token-current");
       currentTokenElement = tokenElement;
@@ -759,10 +793,10 @@ function updateTokensDisplay(state, showAll = false) {
  * Update the source code highlighting based on current step
  *
  * @param {Object} state - Visualization state
- * @param {boolean} [showAll=false] - Whether to show all source code
+ * @param {number} tokenizationStep - Current tokenization step
  */
-function updateSourceCodeHighlighting(state, showAll = false) {
-  if (state.currentTokenizationStep === 0 && !showAll) {
+function updateSourceCodeHighlighting(state, tokenizationStep) {
+  if (tokenizationStep === 0) {
     // Reset all source code highlighting
     const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
     allChars.forEach(char => {
@@ -771,17 +805,7 @@ function updateSourceCodeHighlighting(state, showAll = false) {
     return;
   }
 
-  // If showing all, mark everything as consumed
-  if (showAll) {
-    const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
-    allChars.forEach(char => {
-      char.classList.remove('text-current', 'text-whitespace', 'text-clicked');
-      char.classList.add('text-consumed');
-    });
-    return;
-  }
-
-  const currentStep = state.tokenizationData.events[state.currentTokenizationStep];
+  const currentStep = state.tokenizationData.events[tokenizationStep];
   const currentPosition = currentStep.position;
   const currentLength = currentStep.length || 0;
 
@@ -909,652 +933,42 @@ function updateAstDisplay(state, astStepIndex) {
   // Clear the AST tree
   state.ui.astTree.innerHTML = "";
 
-  if (astStepIndex < 0 || astStepIndex >= state.astData.events.length) {
+  if (astStepIndex === 0) {
     return;
   }
 
-  // Get the current step
-  const currentStep = state.astData.events[astStepIndex];
-  if (!currentStep) {
+  if (!state.astData || !state.astData.events) {
+    console.error("AST data not available for display");
     return;
   }
 
-  // Display the current step information in a more concise way
-  const currentStepInfo = document.createElement('div');
-  currentStepInfo.className = 'ast-current-step-info';
-
-  // Simplify the event type for display
-  const eventType = currentStep.type || 'Unknown';
-  const cleanEventType = eventType
-    .replace('Start', '')
-    .replace('Complete', '');
-
-  currentStepInfo.innerHTML = `<strong>Current:</strong> ${cleanEventType}`;
-
-  currentStepInfo.style.padding = '5px';
-  currentStepInfo.style.marginBottom = '10px';
-  currentStepInfo.style.backgroundColor = '#f0f0f0';
-  currentStepInfo.style.borderRadius = '4px';
-  state.ui.astTree.appendChild(currentStepInfo);
-
-  // SIMPLER APPROACH: Create a map of nodes by their location in the source code
-  // for const declarations, we'll use variable name as the key
-  const nodesByIdentifier = new Map();
-
-  // A map to track all nodes by their ID
-  const nodesById = new Map();
-
-  // Track the current node for highlighting
-  let currentNodeId = currentStep.id;
-
-  // First pass: Process all steps up to the current one
-  for (let i = 0; i <= astStepIndex; i++) {
-    const step = state.astData.events[i];
-    if (!step || !step.node) continue;
-
-    // Create node data with metadata
-    const nodeData = {
-      ...step.node,
-      _id: step.id,
-      _type: step.type,
-      _step: i,
-      _isCurrentStep: (i === astStepIndex),
-      _inProgress: !step.type.endsWith('Complete'),
-      type: step.type.replace('Start', '').replace('Complete', '')
-    };
-
-    // Always store latest state of nodes by their ID
-    nodesById.set(step.id, nodeData);
-
-    // For ConstDeclaration, use the variable name as a key if available
-    if (nodeData.type === 'ConstDeclaration' && nodeData.id && nodeData.id.name) {
-      const key = `const-${nodeData.id.name}`;
-
-      // If we don't have this node yet, or if this is a more recent version, store it
-      if (!nodesByIdentifier.has(key) ||
-          nodesByIdentifier.get(key)._step < nodeData._step) {
-        nodesByIdentifier.set(key, nodeData);
-      }
-    }
+  // Get the AST event
+  const event = state.astData.events[astStepIndex - 1];
+  if (!event) {
+    console.error("No AST event at step", astStepIndex);
+    return;
   }
 
-  // Find the root program node if it exists
-  const programNodes = [...nodesById.values()].filter(node =>
-    node._type === 'ProgramComplete' || node._type === 'ProgramStart'
-  );
+  // Create the tree
+  const tree = document.createElement("ul");
+  tree.className = "ast-tree";
 
-  // Sort by step to get the latest program node
-  programNodes.sort((a, b) => b._step - a._step);
-  const rootNode = programNodes.length > 0 ? programNodes[0] : null;
+  // Add the root node
+  const rootNodeElement = createAstNodeElement(state.astData.rootNode);
+  tree.appendChild(rootNodeElement);
 
-  // Determine which nodes to render
-  let nodesToRender = [];
+  // Expand all nodes
+  expandAstNode(rootNodeElement);
 
-  if (rootNode && rootNode.body && rootNode.body.length > 0) {
-    // Use the program body
-    nodesToRender = rootNode.body.slice();
-
-    // Match each node with our tracked WIP or complete nodes when possible
-    for (let i = 0; i < nodesToRender.length; i++) {
-      const node = nodesToRender[i];
-
-      // For ConstDeclaration, try to find a matching WIP node by variable name
-      if (node.type === 'ConstDeclaration' && node.id && node.id.name) {
-        const key = `const-${node.id.name}`;
-        if (nodesByIdentifier.has(key)) {
-          // Replace with our tracked version that has additional metadata
-          nodesToRender[i] = nodesByIdentifier.get(key);
-        }
-      }
-    }
-  } else {
-    // No program node yet - show all nodes we've processed so far
-    // This includes WIP and complete nodes, sorted by step number
-    nodesToRender = [...nodesById.values()]
-      .filter(node =>
-        node.type === 'ConstDeclaration' ||
-        node.type === 'ReturnStatement' ||
-        node.type === 'ArrowFunctionExpression' ||
-        node.type.includes('ConstDeclaration') ||
-        node.type.includes('ReturnStatement') ||
-        node.type.includes('ArrowFunction')
-      )
-      .sort((a, b) => a._step - b._step);
+  // Highlight the current node
+  const currentNodeElement = tree.querySelector(`[data-node-id="${event.node.id}"]`);
+  if (currentNodeElement) {
+    currentNodeElement.classList.add("ast-node-current");
+    currentNodeElement.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  // IMPORTANT: Make sure the current node is always rendered
-  // If it's not in our nodesToRender list already, add it
-  const currentNodeInList = nodesToRender.some(node => node._id === currentNodeId);
-
-  if (!currentNodeInList && currentStep.node) {
-    // Create current node object
-    const currentNode = {
-      ...currentStep.node,
-      _id: currentStep.id,
-      _type: currentStep.type,
-      _step: astStepIndex,
-      _isCurrentStep: true,
-      _inProgress: !currentStep.type.endsWith('Complete'),
-      type: cleanEventType
-    };
-
-    // Add it to the beginning of our render list
-    nodesToRender.unshift(currentNode);
-  }
-
-  // Render all nodes
-  nodesToRender.forEach(node => {
-    if (!node) return;
-
-    // Is this the current step's node?
-    const isCurrentNode = node._id === currentNodeId || node._isCurrentStep;
-
-    // Create node element
-    const nodeElement = createAstNodeElement(node, isCurrentNode, node._step);
-
-    // Add special styling based on node state
-    if (isCurrentNode) {
-      nodeElement.classList.add("ast-node-current");
-      nodeElement.style.borderLeft = '3px solid #3498db';
-
-      // Special styling for current ConstDeclaration
-      if (node.type === 'ConstDeclaration') {
-        nodeElement.style.border = '2px solid #e74c3c';
-        nodeElement.style.padding = '5px';
-      }
-    } else if (node._inProgress) {
-      nodeElement.classList.add("ast-node-partial");
-      nodeElement.style.borderLeft = '3px solid #f39c12';
-    }
-
-    // Add to the tree display
-    state.ui.astTree.appendChild(nodeElement);
-  });
-}
-
-/**
- * Create an AST node element for visualization with expand/collapse functionality
- *
- * @param {Object} node - AST node
- * @param {boolean} isCurrentStep - Whether this node is part of the current step
- * @param {number} step - The step number this node was created in (for debugging)
- * @returns {HTMLElement} - DOM element representing the node
- */
-function createAstNodeElement(node, isCurrentStep = false, step = -1) {
-  const nodeElement = document.createElement("div");
-  nodeElement.className = "ast-node";
-
-  // Add node type as title attribute for hover tooltip
-  const nodeType = node.type || node._type?.replace('Start', '').replace('Complete', '');
-  nodeElement.setAttribute('title', nodeType);
-
-  // Add expandable/collapsible functionality
-  const hasChildren = hasAstNodeChildren(node);
-  if (hasChildren) {
-    nodeElement.classList.add("ast-node-expanded");
-  }
-
-  // Add appropriate class based on node state
-  if (isCurrentStep) {
-    nodeElement.classList.add("ast-node-current");
-  } else if (node._inProgress) {
-    nodeElement.classList.add("ast-node-partial");
-  } else {
-    nodeElement.classList.add("ast-node-highlighted");
-  }
-
-  // Create expander if there are children
-  if (hasChildren) {
-    const expander = document.createElement("span");
-    expander.className = "ast-expander";
-    expander.addEventListener("click", (e) => {
-      e.stopPropagation(); // Prevent node click event
-      toggleAstNodeExpansion(nodeElement);
-    });
-    nodeElement.appendChild(expander);
-  }
-
-  // Create a container for the syntax-like representation
-  const syntaxContainer = document.createElement("span");
-  syntaxContainer.className = "ast-syntax";
-
-  // Render based on node type - more concise and syntax-like
-  switch (nodeType) {
-    case "ConstDeclaration":
-      // FIXED RENDERING: Always show the const declaration clearly
-      console.log("Rendering ConstDeclaration:", node);
-
-      // Show "Const" with placeholders for missing parts
-      const constKeyword = document.createElement("span");
-      constKeyword.className = "ast-keyword";
-      constKeyword.textContent = "const";
-      syntaxContainer.appendChild(constKeyword);
-
-      // Add variable name if we have it, otherwise a placeholder
-      if (node.id && node.id.name) {
-        syntaxContainer.appendChild(document.createTextNode(" "));
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "ast-identifier";
-        nameSpan.textContent = node.id.name;
-        syntaxContainer.appendChild(nameSpan);
-      } else {
-        syntaxContainer.appendChild(document.createTextNode(" "));
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      // Show equals sign
-      syntaxContainer.appendChild(document.createTextNode(" = "));
-
-      // Show value or placeholder
-      if (node.init) {
-        // We have an initializer but will show it as a child node
-        const valueType = node.init.type || "expression";
-        const typePlaceholder = document.createElement("span");
-        typePlaceholder.className = "ast-node-type";
-        typePlaceholder.textContent = valueType;
-        syntaxContainer.appendChild(typePlaceholder);
-      } else {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-      break;
-
-    case "Identifier":
-      const idSpan = document.createElement("span");
-      idSpan.className = "ast-identifier";
-      idSpan.textContent = node.name || "_____";
-      syntaxContainer.appendChild(idSpan);
-      break;
-
-    case "StringLiteral":
-      const strSpan = document.createElement("span");
-      strSpan.className = "ast-string";
-      strSpan.textContent = node.value !== undefined ? `"${node.value}"` : `"_____"`;
-      syntaxContainer.appendChild(strSpan);
-      break;
-
-    case "NumericLiteral":
-      const numSpan = document.createElement("span");
-      numSpan.className = "ast-number";
-      numSpan.textContent = node.value !== undefined ? node.value : "_____";
-      syntaxContainer.appendChild(numSpan);
-      break;
-
-    case "BooleanLiteral":
-      const boolSpan = document.createElement("span");
-      boolSpan.className = "ast-boolean";
-      boolSpan.textContent = node.value !== undefined ? (node.value ? "true" : "false") : "_____";
-      syntaxContainer.appendChild(boolSpan);
-      break;
-
-    case "BinaryExpression":
-      // Show left operand placeholder if missing
-      if (!node.left) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-        syntaxContainer.appendChild(document.createTextNode(" "));
-      }
-
-      // Show operator
-      const opSpan = document.createElement("span");
-      opSpan.className = "ast-operator";
-      opSpan.textContent = node.operator || "?";
-      syntaxContainer.appendChild(opSpan);
-
-      // Show right operand placeholder if missing
-      if (!node.right) {
-        syntaxContainer.appendChild(document.createTextNode(" "));
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-      break;
-
-    case "ConditionalExpression":
-      // Display ternary with placeholders for missing parts
-      if (!node.test) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      syntaxContainer.appendChild(document.createTextNode(" ? "));
-
-      if (!node.consequent) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      syntaxContainer.appendChild(document.createTextNode(" : "));
-
-      if (!node.alternate) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-      break;
-
-    case "ReturnStatement":
-      // Add the 'return' keyword with syntax highlighting
-      const returnKeyword = document.createElement("span");
-      returnKeyword.className = "ast-keyword";
-      returnKeyword.textContent = "return";
-      syntaxContainer.appendChild(returnKeyword);
-
-      // If there's a return value or placeholder
-      syntaxContainer.appendChild(document.createTextNode(" "));
-      if (!node.argument) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-      break;
-
-    case "ArrowFunctionExpression":
-      // Render as (params) => ...
-
-      // Opening parenthesis
-      const openParenSpan = document.createElement("span");
-      openParenSpan.className = "ast-punctuation";
-      openParenSpan.textContent = "(";
-      syntaxContainer.appendChild(openParenSpan);
-
-      // Parameters or placeholder
-      if (node.params && node.params.length > 0) {
-        // Join parameter names with commas
-        node.params.forEach((param, index) => {
-          const paramSpan = document.createElement("span");
-          paramSpan.className = "ast-identifier";
-          paramSpan.textContent = param.name || "_____";
-          syntaxContainer.appendChild(paramSpan);
-
-          // Add comma if not the last parameter
-          if (index < node.params.length - 1) {
-            const commaSpan = document.createElement("span");
-            commaSpan.className = "ast-punctuation";
-            commaSpan.textContent = ", ";
-            syntaxContainer.appendChild(commaSpan);
-          }
-        });
-      } else {
-        // Show placeholder for missing params
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      // Closing parenthesis
-      const closeParenSpan = document.createElement("span");
-      closeParenSpan.className = "ast-punctuation";
-      closeParenSpan.textContent = ")";
-      syntaxContainer.appendChild(closeParenSpan);
-
-      // Arrow
-      const arrowSpan = document.createElement("span");
-      arrowSpan.className = "ast-operator";
-      arrowSpan.textContent = " => ";
-      syntaxContainer.appendChild(arrowSpan);
-
-      // Body placeholder if missing
-      if (!node.body) {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      } else if (node.body.type === "BlockStatement") {
-        const braceSpan = document.createElement("span");
-        braceSpan.className = "ast-punctuation";
-        braceSpan.textContent = "{...}";
-        syntaxContainer.appendChild(braceSpan);
-      }
-      break;
-
-    case "BlockStatement":
-      const braceSpan = document.createElement("span");
-      braceSpan.className = "ast-punctuation";
-      braceSpan.textContent = node.body?.length > 0
-        ? `{ ${node.body.length} statements }`
-        : "{ _____ }";
-      syntaxContainer.appendChild(braceSpan);
-      break;
-
-    case "CallExpression":
-      // Function name or placeholder
-      if (node.callee?.name) {
-        const calleeSpan = document.createElement("span");
-        calleeSpan.className = "ast-identifier";
-        calleeSpan.textContent = node.callee.name;
-        syntaxContainer.appendChild(calleeSpan);
-      } else {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      // Opening parenthesis
-      const openCallParen = document.createElement("span");
-      openCallParen.className = "ast-punctuation";
-      openCallParen.textContent = "(";
-      syntaxContainer.appendChild(openCallParen);
-
-      // Arguments
-      if (node.arguments && node.arguments.length > 0) {
-        syntaxContainer.appendChild(document.createTextNode(`${node.arguments.length} args`));
-      } else {
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      }
-
-      // Closing parenthesis
-      const closeCallParen = document.createElement("span");
-      closeCallParen.className = "ast-punctuation";
-      closeCallParen.textContent = ")";
-      syntaxContainer.appendChild(closeCallParen);
-      break;
-
-    default:
-      // For in-progress nodes or other types
-      if (node._inProgress) {
-        // Show node type with placeholder
-        const typeSpan = document.createElement("span");
-        typeSpan.className = "ast-node-type";
-        // Make sure we display the clean node type
-        typeSpan.textContent = nodeType || 'node';
-        syntaxContainer.appendChild(typeSpan);
-
-        syntaxContainer.appendChild(document.createTextNode(" "));
-        const placeholder = document.createElement("span");
-        placeholder.className = "ast-placeholder";
-        placeholder.textContent = "_____";
-        syntaxContainer.appendChild(placeholder);
-      } else {
-        // Show the node type for unknown node types
-        const typeSpan = document.createElement("span");
-        typeSpan.className = "ast-node-type";
-        typeSpan.textContent = nodeType || 'Unknown';
-        syntaxContainer.appendChild(typeSpan);
-      }
-  }
-
-  // Add the syntax container to the node element
-  nodeElement.appendChild(syntaxContainer);
-
-  // Add children if there are any
-  if (hasChildren) {
-    const childrenContainer = document.createElement("div");
-    childrenContainer.className = "ast-node-children";
-
-    // Add appropriate children based on node type
-    if (node.type === "Program" && node.body) {
-      // Add program statements
-      node.body.forEach(statement => {
-        const statementElement = createAstNodeElement(statement, false, step);
-        childrenContainer.appendChild(statementElement);
-      });
-    } else if (node.type === "ConstDeclaration") {
-      // Add initializer value as a separate child
-      if (node.init) {
-        const initElement = createAstNodeElement(node.init, false, step);
-        childrenContainer.appendChild(initElement);
-      }
-    } else if (node.type === "ReturnStatement") {
-      // Add return value as a child - without a label
-      if (node.argument) {
-        const argElement = createAstNodeElement(node.argument, false, step);
-        childrenContainer.appendChild(argElement);
-      }
-    } else if (node.type === "BinaryExpression") {
-      // Add left operand
-      if (node.left) {
-        const leftLabel = document.createElement("div");
-        leftLabel.className = "ast-node-child-label";
-        leftLabel.textContent = "left";
-        childrenContainer.appendChild(leftLabel);
-
-        const leftElement = createAstNodeElement(node.left, false, step);
-        childrenContainer.appendChild(leftElement);
-      }
-
-      // Add right operand
-      if (node.right) {
-        const rightLabel = document.createElement("div");
-        rightLabel.className = "ast-node-child-label";
-        rightLabel.textContent = "right";
-        childrenContainer.appendChild(rightLabel);
-
-        const rightElement = createAstNodeElement(node.right, false, step);
-        childrenContainer.appendChild(rightElement);
-      }
-    } else if (node.type === "ConditionalExpression") {
-      // Add condition without a label
-      if (node.test) {
-        // No label for condition
-        const testElement = createAstNodeElement(node.test, false, step);
-        childrenContainer.appendChild(testElement);
-      }
-
-      // Add true branch with "?" label
-      if (node.consequent) {
-        const consLabel = document.createElement("div");
-        consLabel.className = "ast-node-child-label";
-        consLabel.textContent = "?";
-        childrenContainer.appendChild(consLabel);
-
-        const consElement = createAstNodeElement(node.consequent, false, step);
-        childrenContainer.appendChild(consElement);
-      }
-
-      // Add false branch with ":" label
-      if (node.alternate) {
-        const altLabel = document.createElement("div");
-        altLabel.className = "ast-node-child-label";
-        altLabel.textContent = ":";
-        childrenContainer.appendChild(altLabel);
-
-        const altElement = createAstNodeElement(node.alternate, false, step);
-        childrenContainer.appendChild(altElement);
-      }
-    } else if (node.type === "ArrowFunctionExpression") {
-      // Add function body
-      if (node.body) {
-        // No label needed for the body
-        const bodyElement = createAstNodeElement(node.body, false, step);
-        childrenContainer.appendChild(bodyElement);
-      }
-    } else if (node.type === "BlockStatement") {
-      // Add block statements without labels
-      if (node.body && node.body.length > 0) {
-        node.body.forEach(statement => {
-          const statementElement = createAstNodeElement(statement, false, step);
-          childrenContainer.appendChild(statementElement);
-        });
-      }
-    } else if (node.type === "CallExpression") {
-      // Add callee if it's complex (not just an identifier)
-      if (node.callee && node.callee.type !== "Identifier") {
-        const calleeLabel = document.createElement("div");
-        calleeLabel.className = "ast-node-child-label";
-        calleeLabel.textContent = "callee";
-        childrenContainer.appendChild(calleeLabel);
-
-        const calleeElement = createAstNodeElement(node.callee, false, step);
-        childrenContainer.appendChild(calleeElement);
-      }
-
-      // Add arguments without labels
-      if (node.arguments && node.arguments.length > 0) {
-        node.arguments.forEach(arg => {
-          const argElement = createAstNodeElement(arg, false, step);
-          childrenContainer.appendChild(argElement);
-        });
-      }
-    }
-
-    nodeElement.appendChild(childrenContainer);
-  }
-
-  // Add click handler to toggle expansion
-  nodeElement.addEventListener("click", (e) => {
-    if (hasChildren) {
-      toggleAstNodeExpansion(nodeElement);
-    }
-    e.stopPropagation();
-  });
-
-  return nodeElement;
-}
-
-/**
- * Toggle the expansion state of an AST node
- *
- * @param {HTMLElement} nodeElement - DOM element for the AST node
- */
-function toggleAstNodeExpansion(nodeElement) {
-  if (nodeElement.classList.contains("ast-node-expanded")) {
-    nodeElement.classList.remove("ast-node-expanded");
-    nodeElement.classList.add("ast-node-collapsed");
-  } else {
-    nodeElement.classList.remove("ast-node-collapsed");
-    nodeElement.classList.add("ast-node-expanded");
-  }
-}
-
-/**
- * Check if an AST node has children that should be rendered
- *
- * @param {Object} node - AST node
- * @returns {boolean} - True if the node has children
- */
-function hasAstNodeChildren(node) {
-  if (!node || !node.type) return false;
-
-  return (
-    (node.type === "Program" && node.body && node.body.length > 0) ||
-    (node.type === "ConstDeclaration" && node.init) ||
-    (node.type === "ReturnStatement" && node.argument) ||
-    (node.type === "BinaryExpression" && (node.left || node.right)) ||
-    (node.type === "ConditionalExpression" && (node.test || node.consequent || node.alternate)) ||
-    (node.type === "ArrowFunctionExpression" && ((node.params && node.params.length > 0) || node.body)) ||
-    (node.type === "BlockStatement" && node.body && node.body.length > 0) ||
-    (node.type === "CallExpression" && ((node.arguments && node.arguments.length > 0) || node.callee))
-  );
+  // Add the tree to the AST container
+  state.ui.astTree.appendChild(tree);
 }
 
 /**
@@ -1564,161 +978,273 @@ function hasAstNodeChildren(node) {
  * @param {number} nameResolutionStepIndex - Index into the name resolution steps array
  */
 function updateNameResolutionDisplay(state, nameResolutionStepIndex) {
-  // Get the name resolution container
-  const nameResolutionContainer = state.ui.nameResolution;
-  
-  // If no name resolution data, return
-  if (!state.nameResolutionData || !state.nameResolutionData.events) {
-    nameResolutionContainer.innerHTML = "<div class='no-data'>No name resolution data available</div>";
+  // Clear name resolution container
+  state.ui.nameResolution.innerHTML = "";
+
+  if (nameResolutionStepIndex === 0) {
     return;
   }
 
-  // Get all events up to the current step
-  const currentEvents = state.nameResolutionData.events.slice(0, nameResolutionStepIndex + 1);
-  
-  // Clear the previous display
-  nameResolutionContainer.innerHTML = "";
-  
-  // Track active scopes
-  const activeScopes = {};
-  
-  // Create a scope hierarchy display
-  const scopeHierarchy = document.createElement("div");
-  scopeHierarchy.className = "scope-hierarchy";
-  nameResolutionContainer.appendChild(scopeHierarchy);
-  
-  // Create container for variable declarations and references
+  if (!state.nameResolutionData || !state.nameResolutionData.events) {
+    console.error("Name resolution data not available for display");
+    return;
+  }
+
+  // Create variables container
   const variablesContainer = document.createElement("div");
   variablesContainer.className = "variables-container";
-  nameResolutionContainer.appendChild(variablesContainer);
-  
-  // Process each event
-  for (let i = 0; i < currentEvents.length; i++) {
-    const event = currentEvents[i];
-    const isCurrentStep = i === nameResolutionStepIndex;
-    
+
+  // Create scopes container
+  const scopesContainer = document.createElement("div");
+  scopesContainer.className = "scopes-container";
+
+  // Create events container
+  const eventsContainer = document.createElement("div");
+  eventsContainer.className = "events-container";
+
+  // Track active scopes - map scopeId to scope element and declarations
+  const activeScopes = {};
+
+  // Process name resolution events up to current step
+  for (let i = 0; i < nameResolutionStepIndex; i++) {
+    const event = state.nameResolutionData.events[i];
+    const isCurrentStep = (i === nameResolutionStepIndex - 1);
+
     // Create an event element
     const eventElement = document.createElement("div");
-    eventElement.className = `name-resolution-event ${isCurrentStep ? "current-step" : ""}`;
-    
+    eventElement.className = `event ${isCurrentStep ? "current-step" : ""}`;
+
     // Handle different event types
     switch (event.type) {
       case "EnterScope":
-        // Add scope to active scopes
-        activeScopes[event.scopeId] = {
-          id: event.scopeId,
-          parentId: event.parentScopeId,
-          declarations: {},
-          element: document.createElement("div")
-        };
-        
-        // Create scope element
-        const scopeElement = activeScopes[event.scopeId].element;
+        // Create a new scope element
+        const scopeElement = document.createElement("div");
         scopeElement.className = `scope ${isCurrentStep ? "current-scope" : ""}`;
-        scopeElement.innerHTML = `<div class="scope-header">Scope ${event.scopeId} ${event.parentScopeId !== null ? `(parent: ${event.parentScopeId})` : "(global)"}</div>`;
-        
-        // Place scope in hierarchy
-        if (event.parentScopeId !== null && activeScopes[event.parentScopeId]) {
-          const parentElement = activeScopes[event.parentScopeId].element;
-          const childrenContainer = parentElement.querySelector(".scope-children") || 
-                                   (() => { 
-                                     const container = document.createElement("div");
-                                     container.className = "scope-children";
-                                     parentElement.appendChild(container);
-                                     return container;
-                                   })();
-          childrenContainer.appendChild(scopeElement);
-        } else {
-          scopeHierarchy.appendChild(scopeElement);
+
+        // Add scope info
+        const scopeHeader = document.createElement("div");
+        scopeHeader.className = "scope-header";
+        scopeHeader.textContent = `Scope ${event.scopeId}`;
+
+        if (event.parentScopeId !== null) {
+          scopeHeader.textContent += ` (parent: ${event.parentScopeId})`;
         }
-        
+
+        scopeElement.appendChild(scopeHeader);
+
+        // Add declarations container
+        const declarationsContainer = document.createElement("div");
+        declarationsContainer.className = "declarations";
+        scopeElement.appendChild(declarationsContainer);
+
+        // Add the scope to active scopes
+        activeScopes[event.scopeId] = {
+          element: scopeElement,
+          declarations: {},
+          parent: event.parentScopeId
+        };
+
+        // Add the scope to the container
+        scopesContainer.appendChild(scopeElement);
+
         // Add event info
         eventElement.textContent = `Enter scope ${event.scopeId}`;
         break;
-        
+
       case "ExitScope":
+        // Mark scope as exited
+        if (activeScopes[event.scopeId]) {
+          activeScopes[event.scopeId].element.classList.add("exited");
+        }
+
         // Add event info
         eventElement.textContent = `Exit scope ${event.scopeId}`;
-        
-        // Mark scope as inactive
-        if (activeScopes[event.scopeId]) {
-          activeScopes[event.scopeId].element.classList.add("exited-scope");
-        }
         break;
-        
+
       case "DeclareVariable":
-        // Add declaration to scope
+        // Add variable declaration to scope
         if (activeScopes[event.scopeId]) {
           activeScopes[event.scopeId].declarations[event.name] = event.node;
-          
+
           // Add to scope element
-          const declarationsContainer = activeScopes[event.scopeId].element.querySelector(".declarations") || 
-                                      (() => { 
-                                        const container = document.createElement("div");
-                                        container.className = "declarations";
-                                        activeScopes[event.scopeId].element.appendChild(container);
-                                        return container;
-                                      })();
-          
+          const declarationsContainer = activeScopes[event.scopeId].element.querySelector(".declarations");
+
           const declarationElement = document.createElement("div");
           declarationElement.className = `declaration ${isCurrentStep ? "current-declaration" : ""}`;
           declarationElement.textContent = `Declare: ${event.name}`;
           declarationsContainer.appendChild(declarationElement);
         }
-        
+
         // Add event info
         eventElement.textContent = `Declare variable "${event.name}" in scope ${event.scopeId}`;
         break;
-        
+
       case "ResolveReference":
-        // Add resolution info
-        const resolutionElement = document.createElement("div");
-        resolutionElement.className = `resolution ${isCurrentStep ? "current-resolution" : ""} ${event.resolved ? "resolved" : "unresolved"}`;
-        resolutionElement.textContent = `Reference: ${event.name} ${event.resolved ? `(declared in scope ${event.declaration ? event.declaration.scope : "unknown"})` : "(unresolved)"}`;
-        
-        // Add to variables container
-        variablesContainer.appendChild(resolutionElement);
-        
         // Add event info
         eventElement.textContent = `${event.resolved ? "Resolved" : "Failed to resolve"} variable "${event.name}" in scope ${event.scopeId}`;
         break;
-        
+
       case "Error":
-        // Create error element
-        const errorElement = document.createElement("div");
-        errorElement.className = `error ${isCurrentStep ? "current-error" : ""}`;
-        errorElement.textContent = event.message;
-        nameResolutionContainer.appendChild(errorElement);
-        
+        // Add error styling
+        eventElement.classList.add("error");
+
         // Add event info
         eventElement.textContent = `Error: ${event.message}`;
         break;
+
+      case "FunctionParameter":
+        // Add parameter declaration to scope
+        if (activeScopes[event.scopeId]) {
+          activeScopes[event.scopeId].declarations[event.name] = event.node;
+
+          // Add to scope element
+          const declarationsContainer = activeScopes[event.scopeId].element.querySelector(".declarations") ||
+                                      (() => {
+                                        const container = document.createElement("div");
+                                        container.className = "declarations";
+                                        activeScopes[event.scopeId].element.appendChild(container);
+                                        return container;
+                                      })();
+
+          const declarationElement = document.createElement("div");
+          declarationElement.className = `declaration parameter ${isCurrentStep ? "current-declaration" : ""}`;
+          declarationElement.textContent = `Parameter: ${event.name}`;
+          declarationsContainer.appendChild(declarationElement);
+        }
+
+        // Add event info
+        eventElement.textContent = `Declare function parameter "${event.name}" in scope ${event.scopeId}`;
+        break;
+
+      case "VariableLookup":
+        // Add lookup info
+        const lookupElement = document.createElement("div");
+        lookupElement.className = `lookup ${isCurrentStep ? "current-lookup" : ""} ${event.resolved ? "resolved" : "unresolved"}`;
+        lookupElement.textContent = `Lookup: ${event.name} ${event.resolved ? `(resolved in scope ${event.resolvedInScopeId})` : "(unresolved)"}`;
+
+        // Add to variables container
+        variablesContainer.appendChild(lookupElement);
+
+        // Add event info
+        eventElement.textContent = `${event.resolved ? "Resolved" : "Failed to resolve"} variable "${event.name}" in scope ${event.scopeId}`;
+        break;
     }
-    
+
     // Add the event element to the name resolution container
-    if (isCurrentStep) {
-      // Add current event indicator
-      const currentEventElement = document.createElement("div");
-      currentEventElement.className = "current-event-indicator";
-      currentEventElement.textContent = "Current step:";
-      nameResolutionContainer.appendChild(currentEventElement);
-      nameResolutionContainer.appendChild(eventElement);
-    }
+    eventsContainer.appendChild(eventElement);
   }
-  
-  // If no events, show message
-  if (currentEvents.length === 0) {
-    nameResolutionContainer.innerHTML = "<div class='no-events'>No name resolution events yet</div>";
+
+  // Add the containers to the name resolution container
+  state.ui.nameResolution.appendChild(scopesContainer);
+  state.ui.nameResolution.appendChild(variablesContainer);
+  state.ui.nameResolution.appendChild(eventsContainer);
+}
+
+/**
+ * Create AST node element
+ *
+ * @param {Object} node - AST node
+ * @returns {HTMLElement} - AST node element
+ */
+function createAstNodeElement(node) {
+  if (!node) return null;
+
+  // Create node element
+  const nodeElement = document.createElement("li");
+  nodeElement.className = "ast-node";
+  nodeElement.dataset.nodeId = node.id;
+
+  // Create node header
+  const nodeHeader = document.createElement("div");
+  nodeHeader.className = "ast-node-header";
+
+  // Add expand/collapse button
+  const expandButton = document.createElement("span");
+  expandButton.className = "ast-node-expand";
+  expandButton.textContent = "►";
+  expandButton.addEventListener("click", function() {
+    toggleAstNode(nodeElement);
+  });
+
+  // Add node type
+  const nodeType = document.createElement("span");
+  nodeType.className = "ast-node-type";
+  nodeType.textContent = node.type;
+
+  // Add node value if available
+  if (node.value !== undefined) {
+    const nodeValue = document.createElement("span");
+    nodeValue.className = "ast-node-value";
+    nodeValue.textContent = `: ${formatValue(node.value)}`;
+    nodeHeader.appendChild(nodeValue);
   }
-  
-  // Update source highlighting if needed
-  const currentEvent = currentEvents[nameResolutionStepIndex];
-  if (currentEvent && currentEvent.node && currentEvent.node.position !== undefined) {
-    // Highlight the relevant source code
-    const position = currentEvent.node.position;
-    const length = currentEvent.node.value ? currentEvent.node.value.length : 1;
-    highlightSourceRange(state, null, position, length);
+
+  // Add node children container
+  const nodeChildren = document.createElement("ul");
+  nodeChildren.className = "ast-node-children";
+
+  // Add children if any
+  if (node.children && node.children.length > 0) {
+    // Add children to container
+    node.children.forEach(child => {
+      const childElement = createAstNodeElement(child);
+      if (childElement) {
+        nodeChildren.appendChild(childElement);
+      }
+    });
   }
+
+  // Assemble node element
+  nodeHeader.appendChild(expandButton);
+  nodeHeader.appendChild(nodeType);
+  nodeElement.appendChild(nodeHeader);
+  nodeElement.appendChild(nodeChildren);
+
+  return nodeElement;
+}
+
+/**
+ * Toggle AST node expansion
+ *
+ * @param {HTMLElement} nodeElement - AST node element
+ */
+function toggleAstNode(nodeElement) {
+  const childrenContainer = nodeElement.querySelector(".ast-node-children");
+  const expandButton = nodeElement.querySelector(".ast-node-expand");
+
+  if (childrenContainer.style.display === "none") {
+    // Expand
+    childrenContainer.style.display = "block";
+    expandButton.textContent = "▼";
+  } else {
+    // Collapse
+    childrenContainer.style.display = "none";
+    expandButton.textContent = "►";
+  }
+}
+
+/**
+ * Expand AST node
+ *
+ * @param {HTMLElement} nodeElement - AST node element
+ */
+function expandAstNode(nodeElement) {
+  const childrenContainer = nodeElement.querySelector(".ast-node-children");
+  const expandButton = nodeElement.querySelector(".ast-node-expand");
+
+  if (childrenContainer) {
+    childrenContainer.style.display = "block";
+  }
+
+  if (expandButton) {
+    expandButton.textContent = "▼";
+  }
+
+  // Expand all children
+  const childNodes = nodeElement.querySelectorAll(":scope > .ast-node-children > .ast-node");
+  childNodes.forEach(child => {
+    expandAstNode(child);
+  });
 }
 
 /**
@@ -1840,9 +1366,53 @@ function scrollIntoViewIfNeeded(element, container) {
   }
 }
 
+/**
+ * Load an example from the predefined examples
+ *
+ * @param {Object} state - Visualization state
+ * @param {string} exampleKey - Key of the example to load
+ */
+function loadExample(state, exampleKey) {
+  // Set the source code from the example
+  state.sourceCode = state.examples[exampleKey];
+
+  // Run tokenization and parsing
+  compileAndVisualize(state);
+}
+
 // Initialize the visualizer when the page loads
 document.addEventListener("DOMContentLoaded", () => {
-  initializeVisualization();
+  // Global state object
+  window.state = {
+    sourceCode: "",
+    tokenizationData: { events: [], tokens: [] },
+    astData: { events: [], rootNode: null },
+    nameResolutionData: { events: [], scopes: [] },
+    currentTokenizationStep: 0,
+    currentAstStep: 0,
+    currentNameResolutionStep: 0,
+    highlightedTokenIndex: null,
+    highlightedAstNode: null,
+    highlightedNameResolutionElement: null,
+    // Add predefined code examples
+    examples: {
+      example1: `// Function expression with a parameter
+const greet = (name) => {
+  return "Hello, " + name;
+};`,
+      example2: `// Simple constant declaration
+const message = "Hello, world!";`,
+      example3: `// Multiple declarations and function calls
+const x = 10;
+const y = 20;
+const sum = (a, b) => a + b;
+const result = sum(x, y);`
+    },
+    // UI references will be added in initializeVisualizer
+    ui: {}
+  };
+
+  initializeVisualizer();
 });
 
 // Update CSS rule for placeholders
