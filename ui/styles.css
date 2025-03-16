@@ -362,11 +362,53 @@ input[type="range"]:focus::-moz-range-thumb {
   transition: all 0.2s ease;
   cursor: pointer;
   line-height: 1.5;
+  /* Ensure no border by default */
+  border-left: none;
 }
 
-/* Remove hover background */
+/* Remove hover background and make hoverable nodes more obvious */
 .ast-node:hover {
-  /* No background */
+  background-color: rgba(0, 0, 0, 0.03); /* Very subtle hover effect */
+}
+
+.ast-syntax {
+  display: inline-block;
+  padding: 2px 0;
+}
+
+/* Syntax highlighting for different node types */
+.ast-keyword {
+  color: #0000ff; /* Blue for keywords like 'const', 'return' */
+  font-weight: bold;
+}
+
+.ast-identifier {
+  color: #001080; /* Dark blue for variable names */
+}
+
+.ast-string {
+  color: #a31515; /* Red for string literals */
+}
+
+.ast-number {
+  color: #098658; /* Green for numeric literals */
+}
+
+.ast-boolean {
+  color: #0000ff; /* Blue for boolean literals (like keywords) */
+  font-weight: bold;
+}
+
+.ast-operator {
+  color: #000000; /* Black for operators like =, +, etc. */
+}
+
+.ast-punctuation {
+  color: #000000; /* Black for punctuation */
+}
+
+.ast-type {
+  color: #267f99; /* Teal for type annotations */
 }
 
 .ast-node-type {
@@ -380,32 +422,40 @@ input[type="range"]:focus::-moz-range-thumb {
   font-style: italic;
 }
 
+/* AST node children container - this is the indentation part */
 .ast-node-children {
   margin-left: 20px;
   padding-left: 10px;
-  border-left: 1px solid #ddd; /* Lighter, solid border for hierarchy */
+  border-left: 1px solid #ddd; /* Keep the vertical line for hierarchy */
 }
 
+/* Child labels */
 .ast-node-child-label {
   font-size: 12px;
-  color: #555; /* Darker gray for better contrast */
+  color: #555;
+  margin-top: 8px;
   margin-bottom: 2px;
   font-weight: bold;
 }
 
-.ast-node-current .ast-node-type {
-  color: #2c5282; /* Darker blue, no white text */
+/* Current node highlight */
+.ast-node-current {
+  border-left: 3px solid #3498db; /* Keep blue left border for current node */
+  padding-left: 2px; /* Adjust padding to maintain alignment */
 }
 
-.ast-node-current .ast-node-details {
-  color: #2d3748; /* Darker gray, no white text */
-}
-
+/* In-progress node highlight */
 .ast-node-partial {
-  /* Remove background color */
-  border-left: 3px solid #f1c40f;
+  border-left: 3px solid #f1c40f; /* Keep yellow left border for in-progress */
+  padding-left: 2px; /* Adjust padding to maintain alignment */
 }
 
+/* Completed nodes have no border or background */
+.ast-node-highlighted {
+  /* No border or background styling */
+}
+
+/* Expander button */
 .ast-expander {
   cursor: pointer;
   margin-right: 5px;
@@ -418,14 +468,13 @@ input[type="range"]:focus::-moz-range-thumb {
   border-radius: 3px;
   line-height: 14px;
   color: #3498db;
-  /* Remove background */
 }
 
 .ast-expander:hover {
-  /* Remove background */
   border-color: #3498db;
 }
 
+/* Node expansion state */
 .ast-node-collapsed .ast-node-children {
   display: none;
 }

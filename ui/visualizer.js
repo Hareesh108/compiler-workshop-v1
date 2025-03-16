@@ -446,9 +446,73 @@ function updateVisualization(state) {
     // Show all source code
     updateSourceCodeHighlighting(state, true);
 
-    // Update AST tree
+    // Skip insignificant steps and find the next significant step
+    if (astStepIndex > 0 && !isSignificantAstStep(state.astSteps, astStepIndex)) {
+      const nextIndex = findNextSignificantStep(state.astSteps, astStepIndex);
+      if (nextIndex !== -1 && nextIndex < state.astSteps.length) {
+        // If found, jump to that step
+        state.ui.scrubber.value = (totalTokenizationSteps + nextIndex).toString();
+        updateVisualization(state);
+        return;
+      }
+    }
+
+    // Update AST tree with the current step
     updateAstDisplay(state, astStepIndex);
   }
+}
+
+/**
+ * Check if an AST step is significant (shows something new)
+ *
+ * @param {Array} astSteps - Array of AST steps
+ * @param {number} currentIndex - Current step index
+ * @returns {boolean} - Whether this step shows something new
+ */
+function isSignificantAstStep(astSteps, currentIndex) {
+  if (currentIndex <= 0) return true;
+  if (currentIndex >= astSteps.length) return false;
+
+  const currentStep = astSteps[currentIndex];
+  const previousStep = astSteps[currentIndex - 1];
+
+  // A step is significant if:
+  // 1. It completes a node (shows the finished node)
+  // 2. It starts a new node type we haven't seen before
+  // 3. It has different node properties than the previous step
+
+  // If it's a completion step, it's significant
+  if (currentStep.type && currentStep.type.endsWith('Complete')) {
+    return true;
+  }
+
+  // If it's a different node type than the previous step, it's significant
+  if (currentStep.type !== previousStep.type) {
+    return true;
+  }
+
+  // If no node, or same node as previous step with no changes, it's not significant
+  if (!currentStep.node || currentStep.id === previousStep.id) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Find the next significant step in the AST visualization
+ *
+ * @param {Array} astSteps - Array of AST steps
+ * @param {number} currentIndex - Current step index
+ * @returns {number} - Index of the next significant step or -1 if none found
+ */
+function findNextSignificantStep(astSteps, currentIndex) {
+  for (let i = currentIndex + 1; i < astSteps.length; i++) {
+    if (isSignificantAstStep(astSteps, i)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -677,93 +741,139 @@ function updateAstDisplay(state, astStepIndex) {
     return;
   }
 
-  // Collect all completed nodes up to this step
-  const completedNodes = new Map();
-  const inProgressNodes = new Map();
+  // Create a completely new mapping of nodes to avoid duplicates
+  const nodeMap = new Map();  // Map of node IDs to their data
+  const topLevelIds = new Set(); // Set of IDs for top-level nodes
+  const currentStepIds = new Set(); // Set of IDs for nodes in the current step
 
-  // First pass: collect all nodes
+  // First pass: collect nodes up to this step
   for (let i = 0; i <= astStepIndex; i++) {
     const step = state.astSteps[i];
-    if (!step) continue;
+    if (!step || !step.node) continue;
 
     const isCurrentStep = i === astStepIndex;
+    if (isCurrentStep && step.id) {
+      currentStepIds.add(step.id);
+    }
 
-    if (step.node) {
-      if (step.type && step.type.endsWith('Complete')) {
-        // This is a completed node
-        completedNodes.set(step.id, {
+    // Process based on node type
+    if (step.type) {
+      const nodeId = step.id;
+
+      // Create or update the node data
+      const existingNode = nodeMap.get(nodeId);
+
+      // If this node completes or replaces a previous version, update it
+      if (step.type.endsWith('Complete') || !step.type.endsWith('Start')) {
+        // This is a completed or partial node
+        nodeMap.set(nodeId, {
           ...step.node,
-          _id: step.id,
+          _id: nodeId,
           _type: step.type,
           _isCurrentStep: isCurrentStep
         });
-      } else if (step.type && !step.type.endsWith('Complete') && !step.type.endsWith('Start')) {
-        // This is a partial node (like an identifier)
-        completedNodes.set(step.id, {
-          ...step.node,
-          _id: step.id,
-          _type: step.type,
-          _isCurrentStep: isCurrentStep
-        });
-      } else if (step.type) {
-        // This is a node in progress
-        inProgressNodes.set(step.id, {
-          _id: step.id,
+      } else if (step.type.endsWith('Start') && !existingNode) {
+        // This is a node in progress (only add if we don't have a complete version)
+        nodeMap.set(nodeId, {
+          _id: nodeId,
           _type: step.type,
           _isCurrentStep: isCurrentStep,
           _inProgress: true,
           type: step.type.replace('Start', '')
         });
       }
+
+      // Track top-level nodes
+      if (step.type === 'ProgramComplete' ||
+          step.type === 'ConstDeclarationComplete' ||
+          step.type === 'ConstDeclarationStart' ||
+          step.type === 'ReturnStatementComplete' ||
+          step.type === 'ReturnStatementStart' ||
+          step.type === 'ArrowFunctionExpressionComplete' ||
+          step.type === 'ArrowFunctionExpressionStart') {
+        topLevelIds.add(nodeId);
+      }
     }
   }
 
-  // Always use the direct rendering of top-level nodes approach:
-  // Get all top-level nodes from the Program node body if it exists
-  let topLevelNodes = [];
-  const programNode = Array.from(completedNodes.values())
-    .find(node => node && node.type === 'Program');
-
-  if (programNode && programNode.body && programNode.body.length > 0) {
-    // Just use the program's body statements directly as top-level nodes
-    topLevelNodes = programNode.body;
-  } else {
-    // If there's no program node yet, collect all top-level statement nodes
-    topLevelNodes = Array.from(completedNodes.values())
-      .filter(node => {
-        return node && (
-          node.type === 'ConstDeclaration' ||
-          node.type === 'ReturnStatement' ||
-          node.type === 'ArrowFunctionExpression'
-        );
-      });
+  // Find program node (if any)
+  let programNode = null;
+  for (const node of nodeMap.values()) {
+    if (node.type === 'Program') {
+      programNode = node;
+      break;
+    }
   }
 
-  // Add any in-progress top-level nodes
-  const inProgressTopLevelNodes = Array.from(inProgressNodes.values())
-    .filter(node => {
-      return node && node._type && (
-        node._type === 'ConstDeclarationStart' ||
-        node._type === 'ReturnStatementStart' ||
-        node._type === 'ArrowFunctionStart'
+  // Determine top-level nodes to display
+  let nodesToRender = [];
+
+  if (programNode && programNode.body && programNode.body.length > 0) {
+    // Use program statements as top-level nodes
+    nodesToRender = programNode.body;
+  } else {
+    // Filter out top-level nodes from our map
+    nodesToRender = Array.from(nodeMap.values()).filter(node => {
+      return node && (
+        node.type === 'ConstDeclaration' ||
+        node.type === 'ReturnStatement' ||
+        node.type === 'ArrowFunctionExpression' ||
+        (node._type && (
+          node._type === 'ConstDeclarationStart' ||
+          node._type === 'ReturnStatementStart' ||
+          node._type === 'ArrowFunctionStart'
+        ))
       );
     });
 
-  // Combine and sort by ID or position to maintain order
-  const allTopLevelNodes = [...topLevelNodes, ...inProgressTopLevelNodes]
-    .sort((a, b) => {
-      // Try to use position if available
-      const posA = a.position || a._position || (a._id || 0);
-      const posB = b.position || b._position || (b._id || 0);
+    // Sort by position or ID
+    nodesToRender.sort((a, b) => {
+      const posA = a.position || (a._id || 0);
+      const posB = b.position || (b._id || 0);
       return posA - posB;
     });
 
-  // Render each top-level node
-  allTopLevelNodes.forEach(node => {
-    if (node) {
-      const nodeElement = createAstNodeElement(node, node._isCurrentStep);
-      state.ui.astTreeElement.appendChild(nodeElement);
+    // Remove duplicates (prefer completed nodes over in-progress)
+    const uniqueNodes = [];
+    const seenKeys = new Set();
+
+    for (const node of nodesToRender) {
+      // Generate a key based on type and position/name
+      let key;
+      if (node.type === 'ConstDeclaration' && node.id) {
+        key = `const-${node.id.name}`;
+      } else if (node.type === 'ReturnStatement') {
+        key = `return-${node.position || node._id}`;
+      } else if (node.type === 'ArrowFunctionExpression') {
+        key = `arrow-${node.position || node._id}`;
+      } else if (node._type) {
+        // In-progress nodes
+        const baseType = node._type.replace('Start', '');
+        key = `${baseType.toLowerCase()}-${node._id}`;
+      } else {
+        // Fallback
+        key = `${node.type || 'node'}-${node.position || node._id}`;
+      }
+
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        uniqueNodes.push(node);
+      }
     }
+
+    nodesToRender = uniqueNodes;
+  }
+
+  // Render each node
+  nodesToRender.forEach(node => {
+    if (!node) return;
+
+    // Check if this node is part of the current step
+    const isCurrentNode = node._isCurrentStep ||
+                           (node._id && currentStepIds.has(node._id));
+
+    const nodeElement = createAstNodeElement(node, isCurrentNode);
+    state.ui.astTreeElement.appendChild(nodeElement);
   });
 }
 
@@ -778,6 +888,10 @@ function createAstNodeElement(node, isCurrentStep = false) {
   const nodeElement = document.createElement("div");
   nodeElement.className = "ast-node";
 
+  // Add node type as title attribute for hover tooltip
+  const nodeType = node.type || node._type?.replace('Start', '');
+  nodeElement.setAttribute('title', nodeType);
+
   // Add expandable/collapsible functionality
   const hasChildren = hasAstNodeChildren(node);
   if (hasChildren) {
@@ -785,7 +899,7 @@ function createAstNodeElement(node, isCurrentStep = false) {
   }
 
   // Add appropriate class based on node state
-  if (node._isCurrentStep) {
+  if (isCurrentStep || node._isCurrentStep) {
     nodeElement.classList.add("ast-node-current");
   } else if (node._inProgress) {
     nodeElement.classList.add("ast-node-partial");
@@ -804,85 +918,204 @@ function createAstNodeElement(node, isCurrentStep = false) {
     nodeElement.appendChild(expander);
   }
 
-  // Add the node type
-  const typeElement = document.createElement("span");
-  typeElement.className = "ast-node-type";
-  typeElement.textContent = node.type || node._type?.replace('Start', '');
-  nodeElement.appendChild(typeElement);
+  // Create a container for the syntax-like representation
+  const syntaxContainer = document.createElement("span");
+  syntaxContainer.className = "ast-syntax";
 
-  // Add node details based on type
-  const detailsElement = document.createElement("span");
-  detailsElement.className = "ast-node-details";
-
+  // Render based on node type - more concise and syntax-like
   switch (node.type) {
     case "ConstDeclaration":
-      if (node.id) {
-        detailsElement.textContent = `const ${node.id.name}`;
-        if (node.typeAnnotation) {
-          detailsElement.textContent += `: ${node.typeAnnotation.valueType}`;
-        }
-      } else {
-        detailsElement.textContent = "const (incomplete)";
-      }
+      // Simplify to just show "Const" at the top level
+      syntaxContainer.textContent = "Const";
+      // Use the same styling as Ternary for consistency
+      syntaxContainer.className = "ast-syntax";
       break;
 
     case "Identifier":
-      detailsElement.textContent = node.name || "";
+      const idSpan = document.createElement("span");
+      idSpan.className = "ast-identifier";
+      idSpan.textContent = node.name || "";
+      syntaxContainer.appendChild(idSpan);
       break;
 
     case "StringLiteral":
-      detailsElement.textContent = `"${node.value}"`;
+      const strSpan = document.createElement("span");
+      strSpan.className = "ast-string";
+      strSpan.textContent = `"${node.value}"`;
+      syntaxContainer.appendChild(strSpan);
       break;
 
     case "NumericLiteral":
-      detailsElement.textContent = node.value;
+      const numSpan = document.createElement("span");
+      numSpan.className = "ast-number";
+      numSpan.textContent = node.value;
+      syntaxContainer.appendChild(numSpan);
       break;
 
     case "BooleanLiteral":
-      detailsElement.textContent = node.value ? "true" : "false";
+      const boolSpan = document.createElement("span");
+      boolSpan.className = "ast-boolean";
+      boolSpan.textContent = node.value ? "true" : "false";
+      syntaxContainer.appendChild(boolSpan);
       break;
 
     case "BinaryExpression":
-      detailsElement.textContent = `${node.operator}`;
+      // Just show the operator, children will show the operands
+      const opSpan = document.createElement("span");
+      opSpan.className = "ast-operator";
+      opSpan.textContent = node.operator;
+      syntaxContainer.appendChild(opSpan);
       break;
 
     case "ConditionalExpression":
-      detailsElement.textContent = "? :";
+      // Show ternary operator
+      syntaxContainer.textContent = "? :";
+      // Keep consistent with the other node types
+      syntaxContainer.className = "ast-syntax";
       break;
 
     case "ReturnStatement":
-      detailsElement.textContent = "return";
-      break;
+      // Add the 'return' keyword with syntax highlighting
+      const returnKeyword = document.createElement("span");
+      returnKeyword.className = "ast-keyword";
+      returnKeyword.textContent = "return";
+      syntaxContainer.appendChild(returnKeyword);
 
-    case "Program":
-      detailsElement.textContent = `${node.body?.length || 0} statements`;
+      // If there's a return value, add a space after 'return'
+      if (node.argument) {
+        syntaxContainer.appendChild(document.createTextNode(" "));
+      }
       break;
 
     case "ArrowFunctionExpression":
+      // Render as (params) => ...
       const paramCount = node.params?.length || 0;
-      detailsElement.textContent = `(${paramCount} params) =>`;
+
+      // Opening parenthesis
+      const openParenSpan = document.createElement("span");
+      openParenSpan.className = "ast-punctuation";
+      openParenSpan.textContent = "(";
+      syntaxContainer.appendChild(openParenSpan);
+
+      // Parameters
+      if (node.params && node.params.length > 0) {
+        // Join parameter names with commas
+        node.params.forEach((param, index) => {
+          const paramSpan = document.createElement("span");
+          paramSpan.className = "ast-identifier";
+          paramSpan.textContent = param.name;
+          syntaxContainer.appendChild(paramSpan);
+
+          // Add type annotation if present
+          if (param.typeAnnotation) {
+            const typeColonSpan = document.createElement("span");
+            typeColonSpan.className = "ast-operator";
+            typeColonSpan.textContent = ": ";
+            syntaxContainer.appendChild(typeColonSpan);
+
+            const typeSpan = document.createElement("span");
+            typeSpan.className = "ast-type";
+            typeSpan.textContent = param.typeAnnotation.valueType;
+            syntaxContainer.appendChild(typeSpan);
+          }
+
+          // Add comma if not the last parameter
+          if (index < node.params.length - 1) {
+            const commaSpan = document.createElement("span");
+            commaSpan.className = "ast-punctuation";
+            commaSpan.textContent = ", ";
+            syntaxContainer.appendChild(commaSpan);
+          }
+        });
+      }
+
+      // Closing parenthesis
+      const closeParenSpan = document.createElement("span");
+      closeParenSpan.className = "ast-punctuation";
+      closeParenSpan.textContent = ")";
+      syntaxContainer.appendChild(closeParenSpan);
+
+      // Return type annotation if present
+      if (node.returnType) {
+        const returnTypeColon = document.createElement("span");
+        returnTypeColon.className = "ast-operator";
+        returnTypeColon.textContent = ": ";
+        syntaxContainer.appendChild(returnTypeColon);
+
+        const returnTypeSpan = document.createElement("span");
+        returnTypeSpan.className = "ast-type";
+        returnTypeSpan.textContent = node.returnType.valueType;
+        syntaxContainer.appendChild(returnTypeSpan);
+      }
+
+      // Arrow
+      const arrowSpan = document.createElement("span");
+      arrowSpan.className = "ast-operator";
+      arrowSpan.textContent = " => ";
+      syntaxContainer.appendChild(arrowSpan);
+
+      // Expression or block indicator
+      if (node.expression) {
+        // Expression function
+        syntaxContainer.appendChild(document.createTextNode("expression"));
+      } else if (node.body && node.body.type === "BlockStatement") {
+        // Block function
+        const openBraceSpan = document.createElement("span");
+        openBraceSpan.className = "ast-punctuation";
+        openBraceSpan.textContent = "{...}";
+        syntaxContainer.appendChild(openBraceSpan);
+      }
       break;
 
     case "BlockStatement":
-      detailsElement.textContent = `{ ${node.body?.length || 0} statements }`;
+      const braceSpan = document.createElement("span");
+      braceSpan.className = "ast-punctuation";
+      braceSpan.textContent = `{ ${node.body?.length || 0} statements }`;
+      syntaxContainer.appendChild(braceSpan);
       break;
 
     case "CallExpression":
+      // Function name
       if (node.callee?.name) {
-        detailsElement.textContent = `${node.callee.name}(${node.arguments?.length || 0} args)`;
+        const calleeSpan = document.createElement("span");
+        calleeSpan.className = "ast-identifier";
+        calleeSpan.textContent = node.callee.name;
+        syntaxContainer.appendChild(calleeSpan);
       } else {
-        detailsElement.textContent = `(...)(${node.arguments?.length || 0} args)`;
+        // Complex callee
+        syntaxContainer.appendChild(document.createTextNode("(...)"));
       }
+
+      // Opening parenthesis
+      const openCallParen = document.createElement("span");
+      openCallParen.className = "ast-punctuation";
+      openCallParen.textContent = "(";
+      syntaxContainer.appendChild(openCallParen);
+
+      // Argument count
+      if (node.arguments && node.arguments.length > 0) {
+        syntaxContainer.appendChild(document.createTextNode(`${node.arguments.length} args`));
+      }
+
+      // Closing parenthesis
+      const closeCallParen = document.createElement("span");
+      closeCallParen.className = "ast-punctuation";
+      closeCallParen.textContent = ")";
+      syntaxContainer.appendChild(closeCallParen);
       break;
 
     default:
-      // For in-progress nodes
+      // For in-progress nodes or other types
       if (node._inProgress) {
-        detailsElement.textContent = "(building...)";
+        syntaxContainer.textContent = "(building...)";
+      } else {
+        // Show the node type for unknown node types
+        syntaxContainer.textContent = nodeType;
       }
   }
 
-  nodeElement.appendChild(detailsElement);
+  // Add the syntax container to the node element
+  nodeElement.appendChild(syntaxContainer);
 
   // Add children if there are any
   if (hasChildren) {
@@ -897,105 +1130,121 @@ function createAstNodeElement(node, isCurrentStep = false) {
         childrenContainer.appendChild(statementElement);
       });
     } else if (node.type === "ConstDeclaration") {
-      // Add initializer
-      if (node.init) {
-        const initLabel = document.createElement("div");
-        initLabel.className = "ast-node-child-label";
-        initLabel.textContent = "initialized to:";
-        childrenContainer.appendChild(initLabel);
+      // Add variable name and initialization as a child
+      if (node.id) {
+        // Add a label for the variable name
+        const nameLabel = document.createElement("div");
+        nameLabel.className = "ast-node-child-label";
+        nameLabel.textContent = "name";
+        childrenContainer.appendChild(nameLabel);
 
+        // Create a node-like element for the variable name
+        const nameContainer = document.createElement("div");
+        nameContainer.className = "ast-node ast-node-highlighted";
+
+        const nameSyntax = document.createElement("span");
+        nameSyntax.className = "ast-syntax";
+
+        // Add the identifier name
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "ast-identifier";
+        nameSpan.textContent = node.id.name;
+        nameSyntax.appendChild(nameSpan);
+
+        // Add type annotation if present
+        if (node.typeAnnotation) {
+          const typeSpan = document.createElement("span");
+          typeSpan.className = "ast-operator";
+          typeSpan.textContent = ": ";
+          nameSyntax.appendChild(typeSpan);
+
+          const typeValueSpan = document.createElement("span");
+          typeValueSpan.className = "ast-type";
+          typeValueSpan.textContent = node.typeAnnotation.valueType;
+          nameSyntax.appendChild(typeValueSpan);
+        }
+
+        // Add equals sign
+        const equalsSpan = document.createElement("span");
+        equalsSpan.className = "ast-operator";
+        equalsSpan.textContent = " = ";
+        nameSyntax.appendChild(equalsSpan);
+
+        nameContainer.appendChild(nameSyntax);
+        childrenContainer.appendChild(nameContainer);
+      }
+
+      // Add initializer value as a separate child
+      if (node.init) {
         const initElement = createAstNodeElement(node.init);
         childrenContainer.appendChild(initElement);
       }
     } else if (node.type === "ReturnStatement") {
-      // Add return value if there is one
+      // Add return value as a child - without a label
       if (node.argument) {
-        const argLabel = document.createElement("div");
-        argLabel.className = "ast-node-child-label";
-        argLabel.textContent = "value:";
-        childrenContainer.appendChild(argLabel);
-
         const argElement = createAstNodeElement(node.argument);
         childrenContainer.appendChild(argElement);
       }
     } else if (node.type === "BinaryExpression") {
-      // Add left and right operands
+      // Add left operand
       if (node.left) {
         const leftLabel = document.createElement("div");
         leftLabel.className = "ast-node-child-label";
-        leftLabel.textContent = "left:";
+        leftLabel.textContent = "left";
         childrenContainer.appendChild(leftLabel);
 
         const leftElement = createAstNodeElement(node.left);
         childrenContainer.appendChild(leftElement);
       }
 
+      // Add right operand
       if (node.right) {
         const rightLabel = document.createElement("div");
         rightLabel.className = "ast-node-child-label";
-        rightLabel.textContent = "right:";
+        rightLabel.textContent = "right";
         childrenContainer.appendChild(rightLabel);
 
         const rightElement = createAstNodeElement(node.right);
         childrenContainer.appendChild(rightElement);
       }
     } else if (node.type === "ConditionalExpression") {
-      // Add test, consequent, and alternate
+      // Add condition without a label
       if (node.test) {
-        const testLabel = document.createElement("div");
-        testLabel.className = "ast-node-child-label";
-        testLabel.textContent = "condition:";
-        childrenContainer.appendChild(testLabel);
-
+        // No label for condition
         const testElement = createAstNodeElement(node.test);
         childrenContainer.appendChild(testElement);
       }
 
+      // Add true branch with "?" label
       if (node.consequent) {
         const consLabel = document.createElement("div");
         consLabel.className = "ast-node-child-label";
-        consLabel.textContent = "if true:";
+        consLabel.textContent = "?";
         childrenContainer.appendChild(consLabel);
 
         const consElement = createAstNodeElement(node.consequent);
         childrenContainer.appendChild(consElement);
       }
 
+      // Add false branch with ":" label
       if (node.alternate) {
         const altLabel = document.createElement("div");
         altLabel.className = "ast-node-child-label";
-        altLabel.textContent = "if false:";
+        altLabel.textContent = ":";
         childrenContainer.appendChild(altLabel);
 
         const altElement = createAstNodeElement(node.alternate);
         childrenContainer.appendChild(altElement);
       }
     } else if (node.type === "ArrowFunctionExpression") {
-      // Add parameters
-      if (node.params && node.params.length > 0) {
-        const paramsLabel = document.createElement("div");
-        paramsLabel.className = "ast-node-child-label";
-        paramsLabel.textContent = "parameters:";
-        childrenContainer.appendChild(paramsLabel);
-
-        node.params.forEach(param => {
-          const paramElement = createAstNodeElement(param);
-          childrenContainer.appendChild(paramElement);
-        });
-      }
-
       // Add function body
       if (node.body) {
-        const bodyLabel = document.createElement("div");
-        bodyLabel.className = "ast-node-child-label";
-        bodyLabel.textContent = "body:";
-        childrenContainer.appendChild(bodyLabel);
-
+        // No label needed for the body
         const bodyElement = createAstNodeElement(node.body);
         childrenContainer.appendChild(bodyElement);
       }
     } else if (node.type === "BlockStatement") {
-      // Add block statements
+      // Add block statements without labels
       if (node.body && node.body.length > 0) {
         node.body.forEach(statement => {
           const statementElement = createAstNodeElement(statement);
@@ -1003,24 +1252,19 @@ function createAstNodeElement(node, isCurrentStep = false) {
         });
       }
     } else if (node.type === "CallExpression") {
-      // Add callee
-      if (node.callee) {
+      // Add callee if it's complex (not just an identifier)
+      if (node.callee && node.callee.type !== "Identifier") {
         const calleeLabel = document.createElement("div");
         calleeLabel.className = "ast-node-child-label";
-        calleeLabel.textContent = "callee:";
+        calleeLabel.textContent = "callee";
         childrenContainer.appendChild(calleeLabel);
 
         const calleeElement = createAstNodeElement(node.callee);
         childrenContainer.appendChild(calleeElement);
       }
 
-      // Add arguments
+      // Add arguments without labels
       if (node.arguments && node.arguments.length > 0) {
-        const argsLabel = document.createElement("div");
-        argsLabel.className = "ast-node-child-label";
-        argsLabel.textContent = "arguments:";
-        childrenContainer.appendChild(argsLabel);
-
         node.arguments.forEach(arg => {
           const argElement = createAstNodeElement(arg);
           childrenContainer.appendChild(argElement);
