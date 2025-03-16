@@ -378,8 +378,20 @@ function runCompilation(state) {
       eventIndex: -1
     });
 
-    // Convert AST events to visualization steps
-    state.astSteps = astData.events.map((event, index) => {
+    // Filter out unwanted AST events and convert to visualization steps
+    const filteredAstEvents = astData.events.filter(event => {
+      // Skip Program, Statement, Primary, and Expression events
+      const skipTypes = [
+        "ProgramStart", "ProgramComplete",
+        "StatementStart", "StatementComplete",
+        "PrimaryStart", "PrimaryComplete",
+        "ExpressionStart", "ExpressionComplete"
+      ];
+
+      return !skipTypes.some(type => event.type.includes(type));
+    });
+
+    state.astSteps = filteredAstEvents.map((event, index) => {
       // Clone the event to avoid modifying the original
       return {
         ...event,
@@ -421,18 +433,29 @@ function runCompilation(state) {
 function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
   const totalTokenizationSteps = state.visualizationSteps.length;
-  const totalSteps = state.totalSteps;
+
+  // Show the step number in the AST container title for debugging
+  const astTitle = document.querySelector('.ast-container h2');
+  if (astTitle) {
+    // For parsing phase, show the actual step number for debugging
+    if (scrubberValue >= totalTokenizationSteps) {
+      const astStepIndex = scrubberValue - totalTokenizationSteps;
+      astTitle.textContent = `Abstract Syntax Tree (Step ${astStepIndex + 1}/${state.astSteps.length})`;
+    } else {
+      astTitle.textContent = `Abstract Syntax Tree`;
+    }
+  }
 
   // Determine if we're in tokenization or parsing phase
   if (scrubberValue < totalTokenizationSteps) {
     // We're in the tokenization phase
     state.currentStepIndex = scrubberValue;
 
-    // Update tokens list
-    updateTokensDisplay(state);
+  // Update tokens list
+  updateTokensDisplay(state);
 
-    // Update source code highlighting
-    updateSourceCodeHighlighting(state);
+  // Update source code highlighting
+  updateSourceCodeHighlighting(state);
 
     // Clear AST display
     state.ui.astTreeElement.innerHTML = "";
@@ -446,73 +469,9 @@ function updateVisualization(state) {
     // Show all source code
     updateSourceCodeHighlighting(state, true);
 
-    // Skip insignificant steps and find the next significant step
-    if (astStepIndex > 0 && !isSignificantAstStep(state.astSteps, astStepIndex)) {
-      const nextIndex = findNextSignificantStep(state.astSteps, astStepIndex);
-      if (nextIndex !== -1 && nextIndex < state.astSteps.length) {
-        // If found, jump to that step
-        state.ui.scrubber.value = (totalTokenizationSteps + nextIndex).toString();
-        updateVisualization(state);
-        return;
-      }
-    }
-
-    // Update AST tree with the current step
+    // Update AST tree with the current step - use the exact step index without skipping
     updateAstDisplay(state, astStepIndex);
   }
-}
-
-/**
- * Check if an AST step is significant (shows something new)
- *
- * @param {Array} astSteps - Array of AST steps
- * @param {number} currentIndex - Current step index
- * @returns {boolean} - Whether this step shows something new
- */
-function isSignificantAstStep(astSteps, currentIndex) {
-  if (currentIndex <= 0) return true;
-  if (currentIndex >= astSteps.length) return false;
-
-  const currentStep = astSteps[currentIndex];
-  const previousStep = astSteps[currentIndex - 1];
-
-  // A step is significant if:
-  // 1. It completes a node (shows the finished node)
-  // 2. It starts a new node type we haven't seen before
-  // 3. It has different node properties than the previous step
-
-  // If it's a completion step, it's significant
-  if (currentStep.type && currentStep.type.endsWith('Complete')) {
-    return true;
-  }
-
-  // If it's a different node type than the previous step, it's significant
-  if (currentStep.type !== previousStep.type) {
-    return true;
-  }
-
-  // If no node, or same node as previous step with no changes, it's not significant
-  if (!currentStep.node || currentStep.id === previousStep.id) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
- * Find the next significant step in the AST visualization
- *
- * @param {Array} astSteps - Array of AST steps
- * @param {number} currentIndex - Current step index
- * @returns {number} - Index of the next significant step or -1 if none found
- */
-function findNextSignificantStep(astSteps, currentIndex) {
-  for (let i = currentIndex + 1; i < astSteps.length; i++) {
-    if (isSignificantAstStep(astSteps, i)) {
-      return i;
-    }
-  }
-  return -1;
 }
 
 /**
@@ -537,7 +496,7 @@ function updateTokensDisplay(state, showAll = false) {
     // Show all tokens
     tokens = state.tokens;
   } else {
-    // In tokenization mode, show tokens up to current step
+  // In tokenization mode, show tokens up to current step
     const step = state.visualizationSteps[state.currentStepIndex];
     tokens = step.currentTokens || [];
     currentTokenIndex = tokens.length - 1;
@@ -741,138 +700,155 @@ function updateAstDisplay(state, astStepIndex) {
     return;
   }
 
-  // Create a completely new mapping of nodes to avoid duplicates
-  const nodeMap = new Map();  // Map of node IDs to their data
-  const topLevelIds = new Set(); // Set of IDs for top-level nodes
-  const currentStepIds = new Set(); // Set of IDs for nodes in the current step
+  // Display the current step information in a more concise way
+  const currentStepInfo = document.createElement('div');
+  currentStepInfo.className = 'ast-current-step-info';
 
-  // First pass: collect nodes up to this step
+  // Simplify the event type for display
+  const eventType = currentStep.type || 'Unknown';
+  const cleanEventType = eventType
+    .replace('Start', '')
+    .replace('Complete', '');
+
+  currentStepInfo.innerHTML = `<strong>Current:</strong> ${cleanEventType}`;
+
+  currentStepInfo.style.padding = '5px';
+  currentStepInfo.style.marginBottom = '10px';
+  currentStepInfo.style.backgroundColor = '#f0f0f0';
+  currentStepInfo.style.borderRadius = '4px';
+  state.ui.astTreeElement.appendChild(currentStepInfo);
+
+  // SIMPLER APPROACH: Create a map of nodes by their location in the source code
+  // for const declarations, we'll use variable name as the key
+  const nodesByIdentifier = new Map();
+
+  // A map to track all nodes by their ID
+  const nodesById = new Map();
+
+  // Track the current node for highlighting
+  let currentNodeId = currentStep.id;
+
+  // First pass: Process all steps up to the current one
   for (let i = 0; i <= astStepIndex; i++) {
     const step = state.astSteps[i];
     if (!step || !step.node) continue;
 
-    const isCurrentStep = i === astStepIndex;
-    if (isCurrentStep && step.id) {
-      currentStepIds.add(step.id);
-    }
+    // Create node data with metadata
+    const nodeData = {
+      ...step.node,
+      _id: step.id,
+      _type: step.type,
+      _step: i,
+      _isCurrentStep: (i === astStepIndex),
+      _inProgress: !step.type.endsWith('Complete'),
+      type: step.type.replace('Start', '').replace('Complete', '')
+    };
 
-    // Process based on node type
-    if (step.type) {
-      const nodeId = step.id;
+    // Always store latest state of nodes by their ID
+    nodesById.set(step.id, nodeData);
 
-      // Create or update the node data
-      const existingNode = nodeMap.get(nodeId);
+    // For ConstDeclaration, use the variable name as a key if available
+    if (nodeData.type === 'ConstDeclaration' && nodeData.id && nodeData.id.name) {
+      const key = `const-${nodeData.id.name}`;
 
-      // If this node completes or replaces a previous version, update it
-      if (step.type.endsWith('Complete') || !step.type.endsWith('Start')) {
-        // This is a completed or partial node
-        nodeMap.set(nodeId, {
-          ...step.node,
-          _id: nodeId,
-          _type: step.type,
-          _isCurrentStep: isCurrentStep
-        });
-      } else if (step.type.endsWith('Start') && !existingNode) {
-        // This is a node in progress (only add if we don't have a complete version)
-        nodeMap.set(nodeId, {
-          _id: nodeId,
-          _type: step.type,
-          _isCurrentStep: isCurrentStep,
-          _inProgress: true,
-          type: step.type.replace('Start', '')
-        });
-      }
-
-      // Track top-level nodes
-      if (step.type === 'ProgramComplete' ||
-          step.type === 'ConstDeclarationComplete' ||
-          step.type === 'ConstDeclarationStart' ||
-          step.type === 'ReturnStatementComplete' ||
-          step.type === 'ReturnStatementStart' ||
-          step.type === 'ArrowFunctionExpressionComplete' ||
-          step.type === 'ArrowFunctionExpressionStart') {
-        topLevelIds.add(nodeId);
+      // If we don't have this node yet, or if this is a more recent version, store it
+      if (!nodesByIdentifier.has(key) ||
+          nodesByIdentifier.get(key)._step < nodeData._step) {
+        nodesByIdentifier.set(key, nodeData);
       }
     }
   }
 
-  // Find program node (if any)
-  let programNode = null;
-  for (const node of nodeMap.values()) {
-    if (node.type === 'Program') {
-      programNode = node;
-      break;
-    }
-  }
+  // Find the root program node if it exists
+  const programNodes = [...nodesById.values()].filter(node =>
+    node._type === 'ProgramComplete' || node._type === 'ProgramStart'
+  );
 
-  // Determine top-level nodes to display
+  // Sort by step to get the latest program node
+  programNodes.sort((a, b) => b._step - a._step);
+  const rootNode = programNodes.length > 0 ? programNodes[0] : null;
+
+  // Determine which nodes to render
   let nodesToRender = [];
 
-  if (programNode && programNode.body && programNode.body.length > 0) {
-    // Use program statements as top-level nodes
-    nodesToRender = programNode.body;
+  if (rootNode && rootNode.body && rootNode.body.length > 0) {
+    // Use the program body
+    nodesToRender = rootNode.body.slice();
+
+    // Match each node with our tracked WIP or complete nodes when possible
+    for (let i = 0; i < nodesToRender.length; i++) {
+      const node = nodesToRender[i];
+
+      // For ConstDeclaration, try to find a matching WIP node by variable name
+      if (node.type === 'ConstDeclaration' && node.id && node.id.name) {
+        const key = `const-${node.id.name}`;
+        if (nodesByIdentifier.has(key)) {
+          // Replace with our tracked version that has additional metadata
+          nodesToRender[i] = nodesByIdentifier.get(key);
+        }
+      }
+    }
   } else {
-    // Filter out top-level nodes from our map
-    nodesToRender = Array.from(nodeMap.values()).filter(node => {
-      return node && (
+    // No program node yet - show all nodes we've processed so far
+    // This includes WIP and complete nodes, sorted by step number
+    nodesToRender = [...nodesById.values()]
+      .filter(node =>
         node.type === 'ConstDeclaration' ||
         node.type === 'ReturnStatement' ||
         node.type === 'ArrowFunctionExpression' ||
-        (node._type && (
-          node._type === 'ConstDeclarationStart' ||
-          node._type === 'ReturnStatementStart' ||
-          node._type === 'ArrowFunctionStart'
-        ))
-      );
-    });
-
-    // Sort by position or ID
-    nodesToRender.sort((a, b) => {
-      const posA = a.position || (a._id || 0);
-      const posB = b.position || (b._id || 0);
-      return posA - posB;
-    });
-
-    // Remove duplicates (prefer completed nodes over in-progress)
-    const uniqueNodes = [];
-    const seenKeys = new Set();
-
-    for (const node of nodesToRender) {
-      // Generate a key based on type and position/name
-      let key;
-      if (node.type === 'ConstDeclaration' && node.id) {
-        key = `const-${node.id.name}`;
-      } else if (node.type === 'ReturnStatement') {
-        key = `return-${node.position || node._id}`;
-      } else if (node.type === 'ArrowFunctionExpression') {
-        key = `arrow-${node.position || node._id}`;
-      } else if (node._type) {
-        // In-progress nodes
-        const baseType = node._type.replace('Start', '');
-        key = `${baseType.toLowerCase()}-${node._id}`;
-      } else {
-        // Fallback
-        key = `${node.type || 'node'}-${node.position || node._id}`;
-      }
-
-      if (!seenKeys.has(key)) {
-        seenKeys.add(key);
-        uniqueNodes.push(node);
-      }
-    }
-
-    nodesToRender = uniqueNodes;
+        node.type.includes('ConstDeclaration') ||
+        node.type.includes('ReturnStatement') ||
+        node.type.includes('ArrowFunction')
+      )
+      .sort((a, b) => a._step - b._step);
   }
 
-  // Render each node
+  // IMPORTANT: Make sure the current node is always rendered
+  // If it's not in our nodesToRender list already, add it
+  const currentNodeInList = nodesToRender.some(node => node._id === currentNodeId);
+
+  if (!currentNodeInList && currentStep.node) {
+    // Create current node object
+    const currentNode = {
+      ...currentStep.node,
+      _id: currentStep.id,
+      _type: currentStep.type,
+      _step: astStepIndex,
+      _isCurrentStep: true,
+      _inProgress: !currentStep.type.endsWith('Complete'),
+      type: cleanEventType
+    };
+
+    // Add it to the beginning of our render list
+    nodesToRender.unshift(currentNode);
+  }
+
+  // Render all nodes
   nodesToRender.forEach(node => {
     if (!node) return;
 
-    // Check if this node is part of the current step
-    const isCurrentNode = node._isCurrentStep ||
-                           (node._id && currentStepIds.has(node._id));
+    // Is this the current step's node?
+    const isCurrentNode = node._id === currentNodeId || node._isCurrentStep;
 
-    const nodeElement = createAstNodeElement(node, isCurrentNode);
+    // Create node element
+    const nodeElement = createAstNodeElement(node, isCurrentNode, node._step);
+
+    // Add special styling based on node state
+    if (isCurrentNode) {
+      nodeElement.classList.add("ast-node-current");
+      nodeElement.style.borderLeft = '3px solid #3498db';
+
+      // Special styling for current ConstDeclaration
+      if (node.type === 'ConstDeclaration') {
+        nodeElement.style.border = '2px solid #e74c3c';
+        nodeElement.style.padding = '5px';
+      }
+    } else if (node._inProgress) {
+      nodeElement.classList.add("ast-node-partial");
+      nodeElement.style.borderLeft = '3px solid #f39c12';
+    }
+
+    // Add to the tree display
     state.ui.astTreeElement.appendChild(nodeElement);
   });
 }
@@ -882,14 +858,15 @@ function updateAstDisplay(state, astStepIndex) {
  *
  * @param {Object} node - AST node
  * @param {boolean} isCurrentStep - Whether this node is part of the current step
+ * @param {number} step - The step number this node was created in (for debugging)
  * @returns {HTMLElement} - DOM element representing the node
  */
-function createAstNodeElement(node, isCurrentStep = false) {
+function createAstNodeElement(node, isCurrentStep = false, step = -1) {
   const nodeElement = document.createElement("div");
   nodeElement.className = "ast-node";
 
   // Add node type as title attribute for hover tooltip
-  const nodeType = node.type || node._type?.replace('Start', '');
+  const nodeType = node.type || node._type?.replace('Start', '').replace('Complete', '');
   nodeElement.setAttribute('title', nodeType);
 
   // Add expandable/collapsible functionality
@@ -899,7 +876,7 @@ function createAstNodeElement(node, isCurrentStep = false) {
   }
 
   // Add appropriate class based on node state
-  if (isCurrentStep || node._isCurrentStep) {
+  if (isCurrentStep) {
     nodeElement.classList.add("ast-node-current");
   } else if (node._inProgress) {
     nodeElement.classList.add("ast-node-partial");
@@ -923,55 +900,131 @@ function createAstNodeElement(node, isCurrentStep = false) {
   syntaxContainer.className = "ast-syntax";
 
   // Render based on node type - more concise and syntax-like
-  switch (node.type) {
+  switch (nodeType) {
     case "ConstDeclaration":
-      // Simplify to just show "Const" at the top level
-      syntaxContainer.textContent = "Const";
-      // Use the same styling as Ternary for consistency
-      syntaxContainer.className = "ast-syntax";
+      // FIXED RENDERING: Always show the const declaration clearly
+      console.log("Rendering ConstDeclaration:", node);
+
+      // Show "Const" with placeholders for missing parts
+      const constKeyword = document.createElement("span");
+      constKeyword.className = "ast-keyword";
+      constKeyword.textContent = "const";
+      syntaxContainer.appendChild(constKeyword);
+
+      // Add variable name if we have it, otherwise a placeholder
+      if (node.id && node.id.name) {
+        syntaxContainer.appendChild(document.createTextNode(" "));
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "ast-identifier";
+        nameSpan.textContent = node.id.name;
+        syntaxContainer.appendChild(nameSpan);
+      } else {
+        syntaxContainer.appendChild(document.createTextNode(" "));
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
+
+      // Show equals sign
+      syntaxContainer.appendChild(document.createTextNode(" = "));
+
+      // Show value or placeholder
+      if (node.init) {
+        // We have an initializer but will show it as a child node
+        const valueType = node.init.type || "expression";
+        const typePlaceholder = document.createElement("span");
+        typePlaceholder.className = "ast-node-type";
+        typePlaceholder.textContent = valueType;
+        syntaxContainer.appendChild(typePlaceholder);
+      } else {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
       break;
 
     case "Identifier":
       const idSpan = document.createElement("span");
       idSpan.className = "ast-identifier";
-      idSpan.textContent = node.name || "";
+      idSpan.textContent = node.name || "_____";
       syntaxContainer.appendChild(idSpan);
       break;
 
     case "StringLiteral":
       const strSpan = document.createElement("span");
       strSpan.className = "ast-string";
-      strSpan.textContent = `"${node.value}"`;
+      strSpan.textContent = node.value !== undefined ? `"${node.value}"` : `"_____"`;
       syntaxContainer.appendChild(strSpan);
       break;
 
     case "NumericLiteral":
       const numSpan = document.createElement("span");
       numSpan.className = "ast-number";
-      numSpan.textContent = node.value;
+      numSpan.textContent = node.value !== undefined ? node.value : "_____";
       syntaxContainer.appendChild(numSpan);
       break;
 
     case "BooleanLiteral":
       const boolSpan = document.createElement("span");
       boolSpan.className = "ast-boolean";
-      boolSpan.textContent = node.value ? "true" : "false";
+      boolSpan.textContent = node.value !== undefined ? (node.value ? "true" : "false") : "_____";
       syntaxContainer.appendChild(boolSpan);
       break;
 
     case "BinaryExpression":
-      // Just show the operator, children will show the operands
+      // Show left operand placeholder if missing
+      if (!node.left) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+        syntaxContainer.appendChild(document.createTextNode(" "));
+      }
+
+      // Show operator
       const opSpan = document.createElement("span");
       opSpan.className = "ast-operator";
-      opSpan.textContent = node.operator;
+      opSpan.textContent = node.operator || "?";
       syntaxContainer.appendChild(opSpan);
+
+      // Show right operand placeholder if missing
+      if (!node.right) {
+        syntaxContainer.appendChild(document.createTextNode(" "));
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
       break;
 
     case "ConditionalExpression":
-      // Show ternary operator
-      syntaxContainer.textContent = "? :";
-      // Keep consistent with the other node types
-      syntaxContainer.className = "ast-syntax";
+      // Display ternary with placeholders for missing parts
+      if (!node.test) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
+
+      syntaxContainer.appendChild(document.createTextNode(" ? "));
+
+      if (!node.consequent) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
+
+      syntaxContainer.appendChild(document.createTextNode(" : "));
+
+      if (!node.alternate) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      }
       break;
 
     case "ReturnStatement":
@@ -981,15 +1034,18 @@ function createAstNodeElement(node, isCurrentStep = false) {
       returnKeyword.textContent = "return";
       syntaxContainer.appendChild(returnKeyword);
 
-      // If there's a return value, add a space after 'return'
-      if (node.argument) {
-        syntaxContainer.appendChild(document.createTextNode(" "));
+      // If there's a return value or placeholder
+      syntaxContainer.appendChild(document.createTextNode(" "));
+      if (!node.argument) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
       }
       break;
 
     case "ArrowFunctionExpression":
       // Render as (params) => ...
-      const paramCount = node.params?.length || 0;
 
       // Opening parenthesis
       const openParenSpan = document.createElement("span");
@@ -997,27 +1053,14 @@ function createAstNodeElement(node, isCurrentStep = false) {
       openParenSpan.textContent = "(";
       syntaxContainer.appendChild(openParenSpan);
 
-      // Parameters
+      // Parameters or placeholder
       if (node.params && node.params.length > 0) {
         // Join parameter names with commas
         node.params.forEach((param, index) => {
           const paramSpan = document.createElement("span");
           paramSpan.className = "ast-identifier";
-          paramSpan.textContent = param.name;
+          paramSpan.textContent = param.name || "_____";
           syntaxContainer.appendChild(paramSpan);
-
-          // Add type annotation if present
-          if (param.typeAnnotation) {
-            const typeColonSpan = document.createElement("span");
-            typeColonSpan.className = "ast-operator";
-            typeColonSpan.textContent = ": ";
-            syntaxContainer.appendChild(typeColonSpan);
-
-            const typeSpan = document.createElement("span");
-            typeSpan.className = "ast-type";
-            typeSpan.textContent = param.typeAnnotation.valueType;
-            syntaxContainer.appendChild(typeSpan);
-          }
 
           // Add comma if not the last parameter
           if (index < node.params.length - 1) {
@@ -1027,6 +1070,12 @@ function createAstNodeElement(node, isCurrentStep = false) {
             syntaxContainer.appendChild(commaSpan);
           }
         });
+      } else {
+        // Show placeholder for missing params
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
       }
 
       // Closing parenthesis
@@ -1035,55 +1084,47 @@ function createAstNodeElement(node, isCurrentStep = false) {
       closeParenSpan.textContent = ")";
       syntaxContainer.appendChild(closeParenSpan);
 
-      // Return type annotation if present
-      if (node.returnType) {
-        const returnTypeColon = document.createElement("span");
-        returnTypeColon.className = "ast-operator";
-        returnTypeColon.textContent = ": ";
-        syntaxContainer.appendChild(returnTypeColon);
-
-        const returnTypeSpan = document.createElement("span");
-        returnTypeSpan.className = "ast-type";
-        returnTypeSpan.textContent = node.returnType.valueType;
-        syntaxContainer.appendChild(returnTypeSpan);
-      }
-
       // Arrow
       const arrowSpan = document.createElement("span");
       arrowSpan.className = "ast-operator";
       arrowSpan.textContent = " => ";
       syntaxContainer.appendChild(arrowSpan);
 
-      // Expression or block indicator
-      if (node.expression) {
-        // Expression function
-        syntaxContainer.appendChild(document.createTextNode("expression"));
-      } else if (node.body && node.body.type === "BlockStatement") {
-        // Block function
-        const openBraceSpan = document.createElement("span");
-        openBraceSpan.className = "ast-punctuation";
-        openBraceSpan.textContent = "{...}";
-        syntaxContainer.appendChild(openBraceSpan);
+      // Body placeholder if missing
+      if (!node.body) {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
+      } else if (node.body.type === "BlockStatement") {
+        const braceSpan = document.createElement("span");
+        braceSpan.className = "ast-punctuation";
+        braceSpan.textContent = "{...}";
+        syntaxContainer.appendChild(braceSpan);
       }
       break;
 
     case "BlockStatement":
       const braceSpan = document.createElement("span");
       braceSpan.className = "ast-punctuation";
-      braceSpan.textContent = `{ ${node.body?.length || 0} statements }`;
+      braceSpan.textContent = node.body?.length > 0
+        ? `{ ${node.body.length} statements }`
+        : "{ _____ }";
       syntaxContainer.appendChild(braceSpan);
       break;
 
     case "CallExpression":
-      // Function name
+      // Function name or placeholder
       if (node.callee?.name) {
         const calleeSpan = document.createElement("span");
         calleeSpan.className = "ast-identifier";
         calleeSpan.textContent = node.callee.name;
         syntaxContainer.appendChild(calleeSpan);
       } else {
-        // Complex callee
-        syntaxContainer.appendChild(document.createTextNode("(...)"));
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
       }
 
       // Opening parenthesis
@@ -1092,9 +1133,14 @@ function createAstNodeElement(node, isCurrentStep = false) {
       openCallParen.textContent = "(";
       syntaxContainer.appendChild(openCallParen);
 
-      // Argument count
+      // Arguments
       if (node.arguments && node.arguments.length > 0) {
         syntaxContainer.appendChild(document.createTextNode(`${node.arguments.length} args`));
+      } else {
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
       }
 
       // Closing parenthesis
@@ -1107,10 +1153,24 @@ function createAstNodeElement(node, isCurrentStep = false) {
     default:
       // For in-progress nodes or other types
       if (node._inProgress) {
-        syntaxContainer.textContent = "(building...)";
+        // Show node type with placeholder
+        const typeSpan = document.createElement("span");
+        typeSpan.className = "ast-node-type";
+        // Make sure we display the clean node type
+        typeSpan.textContent = nodeType || 'node';
+        syntaxContainer.appendChild(typeSpan);
+
+        syntaxContainer.appendChild(document.createTextNode(" "));
+        const placeholder = document.createElement("span");
+        placeholder.className = "ast-placeholder";
+        placeholder.textContent = "_____";
+        syntaxContainer.appendChild(placeholder);
       } else {
         // Show the node type for unknown node types
-        syntaxContainer.textContent = nodeType;
+        const typeSpan = document.createElement("span");
+        typeSpan.className = "ast-node-type";
+        typeSpan.textContent = nodeType || 'Unknown';
+        syntaxContainer.appendChild(typeSpan);
       }
   }
 
@@ -1126,63 +1186,19 @@ function createAstNodeElement(node, isCurrentStep = false) {
     if (node.type === "Program" && node.body) {
       // Add program statements
       node.body.forEach(statement => {
-        const statementElement = createAstNodeElement(statement);
+        const statementElement = createAstNodeElement(statement, false, step);
         childrenContainer.appendChild(statementElement);
       });
     } else if (node.type === "ConstDeclaration") {
-      // Add variable name and initialization as a child
-      if (node.id) {
-        // Add a label for the variable name
-        const nameLabel = document.createElement("div");
-        nameLabel.className = "ast-node-child-label";
-        nameLabel.textContent = "name";
-        childrenContainer.appendChild(nameLabel);
-
-        // Create a node-like element for the variable name
-        const nameContainer = document.createElement("div");
-        nameContainer.className = "ast-node ast-node-highlighted";
-
-        const nameSyntax = document.createElement("span");
-        nameSyntax.className = "ast-syntax";
-
-        // Add the identifier name
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "ast-identifier";
-        nameSpan.textContent = node.id.name;
-        nameSyntax.appendChild(nameSpan);
-
-        // Add type annotation if present
-        if (node.typeAnnotation) {
-          const typeSpan = document.createElement("span");
-          typeSpan.className = "ast-operator";
-          typeSpan.textContent = ": ";
-          nameSyntax.appendChild(typeSpan);
-
-          const typeValueSpan = document.createElement("span");
-          typeValueSpan.className = "ast-type";
-          typeValueSpan.textContent = node.typeAnnotation.valueType;
-          nameSyntax.appendChild(typeValueSpan);
-        }
-
-        // Add equals sign
-        const equalsSpan = document.createElement("span");
-        equalsSpan.className = "ast-operator";
-        equalsSpan.textContent = " = ";
-        nameSyntax.appendChild(equalsSpan);
-
-        nameContainer.appendChild(nameSyntax);
-        childrenContainer.appendChild(nameContainer);
-      }
-
       // Add initializer value as a separate child
       if (node.init) {
-        const initElement = createAstNodeElement(node.init);
+        const initElement = createAstNodeElement(node.init, false, step);
         childrenContainer.appendChild(initElement);
       }
     } else if (node.type === "ReturnStatement") {
       // Add return value as a child - without a label
       if (node.argument) {
-        const argElement = createAstNodeElement(node.argument);
+        const argElement = createAstNodeElement(node.argument, false, step);
         childrenContainer.appendChild(argElement);
       }
     } else if (node.type === "BinaryExpression") {
@@ -1193,7 +1209,7 @@ function createAstNodeElement(node, isCurrentStep = false) {
         leftLabel.textContent = "left";
         childrenContainer.appendChild(leftLabel);
 
-        const leftElement = createAstNodeElement(node.left);
+        const leftElement = createAstNodeElement(node.left, false, step);
         childrenContainer.appendChild(leftElement);
       }
 
@@ -1204,14 +1220,14 @@ function createAstNodeElement(node, isCurrentStep = false) {
         rightLabel.textContent = "right";
         childrenContainer.appendChild(rightLabel);
 
-        const rightElement = createAstNodeElement(node.right);
+        const rightElement = createAstNodeElement(node.right, false, step);
         childrenContainer.appendChild(rightElement);
       }
     } else if (node.type === "ConditionalExpression") {
       // Add condition without a label
       if (node.test) {
         // No label for condition
-        const testElement = createAstNodeElement(node.test);
+        const testElement = createAstNodeElement(node.test, false, step);
         childrenContainer.appendChild(testElement);
       }
 
@@ -1222,7 +1238,7 @@ function createAstNodeElement(node, isCurrentStep = false) {
         consLabel.textContent = "?";
         childrenContainer.appendChild(consLabel);
 
-        const consElement = createAstNodeElement(node.consequent);
+        const consElement = createAstNodeElement(node.consequent, false, step);
         childrenContainer.appendChild(consElement);
       }
 
@@ -1233,21 +1249,21 @@ function createAstNodeElement(node, isCurrentStep = false) {
         altLabel.textContent = ":";
         childrenContainer.appendChild(altLabel);
 
-        const altElement = createAstNodeElement(node.alternate);
+        const altElement = createAstNodeElement(node.alternate, false, step);
         childrenContainer.appendChild(altElement);
       }
     } else if (node.type === "ArrowFunctionExpression") {
       // Add function body
       if (node.body) {
         // No label needed for the body
-        const bodyElement = createAstNodeElement(node.body);
+        const bodyElement = createAstNodeElement(node.body, false, step);
         childrenContainer.appendChild(bodyElement);
       }
     } else if (node.type === "BlockStatement") {
       // Add block statements without labels
       if (node.body && node.body.length > 0) {
         node.body.forEach(statement => {
-          const statementElement = createAstNodeElement(statement);
+          const statementElement = createAstNodeElement(statement, false, step);
           childrenContainer.appendChild(statementElement);
         });
       }
@@ -1259,14 +1275,14 @@ function createAstNodeElement(node, isCurrentStep = false) {
         calleeLabel.textContent = "callee";
         childrenContainer.appendChild(calleeLabel);
 
-        const calleeElement = createAstNodeElement(node.callee);
+        const calleeElement = createAstNodeElement(node.callee, false, step);
         childrenContainer.appendChild(calleeElement);
       }
 
       // Add arguments without labels
       if (node.arguments && node.arguments.length > 0) {
         node.arguments.forEach(arg => {
-          const argElement = createAstNodeElement(arg);
+          const argElement = createAstNodeElement(arg, false, step);
           childrenContainer.appendChild(argElement);
         });
       }
@@ -1445,3 +1461,21 @@ function scrollIntoViewIfNeeded(element, container) {
 document.addEventListener("DOMContentLoaded", () => {
   initializeVisualization();
 });
+
+// Update CSS rule for placeholders
+const style = document.createElement('style');
+style.textContent = `
+  .ast-placeholder {
+    color: #999;
+    font-style: italic;
+    text-decoration: none;
+    letter-spacing: 1px;
+  }
+
+  .ast-node-type {
+    color: #666;
+    font-style: italic;
+    font-size: 0.9em;
+  }
+`;
+document.head.appendChild(style);
