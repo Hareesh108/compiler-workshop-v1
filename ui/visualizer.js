@@ -210,6 +210,35 @@ function escapeHtml(text) {
 }
 
 /**
+ * Build a name resolution data structure that records events
+ *
+ * @param {string} sourceCode - Source code for name resolution
+ * @param {Array} tokens - Tokens for parsing
+ * @param {Object} astData - AST data from parsing
+ * @returns {Object} - Contains name resolution events
+ */
+function buildNameResolutionData(sourceCode, tokens, astData) {
+  // Initialize data structure
+  const nameResolutionData = {
+    sourceCode,
+    tokens,
+    events: [],
+  };
+
+  // Run the analyzer with onNameResolution callback
+  if (window.CompilerModule.analyze) {
+    window.CompilerModule.analyze(astData.rootNode, {
+      onNameResolution: (event) => {
+        // Add this event to our list
+        nameResolutionData.events.push(event);
+      }
+    });
+  }
+
+  return nameResolutionData;
+}
+
+/**
  * Initialize the visualization with example code
  *
  * @returns {Object} - Visualization state
@@ -226,7 +255,12 @@ function initializeVisualization() {
     ast: null,
     astData: null,
     astSteps: [],
-    totalSteps: 0, // Total steps across both tokenization and parsing
+
+    // Name resolution state
+    nameResolutionData: null,
+    nameResolutionEvents: [],
+
+    totalSteps: 0, // Total steps across tokenization, parsing, and name resolution
 
     // Example code snippets
     examples: {
@@ -257,6 +291,7 @@ const emptyReturn = () => {
     sourceCodeElement: document.getElementById("source-code"),
     tokensListElement: document.getElementById("tokens-list"),
     astTreeElement: document.getElementById("ast-tree"),
+    nameResolutionListElement: document.getElementById("name-resolution-list"),
     scrubber: document.getElementById("scrubber"),
     exampleSelect: document.getElementById("example-select"),
     customInputContainer: document.getElementById("custom-input-container"),
@@ -329,99 +364,67 @@ function loadExample(state, exampleKey) {
  * @param {Object} state - Visualization state
  */
 function runCompilation(state) {
+  // Clear previous visualization data
+  state.tokens = [];
+  state.visualizationSteps = [];
+  state.astData = null;
+  state.astSteps = [];
+  state.nameResolutionData = null;
+  state.nameResolutionEvents = [];
+
+  // Add initial step (empty state)
+  state.visualizationSteps.push({
+    position: 0,
+    currentTokens: []
+  });
+
   try {
-    // Clear previous displays
-    state.ui.tokensListElement.innerHTML = "";
-    state.ui.astTreeElement.innerHTML = "";
-
-    // Build tokenization data using events
+    // 1. Build tokenization visualization data
     const tokenizationData = buildTokenizationData(state.sourceCode);
-
-    // Store tokens and data
     state.tokens = tokenizationData.tokens;
-    state.tokenizationData = tokenizationData;
+    state.tokenizationData = tokenizationData; // Store tokenization data for reference
 
     // Initialize the source code display with character spans
     initializeSourceCodeDisplay(state);
 
-    // Build AST data using the tokens
-    const astData = buildAstData(state.sourceCode, state.tokens);
-    state.astData = astData;
-    state.ast = astData.rootNode;
-
-    // Filter the tokenization events to only include token events
-    const tokenEvents = tokenizationData.events.filter(event =>
-      event.type !== "WHITESPACE" && event.type !== "COMMENT"
-    );
-
-    // Convert tokenization events to visualization steps
-    state.visualizationSteps = tokenEvents.map((event, index) => {
-      // Find all tokens up to and including this token
-      const tokensUpToHere = tokenizationData.tokens.slice(0, index + 1);
-
-      return {
-        type: "token",
-        token: event,
-        position: event.position,
-        length: event.length,
-        currentTokens: tokensUpToHere,
-        eventIndex: index
-      };
+    // For each token event, create a visualization step
+    tokenizationData.events.forEach(event => {
+      if (event.type !== "WHITESPACE" && event.type !== "COMMENT") {
+        state.visualizationSteps.push({
+          position: event.position + event.length,
+          currentTokens: [...state.tokens.slice(0, state.tokens.indexOf(event) + 1)]
+        });
+      }
     });
 
-    // Add an initial step
-    state.visualizationSteps.unshift({
-      type: "initial",
-      position: 0,
-      length: 0,
-      currentTokens: [],
-      eventIndex: -1
-    });
+    // 2. Build AST visualization data
+    state.astData = buildAstData(state.sourceCode, state.tokens);
+    state.astSteps = state.astData.events;
 
-    // Filter out unwanted AST events and convert to visualization steps
-    const filteredAstEvents = astData.events.filter(event => {
-      // Skip Program, Statement, Primary, and Expression events
-      const skipTypes = [
-        "ProgramStart", "ProgramComplete",
-        "StatementStart", "StatementComplete",
-        "PrimaryStart", "PrimaryComplete",
-        "ExpressionStart", "ExpressionComplete"
-      ];
+    // 3. Build name resolution data
+    if (window.CompilerModule.analyze) {
+      state.nameResolutionData = buildNameResolutionData(
+        state.sourceCode,
+        state.tokens,
+        state.astData
+      );
+      state.nameResolutionEvents = state.nameResolutionData.events;
+    }
 
-      return !skipTypes.some(type => event.type.includes(type));
-    });
+    // Calculate total steps
+    state.totalSteps = state.visualizationSteps.length +
+                       state.astSteps.length +
+                       state.nameResolutionEvents.length;
 
-    state.astSteps = filteredAstEvents.map((event, index) => {
-      // Clone the event to avoid modifying the original
-      return {
-        ...event,
-        stepIndex: index,
-        isComplete: event.type.endsWith("Complete")
-      };
-    });
-
-    // Calculate total steps (tokenization + parsing)
-    state.totalSteps = state.visualizationSteps.length + state.astSteps.length;
-
-    // Reset UI
-    state.currentStepIndex = 0;
-    // Set max to the number of steps
-    state.ui.scrubber.max = Math.max(0, state.totalSteps - 1);
+    // Update scrubber range
+    state.ui.scrubber.max = state.totalSteps - 1;
     state.ui.scrubber.value = 0;
 
-    // Reset scroll positions
-    state.ui.tokensListElement.scrollTop = 0;
-    state.ui.sourceCodeElement.scrollTop = 0;
-    state.ui.astTreeElement.scrollTop = 0;
-
-    // Update the visualization
+    // Update visualization
     updateVisualization(state);
-
-    // Focus the scrubber
-    state.ui.scrubber.focus();
   } catch (error) {
-    showToast(`Compilation error: ${error.message}`);
-    console.error(error);
+    console.error("Compilation error:", error);
+    showToast(`Error: ${error.message || "Unknown error"}`);
   }
 }
 
@@ -433,34 +436,44 @@ function runCompilation(state) {
 function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
   const totalTokenizationSteps = state.visualizationSteps.length;
+  const totalAstSteps = state.astSteps.length;
 
-  // Show the step number in the AST container title for debugging
+  // Show the step number in container titles for debugging
   const astTitle = document.querySelector('.ast-container h2');
+  const nameResolutionTitle = document.querySelector('.name-resolution-container h2');
+
+  // Reset titles
   if (astTitle) {
-    // For parsing phase, show the actual step number for debugging
-    if (scrubberValue >= totalTokenizationSteps) {
-      const astStepIndex = scrubberValue - totalTokenizationSteps;
-      astTitle.textContent = `Abstract Syntax Tree (Step ${astStepIndex + 1}/${state.astSteps.length})`;
-    } else {
-      astTitle.textContent = `Abstract Syntax Tree`;
-    }
+    astTitle.textContent = "Abstract Syntax Tree";
   }
 
-  // Determine if we're in tokenization or parsing phase
+  if (nameResolutionTitle) {
+    nameResolutionTitle.textContent = "Name Resolution";
+  }
+
+  // Determine which phase we're in based on scrubber value
   if (scrubberValue < totalTokenizationSteps) {
-    // We're in the tokenization phase
+    // Tokenization phase
     state.currentStepIndex = scrubberValue;
 
-  // Update tokens list
-  updateTokensDisplay(state);
+    // Update tokens list
+    updateTokensDisplay(state);
 
-  // Update source code highlighting
-  updateSourceCodeHighlighting(state);
+    // Update source code highlighting
+    updateSourceCodeHighlighting(state);
 
     // Clear AST display
     state.ui.astTreeElement.innerHTML = "";
-  } else {
-    // We're in the parsing phase
+
+    // Clear name resolution display
+    state.ui.nameResolutionListElement.innerHTML = "";
+
+    if (nameResolutionTitle) {
+      nameResolutionTitle.textContent = "Name Resolution";
+    }
+  }
+  else if (scrubberValue < totalTokenizationSteps + totalAstSteps) {
+    // AST phase
     const astStepIndex = scrubberValue - totalTokenizationSteps;
 
     // Show all tokens
@@ -469,8 +482,35 @@ function updateVisualization(state) {
     // Show all source code
     updateSourceCodeHighlighting(state, true);
 
-    // Update AST tree with the current step - use the exact step index without skipping
+    // Update AST tree with the current step
     updateAstDisplay(state, astStepIndex);
+
+    // Clear name resolution display
+    state.ui.nameResolutionListElement.innerHTML = "";
+
+    if (astTitle) {
+      astTitle.textContent = `Abstract Syntax Tree (Step ${astStepIndex + 1}/${state.astSteps.length})`;
+    }
+  }
+  else {
+    // Name resolution phase
+    const nameResolutionStepIndex = scrubberValue - totalTokenizationSteps - totalAstSteps;
+
+    // Show all tokens
+    updateTokensDisplay(state, true);
+
+    // Show all source code
+    updateSourceCodeHighlighting(state, true);
+
+    // Show full AST
+    updateAstDisplay(state, state.astSteps.length - 1);
+
+    // Update name resolution with the current step
+    updateNameResolutionDisplay(state, nameResolutionStepIndex);
+
+    if (nameResolutionTitle) {
+      nameResolutionTitle.textContent = `Name Resolution (Step ${nameResolutionStepIndex + 1}/${state.nameResolutionEvents.length})`;
+    }
   }
 }
 
@@ -902,9 +942,6 @@ function createAstNodeElement(node, isCurrentStep = false, step = -1) {
   // Render based on node type - more concise and syntax-like
   switch (nodeType) {
     case "ConstDeclaration":
-      // FIXED RENDERING: Always show the const declaration clearly
-      console.log("Rendering ConstDeclaration:", node);
-
       // Show "Const" with placeholders for missing parts
       const constKeyword = document.createElement("span");
       constKeyword.className = "ast-keyword";
@@ -1454,6 +1491,57 @@ function scrollIntoViewIfNeeded(element, container) {
       block: "nearest",
       inline: "nearest"
     });
+  }
+}
+
+/**
+ * Update the name resolution display based on the current step
+ *
+ * @param {Object} state - Visualization state
+ * @param {number} stepIndex - Current step index in name resolution
+ */
+function updateNameResolutionDisplay(state, stepIndex) {
+  // Clear the name resolution list
+  state.ui.nameResolutionListElement.innerHTML = "";
+
+  // If no events or invalid step, return early
+  if (!state.nameResolutionEvents ||
+      !state.nameResolutionEvents.length ||
+      stepIndex < 0) {
+    return;
+  }
+
+  // Show events up to the current step
+  for (let i = 0; i <= stepIndex && i < state.nameResolutionEvents.length; i++) {
+    const event = state.nameResolutionEvents[i];
+    const eventElement = document.createElement('div');
+    eventElement.className = 'name-resolution-event';
+
+    // Mark the current event
+    if (i === stepIndex) {
+      eventElement.classList.add('name-resolution-event-current');
+    }
+
+    // Format event information
+    let eventDetails = '';
+    if (event.type === 'declare') {
+      eventDetails = `Declared: ${event.name}`;
+    } else if (event.type === 'lookup') {
+      eventDetails = `Lookup: ${event.name} (${event.found ? 'found' : 'not found'})`;
+    } else {
+      eventDetails = `Event: ${event.type}`;
+    }
+
+    eventElement.textContent = eventDetails;
+    state.ui.nameResolutionListElement.appendChild(eventElement);
+  }
+
+  // Scroll to the current event
+  if (stepIndex >= 0 && stepIndex < state.nameResolutionEvents.length) {
+    const currentElement = state.ui.nameResolutionListElement.querySelector('.name-resolution-event-current');
+    if (currentElement) {
+      scrollIntoViewIfNeeded(currentElement, state.ui.nameResolutionListElement);
+    }
   }
 }
 

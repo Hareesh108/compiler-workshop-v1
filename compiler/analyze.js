@@ -50,13 +50,17 @@ function createScope(parent = null) {
  * @returns {boolean} - Whether the declaration was successful
  */
 function declareInScope(scope, name, node) {
-  // Check for duplicate declaration in the CURRENT scope only
+  // Check if the variable is already declared in this scope
   if (scope.declarations.has(name)) {
-    return false; // Duplicate declaration error
+    return false; // Duplicate declaration
   }
 
-  // Add the declaration to the current scope
-  scope.declarations.set(name, node);
+  // Add the declaration to this scope
+  scope.declarations.set(name, {
+    node,
+    references: []
+  });
+
   return true;
 }
 
@@ -322,23 +326,31 @@ function visitCallExpression(state, node) {
  * @param {object} node - ConstDeclaration node to visit
  */
 function visitConstDeclaration(state, node) {
-  // Get the variable name
-  const name = node.id.name;
-
-  // Try to declare it in the current scope
-  if (!declareInScope(state.currentScope, name, node)) {
-    // If declaration fails, report a duplicate declaration error
-    reportError(state.errors, `Duplicate declaration of '${name}'`, node);
+  // Process the initializer first
+  if (node.init) {
+    visitNode(state, node.init);
   }
 
-  // Remember type annotation if present
-  if (node.typeAnnotation) {
-    // Store type annotation in node for later type checking
-    node.id.typeAnnotation = node.typeAnnotation;
+  // Check for duplicate declaration
+  if (!declareInScope(state.currentScope, node.id.name, node)) {
+    reportError(
+      state.errors,
+      `Duplicate declaration of variable: ${node.id.name}`,
+      node
+    );
+  } else {
+    // Emit declaration event
+    emitNameResolutionEvent(state, 'declare', {
+      name: node.id.name,
+      node,
+      scope: state.currentScope
+    });
   }
 
-  // Process the initializer expression
-  visitNode(state, node.init);
+  // Process the identifier (this is just for completeness; we don't need to check
+  // for undeclared references since we just declared it)
+  node.id._context = 'declaration';
+  visitNode(state, node.id);
 }
 
 /**
@@ -398,22 +410,34 @@ function visitArrowFunction(state, node) {
  * @param {object} node - Identifier node to visit
  */
 function visitIdentifier(state, node) {
-  // Skip built-in literals (true, false)
-  if (node.name === "true" || node.name === "false") {
+  // Skip if this is not a variable reference
+  // (e.g., it's a property in a member expression)
+  if (node._context !== 'variable') {
     return;
   }
 
-  const name = node.name;
+  // Look up the identifier in the current scope and parent scopes
+  const declaration = getDeclarationFromScope(state.currentScope, node.name);
 
-  // Check if the variable is declared in any accessible scope
-  if (!isDeclaredInScope(state.currentScope, name)) {
-    // If not, report an undeclared variable error
-    reportError(
-      state.errors,
-      `Reference to undeclared variable '${name}'`,
-      node,
-    );
+  // Record the lookup event
+  emitNameResolutionEvent(state, 'lookup', {
+    name: node.name,
+    node,
+    found: !!declaration,
+    location: declaration ? declaration.node.location : null
+  });
+
+  if (!declaration) {
+    reportError(state.errors, `Reference to undeclared variable: ${node.name}`, node);
+    return;
   }
+
+  // Record the reference in the original declaration
+  declaration.references = declaration.references || [];
+  declaration.references.push(node);
+
+  // Link this identifier to its declaration
+  node._declaration = declaration.node;
 }
 
 /**
@@ -494,53 +518,86 @@ function visitMemberExpression(state, node) {
 }
 
 /**
- * Analyze an AST to check for naming errors
- *
- * This is the main entry point for static analysis. It:
- * 1. Creates a global scope
- * 2. Visits the AST recursively to analyze all nodes
- * 3. Returns the AST and any errors found
+ * Analyze an AST to check for scope-based errors
  *
  * @param {object} ast - The AST to analyze
- * @returns {object} - The same AST, now with scope information and any errors
+ * @param {object} [options] - Options for analysis
+ * @param {Function} [options.onNameResolution] - Callback for name resolution events
+ * @returns {object} - The analyzed AST with scope information and any errors
  */
-function analyze(ast) {
-  // Create initial analyzer state with global scope
+function analyze(ast, options = {}) {
   const state = {
+    currentScope: createScope(), // Initialize with global scope
     errors: [],
-    currentScope: createScope(),
-    previousScope: null,
+    scopes: new Map(), // Map from nodes to their scopes
+    options
   };
 
-  // Start traversing the AST from the root
   visitNode(state, ast);
 
-  // Return the annotated AST and any errors found
   return {
     ast,
     errors: state.errors,
+    scopes: state.scopes
   };
 }
 
 /**
- * Convenience function to analyze source code directly
- *
- * This function combines parsing and name resolution in one step.
+ * Analyze source code, running the parser first then the analyzer
  *
  * @param {string} sourceCode - Source code to analyze
- * @param {object} options - Options including parsing function
- * @returns {object} - Analysis result
+ * @param {object} options - Options for compilation
+ * @param {boolean} [options.compile=true] - Whether to run the full compilation or just parse
+ * @param {Function} [options.onNameResolution] - Callback for name resolution events
+ * @returns {object} - Result containing the AST and any errors
  */
-function analyzeCode(sourceCode, { compile }) {
-  // First parse the source code into an AST
-  const ast = compile(sourceCode);
+function analyzeCode(sourceCode, { compile = true, onNameResolution } = {}) {
+  // First, parse the source code into an AST
+  const parseResult = window.CompilerModule.parseCode(sourceCode);
 
-  // Then perform name resolution analysis
-  return analyze(ast);
+  if (parseResult.errors.length > 0) {
+    return parseResult;  // Return early if there are syntax errors
+  }
+
+  // Then, perform semantic analysis on the AST
+  const analysisResult = analyze(parseResult.ast, { onNameResolution });
+
+  return {
+    ast: parseResult.ast,
+    errors: [...parseResult.errors, ...analysisResult.errors],
+    scopes: analysisResult.scopes
+  };
+}
+
+/**
+ * Emit a name resolution event via the callback if provided
+ *
+ * @param {object} state - The current state
+ * @param {string} eventType - The type of event (e.g., 'declare', 'lookup')
+ * @param {object} details - Details about the event
+ */
+function emitNameResolutionEvent(state, eventType, details) {
+  if (state.options.onNameResolution) {
+    state.options.onNameResolution({
+      type: eventType,
+      ...details
+    });
+  }
+}
+
+// Export functions for use in the browser
+if (typeof window !== "undefined") {
+  window.CompilerModule = window.CompilerModule || {};
+
+  // Expose analyze function to the global CompilerModule
+  window.CompilerModule.analyze = analyze;
+  window.CompilerModule.analyzeCode = analyzeCode;
 }
 
 // Export the main functions for use in the compilation pipeline
-module.exports = {
-  analyze, // Analyze an existing AST
-  analyzeCode, // Analyze source code from scratch
-};
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    analyze, // Analyze an existing AST
+    analyzeCode, // Analyze source code from scratch
+  };
+}
