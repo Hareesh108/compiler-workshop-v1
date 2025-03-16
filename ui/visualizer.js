@@ -1511,15 +1511,45 @@ function updateNameResolutionDisplay(state, stepIndex) {
     return;
   }
 
+  // Track indentation level for scope nesting
+  let indentLevel = 0;
+  const scopeStack = [];
+
   // Show events up to the current step
   for (let i = 0; i <= stepIndex && i < state.nameResolutionEvents.length; i++) {
     const event = state.nameResolutionEvents[i];
+
+    // Skip program/global scope events
+    if (event.type === 'enterProgram' || event.type === 'leaveProgram') {
+      continue;
+    }
+
+    // Skip leave scope events since we'll show nesting with indentation
+    if (event.type === 'leaveScope') {
+      // Decrease indentation when leaving a scope
+      if (indentLevel > 0) {
+        indentLevel--;
+      }
+      if (scopeStack.length > 0) {
+        scopeStack.pop();
+      }
+      continue;
+    }
+
+    // Create the event element
     const eventElement = document.createElement('div');
     eventElement.className = 'name-resolution-event';
 
     // Mark the current event
     if (i === stepIndex) {
       eventElement.classList.add('name-resolution-event-current');
+    }
+
+    // Apply indentation based on scope nesting using CSS classes
+    if (indentLevel > 0) {
+      // Add the appropriate indentation class (limited to 5 levels)
+      const indentClass = `name-resolution-indent-${Math.min(indentLevel, 5)}`;
+      eventElement.classList.add(indentClass);
     }
 
     // Format event information based on event type
@@ -1539,27 +1569,19 @@ function updateNameResolutionDisplay(state, stepIndex) {
 
       case 'lookup':
         eventElement.classList.add('name-resolution-lookup');
-        eventDetails = `Lookup: ${event.name} (${event.found ? 'found' : 'not found'})`;
+        // Add emoji based on whether the variable was found
+        const emoji = event.found ? '✅' : '❌';
+        eventDetails = `Lookup: ${event.name} ${emoji}`;
         break;
 
       case 'enterScope':
         eventElement.classList.add('name-resolution-scope');
-        eventDetails = `Enter ${event.nodeType} scope`;
-        break;
+        // Simplified scope name
+        eventDetails = `${event.nodeType} scope`;
 
-      case 'leaveScope':
-        eventElement.classList.add('name-resolution-scope');
-        eventDetails = `Leave ${event.nodeType} scope`;
-        break;
-
-      case 'enterProgram':
-        eventElement.classList.add('name-resolution-scope');
-        eventDetails = `Enter global scope`;
-        break;
-
-      case 'leaveProgram':
-        eventElement.classList.add('name-resolution-scope');
-        eventDetails = `Leave global scope`;
+        // Increase indentation for subsequent events
+        indentLevel++;
+        scopeStack.push(event.nodeType);
         break;
 
       default:

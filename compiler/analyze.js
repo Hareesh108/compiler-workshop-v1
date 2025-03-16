@@ -261,22 +261,10 @@ function visitChildren(state, node) {
  * @param {object} node - Program node to visit
  */
 function visitProgram(state, node) {
-  // Emit event for entering program scope (global scope)
-  emitNameResolutionEvent(state, 'enterProgram', {
-    nodeType: 'Program',
-    location: node.location
-  });
-
   // Visit each statement in the program body
   for (const statement of node.body) {
     visitNode(state, statement);
   }
-
-  // Emit event for leaving program scope
-  emitNameResolutionEvent(state, 'leaveProgram', {
-    nodeType: 'Program',
-    location: node.location
-  });
 }
 
 /**
