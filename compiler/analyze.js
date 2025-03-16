@@ -539,30 +539,8 @@ function analyzeCode(sourceCode, { compile }) {
   return analyze(ast);
 }
 
-// Export the main functions based on environment
-if (typeof module !== 'undefined' && module.exports) {
-  // Node.js environment
-  module.exports = {
-    analyze, // Analyze an existing AST
-    analyzeCode, // Analyze source code from scratch
-    createScope, // Export for visualizer
-    declareInScope, // Export for visualizer
-    isDeclaredInScope, // Export for visualizer
-    getDeclarationFromScope, // Export for visualizer
-  };
-}
-
-// Also expose functions to browser if in browser environment
-if (typeof window !== "undefined") {
-  if (!window.CompilerModule) {
-    window.CompilerModule = {};
-  }
-  
-  // Make analyzer functions available in browser
-  window.CompilerModule.analyze = analyze;
-  window.CompilerModule.analyzeCode = analyzeCode;
-  window.CompilerModule.createScope = createScope;
-  window.CompilerModule.declareInScope = declareInScope;
-  window.CompilerModule.isDeclaredInScope = isDeclaredInScope;
-  window.CompilerModule.getDeclarationFromScope = getDeclarationFromScope;
-}
+// Export the main functions for use in the compilation pipeline
+module.exports = {
+  analyze, // Analyze an existing AST
+  analyzeCode, // Analyze source code from scratch
+};
