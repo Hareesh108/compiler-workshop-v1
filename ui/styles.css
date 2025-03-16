@@ -568,3 +568,68 @@ input[type="range"]:focus::-moz-range-thumb {
 .ast-node-expanded .ast-expander:before {
   content: "-";
 }
+
+/* AST events styling */
+.ast-event {
+  padding: 6px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 4px;
+  font-family: monospace;
+}
+
+.ast-event-current {
+  background-color: #e3f2fd;
+  border-left: 3px solid #2196F3;
+  padding-left: 3px;
+}
+
+.ast-event-start {
+  color: #9c27b0;
+  font-weight: bold;
+}
+
+/* Node type specific styles */
+.ast-event[class*="ConstDeclaration"] {
+  color: #2e7d32;
+}
+
+.ast-event[class*="Identifier"] {
+  color: #0d47a1;
+}
+
+.ast-event[class*="ReturnStatement"] {
+  color: #d32f2f;
+}
+
+.ast-event[class*="Literal"] {
+  color: #6a1b9a;
+}
+
+.ast-event[class*="ArrowFunction"] {
+  color: #1565c0;
+  background-color: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  padding: 6px 10px;
+  border-left: 2px solid #1565c0;
+}
+
+.ast-event[class*="BinaryExpression"] {
+  color: #ef6c00;
+}
+
+/* Special style for operators */
+.ast-event:has(:-webkit-any(:contains('Operator:'))) {
+  color: #e91e63;
+  font-weight: bold;
+}
+
+/* Special style for operators */
+.ast-event-operator {
+  color: #e91e63;
+  font-weight: bold;
+}
+
+/* Ternary special style */
+.ast-event[class*="ConditionalExpression"] {
+  color: #9c27b0;
+}
