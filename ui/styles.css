@@ -633,28 +633,7 @@ input[type="range"]:focus::-moz-range-thumb {
   border-left: 2px solid #e91e63;
 }
 
-/* Style backticks in operators */
-.ast-event-operator code {
-  background-color: rgba(0, 0, 0, 0.1);
-  padding: 2px 4px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-weight: bold;
-  color: #e91e63;
-}
-
 /* Ternary special style */
 .ast-event[class*="ConditionalExpression"] {
   color: #9c27b0;
-}
-
-/* Binary expression specific styling */
-.ast-event-BinaryExpression {
-  margin-top: 6px;
-  margin-bottom: 0px;
-}
-
-/* Style for child expressions under a binary expression */
-.ast-event:has(+ .name-resolution-indent-1.ast-event) {
-  border-bottom: none;
 }
