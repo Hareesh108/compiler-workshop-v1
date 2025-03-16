@@ -361,47 +361,48 @@ input[type="range"]:focus::-moz-range-thumb {
   border-radius: 3px;
   transition: all 0.2s ease;
   cursor: pointer;
+  line-height: 1.5;
+}
+
+/* Remove hover background */
+.ast-node:hover {
+  /* No background */
 }
 
 .ast-node-type {
   font-weight: bold;
-  color: #2c3e50;
+  color: #1a365d; /* Darker blue for better contrast */
 }
 
 .ast-node-details {
   margin-left: 5px;
-  color: #7f8c8d;
+  color: #444; /* Darker gray for better contrast */
   font-style: italic;
 }
 
 .ast-node-children {
   margin-left: 20px;
   padding-left: 10px;
-  border-left: 1px dotted #bdc3c7;
+  border-left: 1px solid #ddd; /* Lighter, solid border for hierarchy */
 }
 
 .ast-node-child-label {
   font-size: 12px;
-  color: #95a5a6;
+  color: #555; /* Darker gray for better contrast */
   margin-bottom: 2px;
+  font-weight: bold;
 }
 
-.ast-node-highlighted {
-  background-color: #e8f4f8;
+.ast-node-current .ast-node-type {
+  color: #2c5282; /* Darker blue, no white text */
 }
 
-.ast-node-current {
-  background-color: #3498db;
-  color: white;
-}
-
-.ast-node-current .ast-node-type,
 .ast-node-current .ast-node-details {
-  color: white;
+  color: #2d3748; /* Darker gray, no white text */
 }
 
 .ast-node-partial {
-  background-color: #fef9e7;
+  /* Remove background color */
   border-left: 3px solid #f1c40f;
 }
 
@@ -409,9 +410,20 @@ input[type="range"]:focus::-moz-range-thumb {
   cursor: pointer;
   margin-right: 5px;
   display: inline-block;
-  width: 12px;
+  width: 16px;
+  height: 16px;
   text-align: center;
   font-weight: bold;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  line-height: 14px;
+  color: #3498db;
+  /* Remove background */
+}
+
+.ast-expander:hover {
+  /* Remove background */
+  border-color: #3498db;
 }
 
 .ast-node-collapsed .ast-node-children {

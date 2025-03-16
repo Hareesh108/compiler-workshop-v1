@@ -718,17 +718,18 @@ function updateAstDisplay(state, astStepIndex) {
     }
   }
 
-  // Check if we have a Program node
+  // Always use the direct rendering of top-level nodes approach:
+  // Get all top-level nodes from the Program node body if it exists
+  let topLevelNodes = [];
   const programNode = Array.from(completedNodes.values())
     .find(node => node && node.type === 'Program');
 
-  if (programNode) {
-    // Render the program node and its children
-    const programElement = createAstNodeElement(programNode, true);
-    state.ui.astTreeElement.appendChild(programElement);
+  if (programNode && programNode.body && programNode.body.length > 0) {
+    // Just use the program's body statements directly as top-level nodes
+    topLevelNodes = programNode.body;
   } else {
-    // If we don't have a complete program yet, show all completed top-level nodes
-    const topLevelNodes = Array.from(completedNodes.values())
+    // If there's no program node yet, collect all top-level statement nodes
+    topLevelNodes = Array.from(completedNodes.values())
       .filter(node => {
         return node && (
           node.type === 'ConstDeclaration' ||
@@ -736,29 +737,34 @@ function updateAstDisplay(state, astStepIndex) {
           node.type === 'ArrowFunctionExpression'
         );
       });
-
-    // Add any in-progress top-level nodes
-    const inProgressTopLevelNodes = Array.from(inProgressNodes.values())
-      .filter(node => {
-        return node && node._type && (
-          node._type === 'ConstDeclarationStart' ||
-          node._type === 'ReturnStatementStart' ||
-          node._type === 'ArrowFunctionStart'
-        );
-      });
-
-    // Combine and sort by ID (roughly chronological order)
-    const allTopLevelNodes = [...topLevelNodes, ...inProgressTopLevelNodes]
-      .sort((a, b) => a._id - b._id);
-
-    // Render each top-level node
-    allTopLevelNodes.forEach(node => {
-      if (node) {
-        const nodeElement = createAstNodeElement(node, node._isCurrentStep);
-        state.ui.astTreeElement.appendChild(nodeElement);
-      }
-    });
   }
+
+  // Add any in-progress top-level nodes
+  const inProgressTopLevelNodes = Array.from(inProgressNodes.values())
+    .filter(node => {
+      return node && node._type && (
+        node._type === 'ConstDeclarationStart' ||
+        node._type === 'ReturnStatementStart' ||
+        node._type === 'ArrowFunctionStart'
+      );
+    });
+
+  // Combine and sort by ID or position to maintain order
+  const allTopLevelNodes = [...topLevelNodes, ...inProgressTopLevelNodes]
+    .sort((a, b) => {
+      // Try to use position if available
+      const posA = a.position || a._position || (a._id || 0);
+      const posB = b.position || b._position || (b._id || 0);
+      return posA - posB;
+    });
+
+  // Render each top-level node
+  allTopLevelNodes.forEach(node => {
+    if (node) {
+      const nodeElement = createAstNodeElement(node, node._isCurrentStep);
+      state.ui.astTreeElement.appendChild(nodeElement);
+    }
+  });
 }
 
 /**
@@ -791,7 +797,6 @@ function createAstNodeElement(node, isCurrentStep = false) {
   if (hasChildren) {
     const expander = document.createElement("span");
     expander.className = "ast-expander";
-    expander.textContent = "-";
     expander.addEventListener("click", (e) => {
       e.stopPropagation(); // Prevent node click event
       toggleAstNodeExpansion(nodeElement);
