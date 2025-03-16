@@ -743,18 +743,26 @@ function updateAstDisplay(state, astStepIndex) {
     const event = state.astSteps[i];
     if (!event) continue;
 
-    // Skip Program, Primary, Expression, and Statement events
-    if (event.type.includes('Program') || event.type.includes('Primary') ||
-        event.type.includes('Expression') || event.type.includes('Statement')) {
+    // Log all events for debugging
+    console.log(`AST Event ${i}: ${event.type}`,
+      event.node ? {
+        type: event.node.type,
+        operator: event.node.operator,
+        name: event.node.name,
+        value: event.node.value
+      } : 'No node');
 
-      // But still show important operators even if they're in expressions
-      if (event.node && event.node.operator &&
-          (event.type.includes('BinaryExpression') ||
-           event.type.includes('ConditionalExpression'))) {
-        // Process this event - don't skip it
-      } else {
-        continue; // Skip this event
-      }
+    // NEVER FILTER OUT BinaryExpression events
+    if (event.type.includes('BinaryExpression')) {
+      // Process this event - don't skip it
+    }
+    // Skip Program, Primary, generic Expression, and most Statement events
+    else if (event.type.includes('Program') ||
+        event.type.includes('Primary') ||
+        event.type === 'ExpressionStart' ||
+        event.type === 'ExpressionComplete' ||
+        (event.type.includes('Statement') && !event.type.includes('ReturnStatement'))) {
+      continue; // Skip this event
     }
 
     // Handle indentation - decrease level when a node is complete
@@ -814,8 +822,8 @@ function updateAstDisplay(state, astStepIndex) {
         eventDetails = `${cleanEventType}: ${event.node.value}`;
       } else if (cleanEventType === 'Identifier' && event.node.name) {
         eventDetails = `${cleanEventType}: ${event.node.name}`;
-      } else if (cleanEventType === 'BinaryExpression' && event.node.operator) {
-        // Highlight the operator rather than the expression node
+      } else if (event.node.operator) {
+        // Highlight any operator, not just in BinaryExpression
         eventDetails = `Operator: ${event.node.operator}`;
         // Add special CSS class for operators
         eventElement.classList.add('ast-event-operator');

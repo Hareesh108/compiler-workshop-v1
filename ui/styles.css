@@ -627,6 +627,10 @@ input[type="range"]:focus::-moz-range-thumb {
 .ast-event-operator {
   color: #e91e63;
   font-weight: bold;
+  background-color: rgba(233, 30, 99, 0.1);
+  border-radius: 4px;
+  padding: 6px 10px;
+  border-left: 2px solid #e91e63;
 }
 
 /* Ternary special style */
