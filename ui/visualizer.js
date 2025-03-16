@@ -116,6 +116,269 @@ function buildAstData(sourceCode, tokens) {
 }
 
 /**
+ * Build a name resolution data structure that records scope events for visualization
+ *
+ * @param {string} sourceCode - Source code to analyze
+ * @param {Object} ast - AST from parsing phase
+ * @returns {Object} - Contains name resolution data and events
+ */
+function buildNameResolutionData(sourceCode, ast) {
+  // Initialize data structure
+  const nameResolutionData = {
+    sourceCode,
+    ast,
+    scopes: [],
+    events: [],
+    errors: [],
+    scopeMap: {}
+  };
+
+  // Scope ID counter to assign unique IDs
+  let scopeIdCounter = 0;
+  
+  // Reference the original createScope function
+  const origCreateScope = window.CompilerModule.createScope;
+  
+  // Create custom state for our name resolution traversal
+  const state = {
+    ast,
+    errors: [],
+    currentScope: null,
+    previousScope: null,
+    currentNode: null,
+    
+    // Custom enter scope handler that emits events
+    enterScope: function() {
+      // Get the parent scope
+      const parentScope = this.currentScope;
+      
+      // Create a new scope with the current one as parent
+      const newScope = origCreateScope(parentScope);
+      const scopeId = scopeIdCounter++;
+      
+      // Add scope ID for tracking
+      newScope.id = scopeId;
+      newScope.parentId = parentScope ? parentScope.id : null;
+      
+      // Save previous scope and set new current scope
+      this.previousScope = parentScope;
+      this.currentScope = newScope;
+      
+      // Add to our scopes list
+      nameResolutionData.scopes.push(newScope);
+      
+      // Emit enter scope event
+      nameResolutionData.events.push({
+        type: 'EnterScope',
+        scopeId,
+        node: this.currentNode,
+        parentScopeId: newScope.parentId
+      });
+    },
+    
+    // Custom exit scope handler that emits events
+    exitScope: function() {
+      // Emit exit scope event
+      nameResolutionData.events.push({
+        type: 'ExitScope',
+        scopeId: this.currentScope.id
+      });
+      
+      // Restore previous scope
+      this.currentScope = this.previousScope;
+    },
+    
+    // Declare a variable in the current scope and emit event
+    declareVariable: function(name, node) {
+      if (!this.currentScope) return false;
+      
+      const success = window.CompilerModule.declareInScope(this.currentScope, name, node);
+      
+      // Emit declare event
+      nameResolutionData.events.push({
+        type: 'DeclareVariable',
+        scopeId: this.currentScope.id,
+        name,
+        node
+      });
+      
+      return success;
+    },
+    
+    // Resolve a variable reference and emit event
+    resolveReference: function(name, node) {
+      if (!this.currentScope) return null;
+      
+      const declaration = window.CompilerModule.getDeclarationFromScope(this.currentScope, name);
+      
+      // Emit resolve event
+      nameResolutionData.events.push({
+        type: 'ResolveReference',
+        scopeId: this.currentScope.id,
+        name,
+        node,
+        declaration,
+        resolved: !!declaration
+      });
+      
+      return declaration;
+    },
+    
+    // Report an error and emit error event
+    reportError: function(message, node) {
+      const error = { message, node };
+      nameResolutionData.errors.push(error);
+      
+      // Emit error event
+      nameResolutionData.events.push({
+        type: 'Error',
+        message,
+        node,
+        error
+      });
+      
+      this.errors.push(error);
+    }
+  };
+
+  try {
+    // Process the AST to perform name resolution with our custom state object
+    const visitNode = function(node) {
+      if (!node) return;
+      
+      // Set current node on state
+      state.currentNode = node;
+      
+      // Handle different node types
+      switch (node.type) {
+        case 'Program':
+          // Create the global scope
+          state.enterScope();
+          
+          // Visit all statements
+          if (node.body && Array.isArray(node.body)) {
+            node.body.forEach(stmt => visitNode(stmt));
+          }
+          
+          // Exit global scope
+          state.exitScope();
+          break;
+          
+        case 'ConstDeclaration':
+          // Declare the variable in current scope
+          if (node.id && node.id.value) {
+            state.declareVariable(node.id.value, node);
+          }
+          
+          // Visit the initializer
+          if (node.init) {
+            visitNode(node.init);
+          }
+          break;
+          
+        case 'ArrowFunctionExpression':
+          // Create a new scope for the function
+          state.enterScope();
+          
+          // Add parameters to the function scope
+          if (node.params) {
+            if (Array.isArray(node.params)) {
+              // Multiple parameters
+              node.params.forEach(param => {
+                if (param && param.value) {
+                  state.declareVariable(param.value, param);
+                }
+              });
+            } else if (node.params.value) {
+              // Single parameter
+              state.declareVariable(node.params.value, node.params);
+            }
+          }
+          
+          // Visit the function body
+          if (node.body) {
+            visitNode(node.body);
+          }
+          
+          // Exit function scope
+          state.exitScope();
+          break;
+          
+        case 'CallExpression':
+          // Visit the callee
+          if (node.callee) {
+            visitNode(node.callee);
+          }
+          
+          // Visit all arguments
+          if (node.arguments && Array.isArray(node.arguments)) {
+            node.arguments.forEach(arg => visitNode(arg));
+          }
+          break;
+          
+        case 'Identifier':
+          // Resolve the variable reference
+          if (node.value) {
+            state.resolveReference(node.value, node);
+          }
+          break;
+          
+        case 'BinaryExpression':
+          // Visit left and right sides
+          if (node.left) visitNode(node.left);
+          if (node.right) visitNode(node.right);
+          break;
+          
+        case 'ConditionalExpression':
+          // Visit test, consequent, and alternate
+          if (node.test) visitNode(node.test);
+          if (node.consequent) visitNode(node.consequent);
+          if (node.alternate) visitNode(node.alternate);
+          break;
+          
+        case 'ReturnStatement':
+          // Visit the argument if any
+          if (node.argument) {
+            visitNode(node.argument);
+          }
+          break;
+          
+        // Handle other node types as needed
+        default:
+          // Generic handling for unknown nodes - visit children
+          Object.keys(node).forEach(key => {
+            const child = node[key];
+            if (child && typeof child === 'object') {
+              if (Array.isArray(child)) {
+                child.forEach(item => {
+                  if (item && typeof item === 'object' && item.type) {
+                    visitNode(item);
+                  }
+                });
+              } else if (child.type) {
+                visitNode(child);
+              }
+            }
+          });
+      }
+    };
+    
+    // Start visiting from the root AST node
+    visitNode(ast);
+  } catch (e) {
+    console.error("Error during name resolution:", e);
+    nameResolutionData.events.push({
+      type: 'Error',
+      message: `Analysis error: ${e.message}`,
+      node: null,
+      error: e
+    });
+  }
+
+  return nameResolutionData;
+}
+
+/**
  * Skip whitespace in the source code - reimplemented to match original
  *
  * @param {Object} state - Tokenizer state
@@ -215,60 +478,52 @@ function escapeHtml(text) {
  * @returns {Object} - Visualization state
  */
 function initializeVisualization() {
-  // Initialize state
+  // Initial state for the visualization
   const state = {
     sourceCode: "",
-    tokens: [],
-    visualizationSteps: [],
-    currentStepIndex: 0,
-
-    // AST visualization state
-    ast: null,
+    tokenizationData: null,
     astData: null,
-    astSteps: [],
-    totalSteps: 0, // Total steps across both tokenization and parsing
-
-    // Example code snippets
+    nameResolutionData: null,
+    currentTokenizationStep: 0,
+    currentAstStep: 0,
+    currentNameResolutionStep: 0,
+    highlightedTokenIndex: null,
+    highlightedAstNode: null,
+    highlightedNameResolutionElement: null,
+    // Add predefined code examples
     examples: {
-      example1: `const greeting = "Hello";
-const audience = true ? "world" : "nobody";`,
-
-      example2: `const add = (a, b) => a + b;
-const greet = () => {
-  const name = "world";
-  const greeting = "Hello";
-  return greeting + " " + name;
+      example1: `// Simple constant declaration
+const message = "Hello, world!";`,
+      example2: `// Function expression with a parameter
+const greet = (name) => {
+  return "Hello, " + name;
 };`,
-
-      example3: `const getMessage = () => {
-  const prefix = "Hello";
-  const suffix = "World";
-  return prefix + " " + suffix;
-}
-
-const emptyReturn = () => {
-  return;
-}`,
-    },
+      example3: `// Multiple declarations and function calls
+const x = 10;
+const y = 20;
+const sum = (a, b) => a + b;
+const result = sum(x, y);`
+    }
   };
 
-  // UI elements
+  // Initialize UI references in state
   state.ui = {
-    sourceCodeElement: document.getElementById("source-code"),
-    tokensListElement: document.getElementById("tokens-list"),
-    astTreeElement: document.getElementById("ast-tree"),
     scrubber: document.getElementById("scrubber"),
     exampleSelect: document.getElementById("example-select"),
-    customInputContainer: document.getElementById("custom-input-container"),
     customInput: document.getElementById("custom-input"),
+    customInputContainer: document.getElementById("custom-input-container"),
     runCustomButton: document.getElementById("run-custom"),
+    sourceCode: document.getElementById("source-code"),
+    tokensList: document.getElementById("tokens-list"),
+    astTree: document.getElementById("ast-tree"),
+    nameResolution: document.getElementById("name-resolution")
   };
+
+  // Load the default example
+  loadExample(state, "example1");
 
   // Set up event handlers
   setupEventHandlers(state);
-
-  // Load the first example
-  loadExample(state, "example1");
 
   return state;
 }
@@ -330,98 +585,50 @@ function loadExample(state, exampleKey) {
  */
 function runCompilation(state) {
   try {
-    // Clear previous displays
-    state.ui.tokensListElement.innerHTML = "";
-    state.ui.astTreeElement.innerHTML = "";
+    // Get the current source code
+    const sourceCode = state.sourceCode;
 
-    // Build tokenization data using events
-    const tokenizationData = buildTokenizationData(state.sourceCode);
+    // Clear previous results
+    state.ui.tokensList.innerHTML = "";
+    state.ui.astTree.innerHTML = "";
+    state.ui.nameResolution.innerHTML = "";
 
-    // Store tokens and data
-    state.tokens = tokenizationData.tokens;
+    // Reset scrubber
+    const scrubber = state.ui.scrubber;
+    scrubber.value = 0;
+
+    // Step 1: Tokenize
+    const tokenizationData = buildTokenizationData(sourceCode);
     state.tokenizationData = tokenizationData;
 
-    // Initialize the source code display with character spans
+    // Step 2: Parse
+    const astData = buildAstData(sourceCode, tokenizationData.tokens);
+    state.astData = astData;
+
+    // Step 3: Name resolution
+    const nameResolutionData = buildNameResolutionData(sourceCode, astData.rootNode);
+    state.nameResolutionData = nameResolutionData;
+
+    // Calculate total events
+    const totalTokenEvents = tokenizationData.events.length;
+    const totalAstEvents = astData.events.length;
+    const totalNameResolutionEvents = nameResolutionData.events.length;
+    const totalEvents = totalTokenEvents + totalAstEvents + totalNameResolutionEvents;
+
+    // Update scrubber max value to total events - 1
+    scrubber.max = totalEvents > 0 ? totalEvents - 1 : 0;
+
+    // Initialize displays
     initializeSourceCodeDisplay(state);
 
-    // Build AST data using the tokens
-    const astData = buildAstData(state.sourceCode, state.tokens);
-    state.astData = astData;
-    state.ast = astData.rootNode;
-
-    // Filter the tokenization events to only include token events
-    const tokenEvents = tokenizationData.events.filter(event =>
-      event.type !== "WHITESPACE" && event.type !== "COMMENT"
-    );
-
-    // Convert tokenization events to visualization steps
-    state.visualizationSteps = tokenEvents.map((event, index) => {
-      // Find all tokens up to and including this token
-      const tokensUpToHere = tokenizationData.tokens.slice(0, index + 1);
-
-      return {
-        type: "token",
-        token: event,
-        position: event.position,
-        length: event.length,
-        currentTokens: tokensUpToHere,
-        eventIndex: index
-      };
-    });
-
-    // Add an initial step
-    state.visualizationSteps.unshift({
-      type: "initial",
-      position: 0,
-      length: 0,
-      currentTokens: [],
-      eventIndex: -1
-    });
-
-    // Filter out unwanted AST events and convert to visualization steps
-    const filteredAstEvents = astData.events.filter(event => {
-      // Skip Program, Statement, Primary, and Expression events
-      const skipTypes = [
-        "ProgramStart", "ProgramComplete",
-        "StatementStart", "StatementComplete",
-        "PrimaryStart", "PrimaryComplete",
-        "ExpressionStart", "ExpressionComplete"
-      ];
-
-      return !skipTypes.some(type => event.type.includes(type));
-    });
-
-    state.astSteps = filteredAstEvents.map((event, index) => {
-      // Clone the event to avoid modifying the original
-      return {
-        ...event,
-        stepIndex: index,
-        isComplete: event.type.endsWith("Complete")
-      };
-    });
-
-    // Calculate total steps (tokenization + parsing)
-    state.totalSteps = state.visualizationSteps.length + state.astSteps.length;
-
-    // Reset UI
-    state.currentStepIndex = 0;
-    // Set max to the number of steps
-    state.ui.scrubber.max = Math.max(0, state.totalSteps - 1);
-    state.ui.scrubber.value = 0;
-
-    // Reset scroll positions
-    state.ui.tokensListElement.scrollTop = 0;
-    state.ui.sourceCodeElement.scrollTop = 0;
-    state.ui.astTreeElement.scrollTop = 0;
-
-    // Update the visualization
+    // Update initial visualization step
     updateVisualization(state);
 
-    // Focus the scrubber
-    state.ui.scrubber.focus();
+    // Show a success message
+    showToast(`Compilation successful. ${totalTokenEvents} tokenization events, ${totalAstEvents} AST events, ${totalNameResolutionEvents} name resolution events.`);
   } catch (error) {
-    showToast(`Compilation error: ${error.message}`);
-    console.error(error);
+    console.error("Compilation error:", error);
+    showToast(`Error: ${error.message}`);
   }
 }
 
@@ -431,46 +638,58 @@ function runCompilation(state) {
  * @param {Object} state - Visualization state
  */
 function updateVisualization(state) {
-  const scrubberValue = parseInt(state.ui.scrubber.value, 10);
-  const totalTokenizationSteps = state.visualizationSteps.length;
+  // Get the current position from the scrubber
+  const scrubber = state.ui.scrubber;
+  const currentPosition = parseInt(scrubber.value);
 
-  // Show the step number in the AST container title for debugging
-  const astTitle = document.querySelector('.ast-container h2');
-  if (astTitle) {
-    // For parsing phase, show the actual step number for debugging
-    if (scrubberValue >= totalTokenizationSteps) {
-      const astStepIndex = scrubberValue - totalTokenizationSteps;
-      astTitle.textContent = `Abstract Syntax Tree (Step ${astStepIndex + 1}/${state.astSteps.length})`;
-    } else {
-      astTitle.textContent = `Abstract Syntax Tree`;
+  // Calculate which phase (tokenization, AST, or name resolution) we're in
+  const totalTokenizationEvents = state.tokenizationData?.events.length || 0;
+  const totalAstEvents = state.astData?.events.length || 0;
+  
+  // In tokenization phase
+  if (currentPosition < totalTokenizationEvents) {
+    state.currentTokenizationStep = currentPosition;
+    state.currentAstStep = 0;
+    state.currentNameResolutionStep = 0;
+    
+    updateTokensDisplay(state);
+    updateSourceCodeHighlighting(state);
+    
+    // Clear AST and name resolution displays if we're back in tokenization
+    if (currentPosition === 0) {
+      state.ui.astTree.innerHTML = "";
+      state.ui.nameResolution.innerHTML = "";
     }
   }
-
-  // Determine if we're in tokenization or parsing phase
-  if (scrubberValue < totalTokenizationSteps) {
-    // We're in the tokenization phase
-    state.currentStepIndex = scrubberValue;
-
-  // Update tokens list
-  updateTokensDisplay(state);
-
-  // Update source code highlighting
-  updateSourceCodeHighlighting(state);
-
-    // Clear AST display
-    state.ui.astTreeElement.innerHTML = "";
-  } else {
-    // We're in the parsing phase
-    const astStepIndex = scrubberValue - totalTokenizationSteps;
-
+  // In AST phase
+  else if (currentPosition < totalTokenizationEvents + totalAstEvents) {
+    state.currentTokenizationStep = totalTokenizationEvents - 1;
+    state.currentAstStep = currentPosition - totalTokenizationEvents;
+    state.currentNameResolutionStep = 0;
+    
     // Show all tokens
     updateTokensDisplay(state, true);
-
-    // Show all source code
-    updateSourceCodeHighlighting(state, true);
-
-    // Update AST tree with the current step - use the exact step index without skipping
-    updateAstDisplay(state, astStepIndex);
+    
+    // Update the AST display
+    updateAstDisplay(state, state.currentAstStep);
+    
+    // Clear name resolution display if we're back in AST phase
+    if (state.currentAstStep === 0) {
+      state.ui.nameResolution.innerHTML = "";
+    }
+  }
+  // In name resolution phase
+  else {
+    state.currentTokenizationStep = totalTokenizationEvents - 1;
+    state.currentAstStep = totalAstEvents - 1;
+    state.currentNameResolutionStep = currentPosition - totalTokenizationEvents - totalAstEvents;
+    
+    // Show all tokens and full AST
+    updateTokensDisplay(state, true);
+    updateAstDisplay(state, state.currentAstStep);
+    
+    // Update name resolution display
+    updateNameResolutionDisplay(state, state.currentNameResolutionStep);
   }
 }
 
@@ -482,9 +701,9 @@ function updateVisualization(state) {
  */
 function updateTokensDisplay(state, showAll = false) {
   // Clear tokens list
-  state.ui.tokensListElement.innerHTML = "";
+  state.ui.tokensList.innerHTML = "";
 
-  if (state.currentStepIndex === 0 && !showAll) {
+  if (state.currentTokenizationStep === 0 && !showAll) {
     return;
   }
 
@@ -494,10 +713,10 @@ function updateTokensDisplay(state, showAll = false) {
 
   if (showAll) {
     // Show all tokens
-    tokens = state.tokens;
+    tokens = state.tokenizationData.tokens;
   } else {
   // In tokenization mode, show tokens up to current step
-    const step = state.visualizationSteps[state.currentStepIndex];
+    const step = state.tokenizationData.events[state.currentTokenizationStep];
     tokens = step.currentTokens || [];
     currentTokenIndex = tokens.length - 1;
   }
@@ -525,13 +744,13 @@ function updateTokensDisplay(state, showAll = false) {
       tokenElement.classList.add("token-highlighted");
     }
 
-    state.ui.tokensListElement.appendChild(tokenElement);
+    state.ui.tokensList.appendChild(tokenElement);
   });
 
   // Scroll the current token into view if it's not already visible
   setTimeout(() => {
     if (currentTokenElement) {
-      scrollIntoViewIfNeeded(currentTokenElement, state.ui.tokensListElement);
+      scrollIntoViewIfNeeded(currentTokenElement, state.ui.tokensList);
     }
   }, 0);
 }
@@ -543,9 +762,9 @@ function updateTokensDisplay(state, showAll = false) {
  * @param {boolean} [showAll=false] - Whether to show all source code
  */
 function updateSourceCodeHighlighting(state, showAll = false) {
-  if (state.currentStepIndex === 0 && !showAll) {
+  if (state.currentTokenizationStep === 0 && !showAll) {
     // Reset all source code highlighting
-    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+    const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
     allChars.forEach(char => {
       char.classList.remove('text-consumed', 'text-current');
     });
@@ -554,7 +773,7 @@ function updateSourceCodeHighlighting(state, showAll = false) {
 
   // If showing all, mark everything as consumed
   if (showAll) {
-    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+    const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
     allChars.forEach(char => {
       char.classList.remove('text-current', 'text-whitespace', 'text-clicked');
       char.classList.add('text-consumed');
@@ -562,7 +781,7 @@ function updateSourceCodeHighlighting(state, showAll = false) {
     return;
   }
 
-  const currentStep = state.visualizationSteps[state.currentStepIndex];
+  const currentStep = state.tokenizationData.events[state.currentTokenizationStep];
   const currentPosition = currentStep.position;
   const currentLength = currentStep.length || 0;
 
@@ -573,7 +792,7 @@ function updateSourceCodeHighlighting(state, showAll = false) {
   const highlightClass = "text-current";
 
   // Clear previous highlighting
-  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+  const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
   allChars.forEach(char => {
     char.classList.remove('text-consumed', 'text-current', 'text-whitespace', 'text-clicked');
 
@@ -590,10 +809,10 @@ function updateSourceCodeHighlighting(state, showAll = false) {
   });
 
   // Scroll to the current highlighted section if not in view
-  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector(`.${highlightClass}`);
+  const firstHighlightedChar = state.ui.sourceCode.querySelector(`.${highlightClass}`);
   if (firstHighlightedChar) {
     setTimeout(() => {
-      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
+      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCode);
     }, 0);
   }
 }
@@ -606,16 +825,16 @@ function updateSourceCodeHighlighting(state, showAll = false) {
  */
 function highlightToken(state, tokenIndex) {
   // Clear any existing token highlighting
-  const allTokens = state.ui.tokensListElement.querySelectorAll('.token');
+  const allTokens = state.ui.tokensList.querySelectorAll('.token');
   allTokens.forEach(el => {
     el.classList.remove('token-clicked');
   });
 
   // Find and highlight the specified token
-  const tokenElement = state.ui.tokensListElement.querySelector(`[data-token-index="${tokenIndex}"]`);
+  const tokenElement = state.ui.tokensList.querySelector(`[data-token-index="${tokenIndex}"]`);
   if (tokenElement) {
     tokenElement.classList.add('token-clicked');
-    scrollIntoViewIfNeeded(tokenElement, state.ui.tokensListElement);
+    scrollIntoViewIfNeeded(tokenElement, state.ui.tokensList);
     return true;
   }
   return false;
@@ -633,11 +852,11 @@ function highlightSourceRange(state, tokenIndex) {
   if (!sourceRange) return false;
 
   // Get the current scrubber position to determine what should be marked as consumed
-  const currentStep = state.visualizationSteps[state.currentStepIndex - 1] || { position: 0, length: 0 };
+  const currentStep = state.tokenizationData.events[state.currentTokenizationStep - 1] || { position: 0, length: 0 };
   const currentTokenEndPos = currentStep.position + currentStep.length;
 
   // Clear highlighting for clicked state
-  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
+  const allChars = state.ui.sourceCode.querySelectorAll('.source-char');
   allChars.forEach(char => {
     char.classList.remove('text-clicked');
 
@@ -645,7 +864,7 @@ function highlightSourceRange(state, tokenIndex) {
     const charPos = parseInt(char.dataset.pos, 10);
 
     // We want to preserve the consumed/current highlighting from the scrubber
-    if (state.currentStepIndex > 0) {
+    if (state.currentTokenizationStep > 0) {
       if (charPos < currentTokenEndPos) {
         // Only remove current highlighting, keep consumed
         char.classList.remove('text-current');
@@ -663,17 +882,17 @@ function highlightSourceRange(state, tokenIndex) {
 
   // Add the clicked highlighting to the selected token's characters
   for (let i = sourceRange.start; i < sourceRange.end; i++) {
-    const charSpan = state.ui.sourceCodeElement.querySelector(`[data-pos="${i}"]`);
+    const charSpan = state.ui.sourceCode.querySelector(`[data-pos="${i}"]`);
     if (charSpan) {
       charSpan.classList.add('text-clicked');
     }
   }
 
   // Scroll to the highlighted source if not in view
-  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector('.text-clicked');
+  const firstHighlightedChar = state.ui.sourceCode.querySelector('.text-clicked');
   if (firstHighlightedChar) {
     setTimeout(() => {
-      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
+      scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCode);
     }, 0);
     return true;
   }
@@ -688,14 +907,14 @@ function highlightSourceRange(state, tokenIndex) {
  */
 function updateAstDisplay(state, astStepIndex) {
   // Clear the AST tree
-  state.ui.astTreeElement.innerHTML = "";
+  state.ui.astTree.innerHTML = "";
 
-  if (astStepIndex < 0 || astStepIndex >= state.astSteps.length) {
+  if (astStepIndex < 0 || astStepIndex >= state.astData.events.length) {
     return;
   }
 
   // Get the current step
-  const currentStep = state.astSteps[astStepIndex];
+  const currentStep = state.astData.events[astStepIndex];
   if (!currentStep) {
     return;
   }
@@ -716,7 +935,7 @@ function updateAstDisplay(state, astStepIndex) {
   currentStepInfo.style.marginBottom = '10px';
   currentStepInfo.style.backgroundColor = '#f0f0f0';
   currentStepInfo.style.borderRadius = '4px';
-  state.ui.astTreeElement.appendChild(currentStepInfo);
+  state.ui.astTree.appendChild(currentStepInfo);
 
   // SIMPLER APPROACH: Create a map of nodes by their location in the source code
   // for const declarations, we'll use variable name as the key
@@ -730,7 +949,7 @@ function updateAstDisplay(state, astStepIndex) {
 
   // First pass: Process all steps up to the current one
   for (let i = 0; i <= astStepIndex; i++) {
-    const step = state.astSteps[i];
+    const step = state.astData.events[i];
     if (!step || !step.node) continue;
 
     // Create node data with metadata
@@ -849,7 +1068,7 @@ function updateAstDisplay(state, astStepIndex) {
     }
 
     // Add to the tree display
-    state.ui.astTreeElement.appendChild(nodeElement);
+    state.ui.astTree.appendChild(nodeElement);
   });
 }
 
@@ -1339,6 +1558,170 @@ function hasAstNodeChildren(node) {
 }
 
 /**
+ * Update the name resolution display based on the current step
+ *
+ * @param {Object} state - Visualization state
+ * @param {number} nameResolutionStepIndex - Index into the name resolution steps array
+ */
+function updateNameResolutionDisplay(state, nameResolutionStepIndex) {
+  // Get the name resolution container
+  const nameResolutionContainer = state.ui.nameResolution;
+  
+  // If no name resolution data, return
+  if (!state.nameResolutionData || !state.nameResolutionData.events) {
+    nameResolutionContainer.innerHTML = "<div class='no-data'>No name resolution data available</div>";
+    return;
+  }
+
+  // Get all events up to the current step
+  const currentEvents = state.nameResolutionData.events.slice(0, nameResolutionStepIndex + 1);
+  
+  // Clear the previous display
+  nameResolutionContainer.innerHTML = "";
+  
+  // Track active scopes
+  const activeScopes = {};
+  
+  // Create a scope hierarchy display
+  const scopeHierarchy = document.createElement("div");
+  scopeHierarchy.className = "scope-hierarchy";
+  nameResolutionContainer.appendChild(scopeHierarchy);
+  
+  // Create container for variable declarations and references
+  const variablesContainer = document.createElement("div");
+  variablesContainer.className = "variables-container";
+  nameResolutionContainer.appendChild(variablesContainer);
+  
+  // Process each event
+  for (let i = 0; i < currentEvents.length; i++) {
+    const event = currentEvents[i];
+    const isCurrentStep = i === nameResolutionStepIndex;
+    
+    // Create an event element
+    const eventElement = document.createElement("div");
+    eventElement.className = `name-resolution-event ${isCurrentStep ? "current-step" : ""}`;
+    
+    // Handle different event types
+    switch (event.type) {
+      case "EnterScope":
+        // Add scope to active scopes
+        activeScopes[event.scopeId] = {
+          id: event.scopeId,
+          parentId: event.parentScopeId,
+          declarations: {},
+          element: document.createElement("div")
+        };
+        
+        // Create scope element
+        const scopeElement = activeScopes[event.scopeId].element;
+        scopeElement.className = `scope ${isCurrentStep ? "current-scope" : ""}`;
+        scopeElement.innerHTML = `<div class="scope-header">Scope ${event.scopeId} ${event.parentScopeId !== null ? `(parent: ${event.parentScopeId})` : "(global)"}</div>`;
+        
+        // Place scope in hierarchy
+        if (event.parentScopeId !== null && activeScopes[event.parentScopeId]) {
+          const parentElement = activeScopes[event.parentScopeId].element;
+          const childrenContainer = parentElement.querySelector(".scope-children") || 
+                                   (() => { 
+                                     const container = document.createElement("div");
+                                     container.className = "scope-children";
+                                     parentElement.appendChild(container);
+                                     return container;
+                                   })();
+          childrenContainer.appendChild(scopeElement);
+        } else {
+          scopeHierarchy.appendChild(scopeElement);
+        }
+        
+        // Add event info
+        eventElement.textContent = `Enter scope ${event.scopeId}`;
+        break;
+        
+      case "ExitScope":
+        // Add event info
+        eventElement.textContent = `Exit scope ${event.scopeId}`;
+        
+        // Mark scope as inactive
+        if (activeScopes[event.scopeId]) {
+          activeScopes[event.scopeId].element.classList.add("exited-scope");
+        }
+        break;
+        
+      case "DeclareVariable":
+        // Add declaration to scope
+        if (activeScopes[event.scopeId]) {
+          activeScopes[event.scopeId].declarations[event.name] = event.node;
+          
+          // Add to scope element
+          const declarationsContainer = activeScopes[event.scopeId].element.querySelector(".declarations") || 
+                                      (() => { 
+                                        const container = document.createElement("div");
+                                        container.className = "declarations";
+                                        activeScopes[event.scopeId].element.appendChild(container);
+                                        return container;
+                                      })();
+          
+          const declarationElement = document.createElement("div");
+          declarationElement.className = `declaration ${isCurrentStep ? "current-declaration" : ""}`;
+          declarationElement.textContent = `Declare: ${event.name}`;
+          declarationsContainer.appendChild(declarationElement);
+        }
+        
+        // Add event info
+        eventElement.textContent = `Declare variable "${event.name}" in scope ${event.scopeId}`;
+        break;
+        
+      case "ResolveReference":
+        // Add resolution info
+        const resolutionElement = document.createElement("div");
+        resolutionElement.className = `resolution ${isCurrentStep ? "current-resolution" : ""} ${event.resolved ? "resolved" : "unresolved"}`;
+        resolutionElement.textContent = `Reference: ${event.name} ${event.resolved ? `(declared in scope ${event.declaration ? event.declaration.scope : "unknown"})` : "(unresolved)"}`;
+        
+        // Add to variables container
+        variablesContainer.appendChild(resolutionElement);
+        
+        // Add event info
+        eventElement.textContent = `${event.resolved ? "Resolved" : "Failed to resolve"} variable "${event.name}" in scope ${event.scopeId}`;
+        break;
+        
+      case "Error":
+        // Create error element
+        const errorElement = document.createElement("div");
+        errorElement.className = `error ${isCurrentStep ? "current-error" : ""}`;
+        errorElement.textContent = event.message;
+        nameResolutionContainer.appendChild(errorElement);
+        
+        // Add event info
+        eventElement.textContent = `Error: ${event.message}`;
+        break;
+    }
+    
+    // Add the event element to the name resolution container
+    if (isCurrentStep) {
+      // Add current event indicator
+      const currentEventElement = document.createElement("div");
+      currentEventElement.className = "current-event-indicator";
+      currentEventElement.textContent = "Current step:";
+      nameResolutionContainer.appendChild(currentEventElement);
+      nameResolutionContainer.appendChild(eventElement);
+    }
+  }
+  
+  // If no events, show message
+  if (currentEvents.length === 0) {
+    nameResolutionContainer.innerHTML = "<div class='no-events'>No name resolution events yet</div>";
+  }
+  
+  // Update source highlighting if needed
+  const currentEvent = currentEvents[nameResolutionStepIndex];
+  if (currentEvent && currentEvent.node && currentEvent.node.position !== undefined) {
+    // Highlight the relevant source code
+    const position = currentEvent.node.position;
+    const length = currentEvent.node.value ? currentEvent.node.value.length : 1;
+    highlightSourceRange(state, null, position, length);
+  }
+}
+
+/**
  * Display a toast notification
  *
  * @param {string} message - Message to display
@@ -1366,7 +1749,7 @@ function showToast(message) {
  */
 function initializeSourceCodeDisplay(state) {
   // Clear the source code display
-  state.ui.sourceCodeElement.innerHTML = '';
+  state.ui.sourceCode.innerHTML = '';
 
   // Create a document fragment to batch DOM operations
   const fragment = document.createDocumentFragment();
@@ -1410,10 +1793,10 @@ function initializeSourceCodeDisplay(state) {
   }
 
   // Add all spans at once
-  state.ui.sourceCodeElement.appendChild(fragment);
+  state.ui.sourceCode.appendChild(fragment);
 
   // Add click handler to the source code container
-  state.ui.sourceCodeElement.addEventListener('click', (event) => {
+  state.ui.sourceCode.addEventListener('click', (event) => {
     // Find the closest character span that was clicked
     const charSpan = event.target.closest('.source-char');
     if (!charSpan) return;
