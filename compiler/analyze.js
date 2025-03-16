@@ -179,69 +179,42 @@ function exitScope(state) {
  * @param {object} node - AST node to visit
  */
 function visitNode(state, node) {
-  // Skip null/undefined nodes and non-objects
-  if (!node || typeof node !== "object") {
-    return;
-  }
+  if (!node) return;
 
-  // Dispatch to appropriate visitor function based on node type
-  switch (node.type) {
-    // Program is the root of the AST
-    case "Program":
-      visitProgram(state, node);
-      break;
+  // Create a new scope if this node introduces a new scope
+  if (isNodeWithScope(node)) {
+    // Emit event for entering a scope
+    emitNameResolutionEvent(state, 'enterScope', {
+      nodeType: node.type,
+      location: node.location
+    });
 
-    // Variable declarations
-    case "ConstDeclaration":
-      visitConstDeclaration(state, node);
-      break;
+    // Create a new scope with the current scope as parent
+    const newScope = createScope(state.currentScope);
 
-    // Functions
-    case "ArrowFunctionExpression":
-      visitArrowFunction(state, node);
-      break;
+    // Remember the previous scope to return to
+    const previousScope = state.currentScope;
 
-    // Variable references
-    case "Identifier":
-      visitIdentifier(state, node);
-      break;
+    // Set the current scope to the new scope
+    state.currentScope = newScope;
 
-    // Statements
-    case "ReturnStatement":
-      visitReturnStatement(state, node);
-      break;
+    // Map the node to its scope for later reference
+    state.scopes.set(node, newScope);
 
-    // Expressions
-    case "BinaryExpression":
-      visitBinaryExpression(state, node);
-      break;
+    // Process the node according to its type
+    processNode(state, node);
 
-    case "ConditionalExpression":
-      visitConditionalExpression(state, node);
-      break;
+    // After processing, revert to the previous scope
+    state.currentScope = previousScope;
 
-    case "CallExpression":
-      visitCallExpression(state, node);
-      break;
-
-    case "ArrayLiteral":
-      visitArrayLiteral(state, node);
-      break;
-
-    case "MemberExpression":
-      visitMemberExpression(state, node);
-      break;
-
-    // Literals don't need name resolution
-    case "StringLiteral":
-    case "NumericLiteral":
-    case "BooleanLiteral":
-      break;
-
-    default:
-      // For unknown node types, traverse children generically
-      visitChildren(state, node);
-      break;
+    // Emit event for leaving a scope
+    emitNameResolutionEvent(state, 'leaveScope', {
+      nodeType: node.type,
+      location: node.location
+    });
+  } else {
+    // Process node normally without changing scope
+    processNode(state, node);
   }
 }
 
@@ -288,10 +261,22 @@ function visitChildren(state, node) {
  * @param {object} node - Program node to visit
  */
 function visitProgram(state, node) {
+  // Emit event for entering program scope (global scope)
+  emitNameResolutionEvent(state, 'enterProgram', {
+    nodeType: 'Program',
+    location: node.location
+  });
+
   // Visit each statement in the program body
   for (const statement of node.body) {
     visitNode(state, statement);
   }
+
+  // Emit event for leaving program scope
+  emitNameResolutionEvent(state, 'leaveProgram', {
+    nodeType: 'Program',
+    location: node.location
+  });
 }
 
 /**
@@ -366,37 +351,8 @@ function visitConstDeclaration(state, node) {
  * @param {object} node - ArrowFunctionExpression node to visit
  */
 function visitArrowFunction(state, node) {
-  // Create a new scope for the function body
-  enterScope(state);
-
-  // Add each parameter to the function scope
-  for (const param of node.params) {
-    const name = param.name;
-    // Check for duplicate parameter names
-    if (!declareInScope(state.currentScope, name, param)) {
-      reportError(state.errors, `Duplicate parameter name '${name}'`, param);
-    }
-
-    // Remember parameter type annotations if present
-    // Type checking will validate these later
-  }
-
-  // Remember return type annotation if present
-  // Type checking will validate this later
-
-  // Process the function body
-  if (Array.isArray(node.body)) {
-    // Block body with statements: () => { statements }
-    for (const statement of node.body) {
-      visitNode(state, statement);
-    }
-  } else {
-    // Expression body: () => expression
-    visitNode(state, node.body);
-  }
-
-  // Restore the previous scope when leaving the function
-  exitScope(state);
+  // Process the function using the general function handling
+  visitFunction(state, node);
 }
 
 /**
@@ -449,8 +405,11 @@ function visitIdentifier(state, node) {
  * @param {object} node - ReturnStatement node to visit
  */
 function visitReturnStatement(state, node) {
-  // Process the return value if it exists
+  // If we have a return value, mark any identifiers and process it
   if (node.argument) {
+    if (node.argument.type === 'Identifier') {
+      node.argument._context = 'variable';
+    }
     visitNode(state, node.argument);
   }
 }
@@ -464,9 +423,23 @@ function visitReturnStatement(state, node) {
  * @param {object} node - BinaryExpression node to visit
  */
 function visitBinaryExpression(state, node) {
-  // Visit both operands
-  visitNode(state, node.left);
-  visitNode(state, node.right);
+  // Mark identifiers as variable references
+  if (node.left && node.left.type === 'Identifier') {
+    node.left._context = 'variable';
+  }
+
+  if (node.right && node.right.type === 'Identifier') {
+    node.right._context = 'variable';
+  }
+
+  // Visit left and right operands
+  if (node.left) {
+    visitNode(state, node.left);
+  }
+
+  if (node.right) {
+    visitNode(state, node.right);
+  }
 }
 
 /**
@@ -478,12 +451,35 @@ function visitBinaryExpression(state, node) {
  * @param {object} node - ConditionalExpression node to visit
  */
 function visitConditionalExpression(state, node) {
-  // Visit the condition expression
-  visitNode(state, node.test);
+  // Mark identifiers in the test condition
+  if (node.test && node.test.type === 'Identifier') {
+    node.test._context = 'variable';
+  }
 
-  // Visit both branches
-  visitNode(state, node.consequent);
-  visitNode(state, node.alternate);
+  // Process test condition
+  if (node.test) {
+    visitNode(state, node.test);
+  }
+
+  // Mark identifiers in the consequent (true branch)
+  if (node.consequent && node.consequent.type === 'Identifier') {
+    node.consequent._context = 'variable';
+  }
+
+  // Process consequent (true branch)
+  if (node.consequent) {
+    visitNode(state, node.consequent);
+  }
+
+  // Mark identifiers in the alternate (false branch)
+  if (node.alternate && node.alternate.type === 'Identifier') {
+    node.alternate._context = 'variable';
+  }
+
+  // Process alternate (false branch)
+  if (node.alternate) {
+    visitNode(state, node.alternate);
+  }
 }
 
 /**
@@ -582,6 +578,135 @@ function emitNameResolutionEvent(state, eventType, details) {
       type: eventType,
       ...details
     });
+  }
+}
+
+/**
+ * Check if a node introduces a new scope
+ *
+ * @param {object} node - The AST node
+ * @returns {boolean} - True if the node introduces a new scope
+ */
+function isNodeWithScope(node) {
+  return node && (
+    node.type === "Program" ||
+    node.type === "ArrowFunctionExpression" ||
+    node.type === "BlockStatement"
+  );
+}
+
+/**
+ * Process a node according to its type
+ *
+ * @param {object} state - The current state
+ * @param {object} node - The AST node
+ */
+function processNode(state, node) {
+  // Skip null/undefined nodes and non-objects
+  if (!node || typeof node !== "object") {
+    return;
+  }
+
+  // Dispatch to appropriate visitor function based on node type
+  switch (node.type) {
+    // Program is the root of the AST
+    case "Program":
+      visitProgram(state, node);
+      break;
+
+    // Variable declarations
+    case "ConstDeclaration":
+      visitConstDeclaration(state, node);
+      break;
+
+    // Functions
+    case "ArrowFunctionExpression":
+      visitArrowFunction(state, node);
+      break;
+
+    // Variable references
+    case "Identifier":
+      visitIdentifier(state, node);
+      break;
+
+    // Statements
+    case "ReturnStatement":
+      visitReturnStatement(state, node);
+      break;
+
+    // Expressions
+    case "BinaryExpression":
+      visitBinaryExpression(state, node);
+      break;
+
+    case "ConditionalExpression":
+      visitConditionalExpression(state, node);
+      break;
+
+    case "CallExpression":
+      visitCallExpression(state, node);
+      break;
+
+    case "ArrayLiteral":
+      visitArrayLiteral(state, node);
+      break;
+
+    case "MemberExpression":
+      visitMemberExpression(state, node);
+      break;
+
+    // Literals don't need name resolution
+    case "StringLiteral":
+    case "NumericLiteral":
+    case "BooleanLiteral":
+      break;
+
+    default:
+      // For unknown node types, traverse children generically
+      visitChildren(state, node);
+      break;
+  }
+}
+
+/**
+ * Process a function node
+ *
+ * @param {object} state - The current state
+ * @param {object} node - The function node
+ */
+function visitFunction(state, node) {
+  // For each parameter, declare it in the current scope
+  if (node.params) {
+    for (const param of node.params) {
+      // Declare the parameter in the current function scope
+      if (!declareInScope(state.currentScope, param.name, param)) {
+        reportError(
+          state.errors,
+          `Duplicate parameter name: ${param.name}`,
+          param
+        );
+      } else {
+        // Emit function parameter declaration event
+        emitNameResolutionEvent(state, 'declareParam', {
+          name: param.name,
+          node: param,
+          scope: state.currentScope
+        });
+      }
+    }
+  }
+
+  // Process the function body
+  if (node.body) {
+    if (Array.isArray(node.body)) {
+      // Block body with statements: () => { statements }
+      for (const statement of node.body) {
+        visitNode(state, statement);
+      }
+    } else {
+      // Expression body: () => expression
+      visitNode(state, node.body);
+    }
   }
 }
 

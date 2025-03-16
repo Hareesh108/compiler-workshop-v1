@@ -1522,14 +1522,48 @@ function updateNameResolutionDisplay(state, stepIndex) {
       eventElement.classList.add('name-resolution-event-current');
     }
 
-    // Format event information
+    // Format event information based on event type
     let eventDetails = '';
-    if (event.type === 'declare') {
-      eventDetails = `Declared: ${event.name}`;
-    } else if (event.type === 'lookup') {
-      eventDetails = `Lookup: ${event.name} (${event.found ? 'found' : 'not found'})`;
-    } else {
-      eventDetails = `Event: ${event.type}`;
+
+    // Add appropriate styling based on event type
+    switch (event.type) {
+      case 'declare':
+        eventElement.classList.add('name-resolution-declare');
+        eventDetails = `Declared: ${event.name}`;
+        break;
+
+      case 'declareParam':
+        eventElement.classList.add('name-resolution-declare-param');
+        eventDetails = `Parameter: ${event.name}`;
+        break;
+
+      case 'lookup':
+        eventElement.classList.add('name-resolution-lookup');
+        eventDetails = `Lookup: ${event.name} (${event.found ? 'found' : 'not found'})`;
+        break;
+
+      case 'enterScope':
+        eventElement.classList.add('name-resolution-scope');
+        eventDetails = `Enter ${event.nodeType} scope`;
+        break;
+
+      case 'leaveScope':
+        eventElement.classList.add('name-resolution-scope');
+        eventDetails = `Leave ${event.nodeType} scope`;
+        break;
+
+      case 'enterProgram':
+        eventElement.classList.add('name-resolution-scope');
+        eventDetails = `Enter global scope`;
+        break;
+
+      case 'leaveProgram':
+        eventElement.classList.add('name-resolution-scope');
+        eventDetails = `Leave global scope`;
+        break;
+
+      default:
+        eventDetails = `Event: ${event.type}`;
     }
 
     eventElement.textContent = eventDetails;

@@ -135,6 +135,27 @@ h2 {
   padding-left: 3px;
 }
 
+/* Additional styles for different name resolution event types */
+.name-resolution-declare {
+  color: #2e7d32;
+  font-weight: bold;
+}
+
+.name-resolution-declare-param {
+  color: #1565c0;
+  font-weight: bold;
+}
+
+.name-resolution-lookup {
+  color: #7b1fa2;
+}
+
+.name-resolution-scope {
+  color: #6d4c41;
+  font-style: italic;
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
 .code-display {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   white-space: pre-wrap;
