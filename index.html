@@ -23,20 +23,18 @@
           </div>
           <pre id="source-code" class="code-display"></pre>
         </div>
-        
+
         <div class="token-container">
           <h2>Tokens</h2>
           <div id="tokens-list" class="tokens-display"></div>
         </div>
       </div>
     </div>
-    
+
     <div class="controls">
-      <label for="scrubber">Progress:</label>
       <input type="range" id="scrubber" min="0" max="100" value="0" autofocus>
-      <span id="progress-info">0%</span>
     </div>
-    
+
     <div id="custom-input-container" class="hidden">
       <textarea id="custom-input" placeholder="Enter your code here..."></textarea>
       <button id="run-custom">Run</button>
@@ -48,10 +46,10 @@
     // This will hold compiler constants for the UI to use
     window.CompilerModule = {};
   </script>
-  
+
   <!-- Load the compiler module directly -->
   <script src="compiler/parse.js"></script>
-  
+
   <!-- Visualization script -->
   <script src="ui/visualizer.js"></script>
 </body>

@@ -264,7 +264,6 @@ const emptyReturn = () => {
     sourceCodeElement: document.getElementById("source-code"),
     tokensListElement: document.getElementById("tokens-list"),
     scrubber: document.getElementById("scrubber"),
-    progressInfo: document.getElementById("progress-info"),
     exampleSelect: document.getElementById("example-select"),
     customInputContainer: document.getElementById("custom-input-container"),
     customInput: document.getElementById("custom-input"),
@@ -345,8 +344,8 @@ function runTokenization(state) {
 
     // Store visualization steps
     state.visualizationSteps = tokenResult.steps;
-    state.astSteps = [];  // We've removed the AST visualizer
-    state.ast = null;     // No AST to store
+    state.astSteps = []; // We've removed the AST visualizer
+    state.ast = null; // No AST to store
 
     // Calculate total steps (tokenization only, since we removed AST)
     state.totalSteps = state.visualizationSteps.length;
@@ -383,10 +382,6 @@ function updateVisualization(state) {
 
   // Skip the initial step to avoid requiring two drags to see anything
   let progress = Math.min(scrubberValue, totalSteps - 1);
-
-  // Update progress info as percentage of total steps
-  const percentage = Math.round((progress / (totalSteps - 1)) * 100);
-  state.ui.progressInfo.textContent = `${percentage}%`;
 
   // We're only in the tokenization phase now
   state.currentStepIndex = progress + 1; // Add 1 to skip the initial step
@@ -1143,31 +1138,31 @@ function updateAstDisplay(state, astStepIndex) {
         // Add only fully completed nodes
         const completedNode = { ...node, _purged: true };
         cleanMap.set(key, completedNode);
-        
+
         // Special handling for nested expressions in const declarations
         if (node.type === "ConstDeclaration" && node.init) {
           // Define deep completion marking helper
           const deepMarkComplete = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            
+            if (!obj || typeof obj !== "object") return;
+
             // Mark this node as complete
             obj._isComplete = true;
             obj._inProgress = false;
-            
+
             // For ternary operations, recursively mark all parts
-            if (obj.type === 'ConditionalExpression') {
+            if (obj.type === "ConditionalExpression") {
               if (obj.test) deepMarkComplete(obj.test);
-              if (obj.consequent) deepMarkComplete(obj.consequent);  
+              if (obj.consequent) deepMarkComplete(obj.consequent);
               if (obj.alternate) deepMarkComplete(obj.alternate);
             }
-            
+
             // For binary operations, recursively mark both sides
-            if (obj.type === 'BinaryExpression') {
+            if (obj.type === "BinaryExpression") {
               if (obj.left) deepMarkComplete(obj.left);
               if (obj.right) deepMarkComplete(obj.right);
             }
           };
-          
+
           // Apply deep completion marking to init node
           deepMarkComplete(completedNode.init);
         }
@@ -1300,9 +1295,12 @@ function createAstNodeElement(node, forceHighlight = false) {
   detailsElement.className = "ast-node-details";
 
   // DEBUG: Add a data attribute showing the node's type and structure
-  nodeElement.setAttribute('data-node-type', filteredNode.type);
-  if (filteredNode.type === 'ConstDeclaration' && filteredNode.init) {
-    nodeElement.setAttribute('data-init-type', filteredNode.init.type || 'none');
+  nodeElement.setAttribute("data-node-type", filteredNode.type);
+  if (filteredNode.type === "ConstDeclaration" && filteredNode.init) {
+    nodeElement.setAttribute(
+      "data-init-type",
+      filteredNode.init.type || "none",
+    );
   }
 
   // We no longer have a Program root node to skip
@@ -1316,12 +1314,15 @@ function createAstNodeElement(node, forceHighlight = false) {
       } else if (node.partial) {
         detailsElement.textContent = "(incomplete)";
       }
-      
+
       // SPECIAL HANDLING FOR TERNARY EXPRESSIONS IN CONST DECLARATIONS
-      if (filteredNode.init && filteredNode.init.type === "ConditionalExpression") {
+      if (
+        filteredNode.init &&
+        filteredNode.init.type === "ConditionalExpression"
+      ) {
         // Mark the init as already rendered to avoid duplicate rendering
         filteredNode.init._isAlreadyRendered = true;
-        
+
         // Create child container for the ternary expression
         const ternaryContainer = document.createElement("div");
         ternaryContainer.className = "ast-node-children";
@@ -1329,28 +1330,30 @@ function createAstNodeElement(node, forceHighlight = false) {
         ternaryLabel.className = "ast-node-child-label";
         ternaryLabel.textContent = "initialized to:";
         ternaryContainer.appendChild(ternaryLabel);
-        
+
         // Create the ternary expression node
         const ternaryNode = document.createElement("div");
         ternaryNode.className = "ast-node ast-node-highlighted";
-        
+
         // Add the node type
         const ternaryTypeElement = document.createElement("span");
         ternaryTypeElement.className = "ast-node-type";
         ternaryTypeElement.textContent = "ConditionalExpression";
         ternaryNode.appendChild(ternaryTypeElement);
-        
+
         // Add details
         const ternaryDetails = document.createElement("div");
         ternaryDetails.className = "ast-node-details";
         ternaryDetails.textContent = "condition ? then : else";
         ternaryNode.appendChild(ternaryDetails);
-        
+
         // Mark all child nodes as complete too
         if (filteredNode.init.test) filteredNode.init.test._isComplete = true;
-        if (filteredNode.init.consequent) filteredNode.init.consequent._isComplete = true;
-        if (filteredNode.init.alternate) filteredNode.init.alternate._isComplete = true;
-        
+        if (filteredNode.init.consequent)
+          filteredNode.init.consequent._isComplete = true;
+        if (filteredNode.init.alternate)
+          filteredNode.init.alternate._isComplete = true;
+
         // Add the condition
         if (filteredNode.init.test) {
           const condContainer = document.createElement("div");
@@ -1359,18 +1362,21 @@ function createAstNodeElement(node, forceHighlight = false) {
           condLabel.className = "ast-node-child-label";
           condLabel.textContent = "condition:";
           condContainer.appendChild(condLabel);
-          
+
           // Pass a clone to avoid modifying the original
-          const condElement = createAstNodeElement({
-            ...filteredNode.init.test,
-            _isComplete: true,
-            _inProgress: false
-          }, false);
-          
+          const condElement = createAstNodeElement(
+            {
+              ...filteredNode.init.test,
+              _isComplete: true,
+              _inProgress: false,
+            },
+            false,
+          );
+
           condContainer.appendChild(condElement);
           ternaryNode.appendChild(condContainer);
         }
-        
+
         // Add the 'then' part
         if (filteredNode.init.consequent) {
           const thenContainer = document.createElement("div");
@@ -1379,18 +1385,21 @@ function createAstNodeElement(node, forceHighlight = false) {
           thenLabel.className = "ast-node-child-label";
           thenLabel.textContent = "then:";
           thenContainer.appendChild(thenLabel);
-          
+
           // Pass a clone to avoid modifying the original
-          const thenElement = createAstNodeElement({
-            ...filteredNode.init.consequent,
-            _isComplete: true,
-            _inProgress: false
-          }, false);
-          
+          const thenElement = createAstNodeElement(
+            {
+              ...filteredNode.init.consequent,
+              _isComplete: true,
+              _inProgress: false,
+            },
+            false,
+          );
+
           thenContainer.appendChild(thenElement);
           ternaryNode.appendChild(thenContainer);
         }
-        
+
         // Add the 'else' part
         if (filteredNode.init.alternate) {
           const elseContainer = document.createElement("div");
@@ -1399,21 +1408,24 @@ function createAstNodeElement(node, forceHighlight = false) {
           elseLabel.className = "ast-node-child-label";
           elseLabel.textContent = "else:";
           elseContainer.appendChild(elseLabel);
-          
+
           // Pass a clone to avoid modifying the original
-          const elseElement = createAstNodeElement({
-            ...filteredNode.init.alternate,
-            _isComplete: true,
-            _inProgress: false
-          }, false);
-          
+          const elseElement = createAstNodeElement(
+            {
+              ...filteredNode.init.alternate,
+              _isComplete: true,
+              _inProgress: false,
+            },
+            false,
+          );
+
           elseContainer.appendChild(elseElement);
           ternaryNode.appendChild(elseContainer);
         }
-        
+
         // Add the ternary node to the container
         ternaryContainer.appendChild(ternaryNode);
-        
+
         // Add to main node
         nodeElement.appendChild(ternaryContainer);
       }
@@ -1424,13 +1436,13 @@ function createAstNodeElement(node, forceHighlight = false) {
         ? "with value"
         : "empty return";
       break;
-        
+
     case "ConditionalExpression":
       detailsElement.textContent = "condition ? then : else";
       break;
-        
+
     case "BinaryExpression":
-      detailsElement.textContent = `${filteredNode.operator || '+'} operation`;
+      detailsElement.textContent = `${filteredNode.operator || "+"} operation`;
       break;
 
     case "Identifier":
@@ -1498,35 +1510,41 @@ function createAstNodeElement(node, forceHighlight = false) {
   // Handle special cases for other child relationships - these should be nested
   // Only show init if we're not at the final step OR the node is complete
   // Skip for const declarations with ternary expressions (we've already handled them)
-  if (filteredNode.init && typeof filteredNode.init === "object" && 
-     !(filteredNode.type === "ConstDeclaration" && filteredNode.init.type === "ConditionalExpression")) {
+  if (
+    filteredNode.init &&
+    typeof filteredNode.init === "object" &&
+    !(
+      filteredNode.type === "ConstDeclaration" &&
+      filteredNode.init.type === "ConditionalExpression"
+    )
+  ) {
     // Mark child nodes with the same completion status as parent
     if (node._isComplete) {
       // Deep completion marking - mark all nodes in this subtree as complete
       const deepMarkComplete = (obj) => {
-        if (!obj || typeof obj !== 'object') return;
-        
+        if (!obj || typeof obj !== "object") return;
+
         // Mark this node as complete
         obj._isComplete = true;
-        
+
         // For ternary operations, mark all parts
-        if (obj.type === 'ConditionalExpression') {
+        if (obj.type === "ConditionalExpression") {
           deepMarkComplete(obj.test);
           deepMarkComplete(obj.consequent);
           deepMarkComplete(obj.alternate);
         }
-        
+
         // For binary operations, mark both sides
-        if (obj.type === 'BinaryExpression') {
+        if (obj.type === "BinaryExpression") {
           deepMarkComplete(obj.left);
           deepMarkComplete(obj.right);
         }
-        
+
         // Mark any other nested expressions
         if (obj.init) deepMarkComplete(obj.init);
         if (obj.argument) deepMarkComplete(obj.argument);
       };
-      
+
       // Apply deep completion marking to this init node
       deepMarkComplete(filteredNode.init);
     }
@@ -1548,29 +1566,29 @@ function createAstNodeElement(node, forceHighlight = false) {
     if (node._isComplete) {
       // Apply the same deep completion marking to the argument node
       const deepMarkComplete = (obj) => {
-        if (!obj || typeof obj !== 'object') return;
-        
+        if (!obj || typeof obj !== "object") return;
+
         // Mark this node as complete
         obj._isComplete = true;
-        
+
         // For ternary operations, mark all parts
-        if (obj.type === 'ConditionalExpression') {
+        if (obj.type === "ConditionalExpression") {
           deepMarkComplete(obj.test);
           deepMarkComplete(obj.consequent);
           deepMarkComplete(obj.alternate);
         }
-        
+
         // For binary operations, mark both sides
-        if (obj.type === 'BinaryExpression') {
+        if (obj.type === "BinaryExpression") {
           deepMarkComplete(obj.left);
           deepMarkComplete(obj.right);
         }
-        
+
         // Mark any other nested expressions
         if (obj.init) deepMarkComplete(obj.init);
         if (obj.argument) deepMarkComplete(obj.argument);
       };
-      
+
       // Apply deep completion marking
       deepMarkComplete(filteredNode.argument);
     }
@@ -1636,21 +1654,22 @@ function createAstNodeElement(node, forceHighlight = false) {
     childrenElement.appendChild(childElement);
     nodeElement.appendChild(childrenElement);
   }
-  
+
   // Handle standalone ConditionalExpression nodes (not inside const declarations)
-  if (filteredNode.type === "ConditionalExpression" && 
-      !filteredNode._isAlreadyRendered) {
-      
+  if (
+    filteredNode.type === "ConditionalExpression" &&
+    !filteredNode._isAlreadyRendered
+  ) {
     // First, mark that we've rendered this ternary to avoid duplicates
     filteredNode._isAlreadyRendered = true;
-    
+
     // Mark all parts as complete if parent is complete
     if (node._isComplete) {
       if (filteredNode.test) filteredNode.test._isComplete = true;
       if (filteredNode.consequent) filteredNode.consequent._isComplete = true;
       if (filteredNode.alternate) filteredNode.alternate._isComplete = true;
     }
-    
+
     // Add condition part
     if (filteredNode.test && typeof filteredNode.test === "object") {
       const condContainer = document.createElement("div");
@@ -1659,26 +1678,29 @@ function createAstNodeElement(node, forceHighlight = false) {
       condLabel.className = "ast-node-child-label";
       condLabel.textContent = "condition:";
       condContainer.appendChild(condLabel);
-      
+
       const condElement = createAstNodeElement(filteredNode.test, false);
       condContainer.appendChild(condElement);
       nodeElement.appendChild(condContainer);
     }
-    
+
     // Add 'then' part
-    if (filteredNode.consequent && typeof filteredNode.consequent === "object") {
+    if (
+      filteredNode.consequent &&
+      typeof filteredNode.consequent === "object"
+    ) {
       const thenContainer = document.createElement("div");
       thenContainer.className = "ast-node-children";
       const thenLabel = document.createElement("div");
       thenLabel.className = "ast-node-child-label";
       thenLabel.textContent = "then:";
       thenContainer.appendChild(thenLabel);
-      
+
       const thenElement = createAstNodeElement(filteredNode.consequent, false);
       thenContainer.appendChild(thenElement);
       nodeElement.appendChild(thenContainer);
     }
-    
+
     // Add 'else' part
     if (filteredNode.alternate && typeof filteredNode.alternate === "object") {
       const elseContainer = document.createElement("div");
@@ -1687,7 +1709,7 @@ function createAstNodeElement(node, forceHighlight = false) {
       elseLabel.className = "ast-node-child-label";
       elseLabel.textContent = "else:";
       elseContainer.appendChild(elseLabel);
-      
+
       const elseElement = createAstNodeElement(filteredNode.alternate, false);
       elseContainer.appendChild(elseElement);
       nodeElement.appendChild(elseContainer);
@@ -1727,51 +1749,51 @@ function scrollIntoViewIfNeeded(element, container) {
 
 /**
  * Shows a toast notification
- * 
+ *
  * @param {string} message - The message to display in the toast
  */
 function showToast(message) {
   // Create toast container if it doesn't exist
-  let toastContainer = document.querySelector('.toast-container');
+  let toastContainer = document.querySelector(".toast-container");
   if (!toastContainer) {
-    toastContainer = document.createElement('div');
-    toastContainer.className = 'toast-container';
+    toastContainer = document.createElement("div");
+    toastContainer.className = "toast-container";
     document.body.appendChild(toastContainer);
   }
-  
+
   // Create the toast element
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  
+  const toast = document.createElement("div");
+  toast.className = "toast";
+
   // Create the message element
-  const msgElement = document.createElement('div');
-  msgElement.className = 'toast-message';
+  const msgElement = document.createElement("div");
+  msgElement.className = "toast-message";
   msgElement.textContent = message;
   toast.appendChild(msgElement);
-  
+
   // Create close button
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'toast-close';
-  closeBtn.innerHTML = '&times;';
-  closeBtn.setAttribute('aria-label', 'Close notification');
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "toast-close";
+  closeBtn.innerHTML = "&times;";
+  closeBtn.setAttribute("aria-label", "Close notification");
   toast.appendChild(closeBtn);
-  
+
   // Add toast to container
   toastContainer.appendChild(toast);
-  
+
   // Handle close button click
-  closeBtn.addEventListener('click', () => {
+  closeBtn.addEventListener("click", () => {
     toast.remove();
   });
-  
+
   // Handle Escape key to dismiss toast
-  document.addEventListener('keydown', function escapeHandler(e) {
-    if (e.key === 'Escape') {
+  document.addEventListener("keydown", function escapeHandler(e) {
+    if (e.key === "Escape") {
       toast.remove();
-      document.removeEventListener('keydown', escapeHandler);
+      document.removeEventListener("keydown", escapeHandler);
     }
   });
-  
+
   // Auto remove after 3 seconds
   setTimeout(() => {
     toast.remove();

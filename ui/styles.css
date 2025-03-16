@@ -33,6 +33,8 @@ h2 {
   overflow-x: auto;
   overflow-y: hidden;
   width: 100%;
+  padding: 15px;
+  padding-bottom: 0;
 }
 
 .visualization-container {
@@ -123,7 +125,6 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-top: 1px solid #ddd;
 }
 
 #scrubber {
@@ -142,7 +143,7 @@ h2 {
   appearance: none;
   width: 16px;
   height: 16px;
-  border-radius: 50%; 
+  border-radius: 50%;
   background: #ccc;
   cursor: pointer;
   transition: background 0.2s;
@@ -166,11 +167,6 @@ h2 {
 
 #scrubber:focus::-moz-range-thumb {
   background: #3498db;
-}
-
-#progress-info {
-  min-width: 40px;
-  text-align: right;
 }
 
 .example-selector {
