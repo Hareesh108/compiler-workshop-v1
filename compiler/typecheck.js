@@ -409,9 +409,12 @@ function enterScope(state) {
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
 
-  emitTypecheckEvent(state, "enterScope", {
-    parentScope: outerScope ? Object.keys(outerScope) : [],
-  });
+  // Only emit enterScope event if this is not the first scope (top-level)
+  if (state.previousScope !== null) {
+    emitTypecheckEvent(state, "enterScope", {
+      parentScope: outerScope ? Object.keys(outerScope) : [],
+    });
+  }
 
   state.previousScope = outerScope;
   state.currentScope = newScope;
