@@ -489,7 +489,7 @@ function updateVisualization(state) {
     state.ui.nameResolutionListElement.innerHTML = "";
 
     if (astTitle) {
-      astTitle.textContent = `Abstract Syntax Tree (Step ${astStepIndex + 1}/${state.astSteps.length})`;
+      astTitle.textContent = `Abstract Syntax Tree`;
     }
   }
   else {
@@ -509,7 +509,7 @@ function updateVisualization(state) {
     updateNameResolutionDisplay(state, nameResolutionStepIndex);
 
     if (nameResolutionTitle) {
-      nameResolutionTitle.textContent = `Name Resolution (Step ${nameResolutionStepIndex + 1}/${state.nameResolutionEvents.length})`;
+      nameResolutionTitle.textContent = `Name Resolution`;
     }
   }
 }
@@ -743,16 +743,6 @@ function updateAstDisplay(state, astStepIndex) {
     const event = state.astSteps[i];
     if (!event) continue;
 
-    // Log all events for debugging
-    console.log(`AST Event ${i}: ${event.type}`,
-      event.node ? {
-        type: event.node.type,
-        operator: event.node.operator,
-        name: event.node.name,
-        value: event.node.value
-      } : 'No node');
-
-    // NEVER FILTER OUT BinaryExpression events
     if (event.type.includes('BinaryExpression')) {
       // Process this event - don't skip it
     }
