@@ -577,7 +577,6 @@ function emitNameResolutionEvent(state, eventType, details) {
  */
 function isNodeWithScope(node) {
   return node && (
-    node.type === "Program" ||
     node.type === "ArrowFunctionExpression" ||
     node.type === "BlockStatement"
   );
