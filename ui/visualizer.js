@@ -1258,7 +1258,7 @@ function updateTypecheckDisplay(state, stepIndex) {
     switch (event.type) {
       case "newTypeVar":
         eventElement.classList.add("typecheck-new-var");
-        eventDetails = `New type variable: ${event.typeVar.name}`;
+        eventDetails = `New var: ${event.typeVar.name}`;
         break;
 
       case "unifyStart":
@@ -1349,7 +1349,7 @@ style.textContent = `
     font-style: italic;
     font-size: 0.9em;
   }
-  
+
   /* Typecheck display styles */
   .typecheck-event {
     padding: 4px 8px;
@@ -1360,47 +1360,47 @@ style.textContent = `
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  
+
   .typecheck-event-current {
     background-color: rgba(255, 255, 0, 0.2);
     font-weight: bold;
   }
-  
+
   .typecheck-new-var {
     color: #6a0dad; /* Purple */
   }
-  
+
   .typecheck-unify-start {
     color: #0000ff; /* Blue */
   }
-  
+
   .typecheck-unify-complete {
     color: #008000; /* Green */
   }
-  
+
   .typecheck-error {
     color: #ff0000; /* Red */
     background-color: rgba(255, 0, 0, 0.1);
   }
-  
+
   .typecheck-assign {
     color: #ff8c00; /* Orange */
   }
-  
+
   .typecheck-function,
   .typecheck-array {
     color: #4682b4; /* Steel Blue */
   }
-  
+
   .typecheck-success {
     color: #228b22; /* Forest Green */
   }
-  
+
   .typecheck-scope {
     color: #808080; /* Gray */
     font-style: italic;
   }
-  
+
   /* Indentation for nested operations */
   .typecheck-indent-1 { padding-left: 20px; }
   .typecheck-indent-2 { padding-left: 40px; }
