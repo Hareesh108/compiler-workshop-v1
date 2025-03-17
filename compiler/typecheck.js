@@ -158,74 +158,28 @@ function typeToString(type) {
 /**
  * Report a type error
  *
+ * This records a type error with location information to help
+ * the user identify and fix the problem.
+ *
  * @param {Array} errors - Array to add the error to
  * @param {string} message - Error message
  * @param {object} node - AST node where the error occurred
- * @param {object} [state] - Current state for event emission
  */
-function reportError(errors, message, node, state) {
+function reportError(errors, message, node) {
+  let location = "unknown position";
+
+  // Try to get position information from the node
+  if (node.position !== undefined) {
+    location = `position ${node.position}`;
+  } else if (node.id && node.id.position !== undefined) {
+    location = `position ${node.id.position}`;
+  }
+
+  // Add the error to our list
   errors.push({
-    message,
-    location: node.location,
-    type: "TypeError",
+    message: `${message} at ${location}`,
+    node,
   });
-
-  // Emit a type inference event for the error if state is provided
-  if (state) {
-    emitTypeInferenceEvent(state, 'error', {
-      message,
-      location: node.location,
-      type: "TypeError",
-      node
-    });
-  }
-}
-
-/**
- * Emit a type inference event
- *
- * This function is used to emit events during type inference.
- * Events are only emitted if a callback is provided in the options.
- *
- * @param {object} state - Current typing state
- * @param {string} eventType - Type of event
- * @param {object} eventDetails - Details of the event
- */
-function emitTypeInferenceEvent(state, eventType, eventDetails) {
-  console.log(`[typecheck] emitTypeInferenceEvent called with event: ${eventType}`);
-
-  if (!state) {
-    console.error('[typecheck] Cannot emit event: state is null or undefined');
-    return;
-  }
-
-  if (!state.options) {
-    console.error('[typecheck] Cannot emit event: state.options is null or undefined');
-    return;
-  }
-
-  if (typeof state.options.typeInferenceCallback !== 'function') {
-    console.warn(`[typecheck] No callback function found for event: ${eventType}`);
-    return;
-  }
-
-  // Create the event object
-  const event = {
-    type: eventType,
-    ...eventDetails,
-    timestamp: Date.now()
-  };
-
-  // Log the event for debugging
-  console.log(`[typecheck] Emitting type inference event: ${eventType}`);
-
-  try {
-    // Call the callback
-    state.options.typeInferenceCallback(event);
-    console.log(`[typecheck] Successfully emitted event: ${eventType}`);
-  } catch (error) {
-    console.error(`[typecheck] Error in callback for event ${eventType}:`, error);
-  }
 }
 
 /**
@@ -239,15 +193,7 @@ function emitTypeInferenceEvent(state, eventType, eventDetails) {
 function newTypeVar(state, name = null) {
   const id = state.nextTypeVarId;
   state.nextTypeVarId = state.nextTypeVarId + 1;
-  const typeVar = { kind: "TypeVariable", id, name: name || `t${id}`, symlink: null };
-
-  // Emit an event for creating a new type variable
-  emitTypeInferenceEvent(state, 'createTypeVar', {
-    typeVar: { ...typeVar },
-    node: state.currentNode
-  });
-
-  return typeVar;
+  return { kind: "TypeVariable", id, name: name || `t${id}`, symlink: null };
 }
 
 /**
@@ -258,7 +204,6 @@ function newTypeVar(state, name = null) {
  * should be independent. For example, if a function has type
  * (a -> a), each call to the function should use fresh type variables.
  *
- * @param {object} state - Current type inference state
  * @param {object} type - The type to create a fresh instance of
  * @param {Map} mappings - Map to track variables (defaults to new map)
  * @returns {object} - A fresh instance of the type
@@ -270,13 +215,6 @@ function freshInstance(state, type, mappings = new Map()) {
     // If we haven't seen this type variable before, create a fresh copy
     if (!mappings.has(type)) {
       mappings.set(type, newTypeVar(state));
-
-      // Emit an event for freshening a type variable
-      emitTypeInferenceEvent(state, 'freshenTypeVar', {
-        originalTypeVar: { ...type },
-        newTypeVar: { ...mappings.get(type) },
-        node: state.currentNode
-      });
     }
     return mappings.get(type);
   } else if (type.kind === "FunctionType") {
@@ -345,13 +283,6 @@ function unify(state, t1, t2, node) {
   t1 = compress(t1);
   t2 = compress(t2);
 
-  // Emit event before unification
-  emitTypeInferenceEvent(state, 'unifyStart', {
-    t1: { ...t1 },
-    t2: { ...t2 },
-    node: node || state.currentNode
-  });
-
   // Case 1: First type is a variable
   if (t1.kind === "TypeVariable") {
     // If they're not already the same variable
@@ -362,29 +293,12 @@ function unify(state, t1, t2, node) {
           state.errors,
           `Infinite unification: cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
           node,
-          state
         );
-
-        // Emit error event
-        emitTypeInferenceEvent(state, 'unifyError', {
-          t1: { ...t1 },
-          t2: { ...t2 },
-          error: 'infinite',
-          node: node || state.currentNode
-        });
-
         return;
       }
 
       // Set the type variable to point to the other type
       t1.symlink = t2;
-
-      // Emit type variable binding event
-      emitTypeInferenceEvent(state, 'bindTypeVar', {
-        typeVar: { ...t1, symlink: null }, // Don't include the symlink to avoid circular references
-        type: { ...t2 },
-        node: node || state.currentNode
-      });
     }
   }
   // Case 2: Both are function types
@@ -392,31 +306,11 @@ function unify(state, t1, t2, node) {
     // Recursively unify parameter and return types
     unify(state, t1.paramType, t2.paramType, node);
     unify(state, t1.returnType, t2.returnType, node);
-
-    // Emit function type unification event
-    emitTypeInferenceEvent(state, 'unifyFunction', {
-      t1: {
-        paramType: { ...compress(t1.paramType) },
-        returnType: { ...compress(t1.returnType) }
-      },
-      t2: {
-        paramType: { ...compress(t2.paramType) },
-        returnType: { ...compress(t2.returnType) }
-      },
-      node: node || state.currentNode
-    });
   }
   // Case 3: Both are array types
   else if (t1.kind === "ArrayType" && t2.kind === "ArrayType") {
     // Recursively unify element types
     unify(state, t1.elementType, t2.elementType, node);
-
-    // Emit array type unification event
-    emitTypeInferenceEvent(state, 'unifyArray', {
-      t1: { elementType: { ...compress(t1.elementType) } },
-      t2: { elementType: { ...compress(t2.elementType) } },
-      node: node || state.currentNode
-    });
   }
   // Case 4: Both are concrete types
   else if (t1.kind === "PrimitiveType" && t2.kind === "PrimitiveType") {
@@ -426,23 +320,7 @@ function unify(state, t1, t2, node) {
         state.errors,
         `Type mismatch: ${typeToString(t1)} is not compatible with ${typeToString(t2)}`,
         node,
-        state
       );
-
-      // Emit type mismatch error event
-      emitTypeInferenceEvent(state, 'unifyError', {
-        t1: { ...t1 },
-        t2: { ...t2 },
-        error: 'mismatch',
-        node: node || state.currentNode
-      });
-    } else {
-      // Emit primitive type unification success event
-      emitTypeInferenceEvent(state, 'unifyPrimitive', {
-        t1: { ...t1 },
-        t2: { ...t2 },
-        node: node || state.currentNode
-      });
     }
   }
   // Case 5: Second type is a variable (swap and try again)
@@ -455,24 +333,8 @@ function unify(state, t1, t2, node) {
       state.errors,
       `Cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
       node,
-      state
     );
-
-    // Emit type incompatibility error event
-    emitTypeInferenceEvent(state, 'unifyError', {
-      t1: { ...t1 },
-      t2: { ...t2 },
-      error: 'incompatible',
-      node: node || state.currentNode
-    });
   }
-
-  // Emit event after unification
-  emitTypeInferenceEvent(state, 'unifyComplete', {
-    t1: { ...compress(t1) },
-    t2: { ...compress(t2) },
-    node: node || state.currentNode
-  });
 }
 
 /**
@@ -491,12 +353,6 @@ function enterScope(state) {
 
   state.previousScope = outerScope;
   state.currentScope = newScope;
-
-  // Emit scope entry event
-  emitTypeInferenceEvent(state, 'enterScope', {
-    previousScopeSize: Object.keys(state.previousScope || {}).length,
-    node: state.currentNode
-  });
 }
 
 /**
@@ -506,12 +362,6 @@ function enterScope(state) {
  */
 function exitScope(state) {
   state.currentScope = state.previousScope;
-
-  // Emit scope exit event
-  emitTypeInferenceEvent(state, 'exitScope', {
-    scopeSize: Object.keys(state.currentScope || {}).length,
-    node: state.currentNode
-  });
 }
 
 /**
@@ -538,7 +388,6 @@ function checkReturnPosition(state, node, body) {
       state.errors,
       `Return statement must be the last statement in a function`,
       body[returnIndex],
-      state
     );
     return false;
   }
@@ -547,103 +396,68 @@ function checkReturnPosition(state, node, body) {
 }
 
 /**
- * Infer the type of an AST node
+ * Analyze an AST node and infer its type
  *
- * This is the main entry point for type inference. It dispatches
- * to specific inference functions based on the node type.
+ * This is the main type inference function that dispatches to
+ * specialized functions based on the node type.
  *
- * @param {object} state - Typing state
- * @param {object} node - AST node
- * @returns {object} - Inferred type of the node
+ * @param {object} state - Current type inference state
+ * @param {object} node - AST node to analyze
+ * @returns {object} - Inferred type
  */
 function infer(state, node) {
-  if (!node) {
-    return primitive(Types.Unknown);
+  // Handle null/undefined or non-object nodes
+  if (!node || typeof node !== "object") {
+    return newTypeVar(state);
   }
 
-  // Keep track of current node for error reporting
-  state.currentNode = node;
-
-  // Emit node inference start event
-  emitTypeInferenceEvent(state, 'inferNodeStart', {
-    nodeType: node.type,
-    node: node
-  });
-
-  let type;
-
-  // Assign a type to the node based on its type
+  // Dispatch based on node type
   switch (node.type) {
+    // Program structure
     case "Program":
-      type = inferTypeProgram(state, node);
-      break;
+      return inferTypeProgram(state, node);
 
+    // Literals
     case "NumericLiteral":
-      type = inferTypeNumericLiteral(state, node);
-      break;
+      return inferTypeNumericLiteral(state, node);
 
     case "StringLiteral":
-      type = inferTypeStringLiteral(state, node);
-      break;
+      return inferTypeStringLiteral(state, node);
 
     case "BooleanLiteral":
-      type = inferTypeBooleanLiteral(state, node);
-      break;
+      return inferTypeBooleanLiteral(state, node);
 
     case "ArrayLiteral":
-      type = inferTypeArrayLiteral(state, node);
-      break;
+      return inferTypeArrayLiteral(state, node);
 
     case "Identifier":
-      type = inferTypeIdentifier(state, node);
-      break;
+      return inferTypeIdentifier(state, node);
 
     case "BinaryExpression":
-      type = inferTypeBinaryExpression(state, node);
-      break;
+      return inferTypeBinaryExpression(state, node);
 
     case "ConditionalExpression":
-      type = inferTernary(state, node);
-      break;
-
-    case "MemberExpression":
-      type = inferTypeMemberExpression(state, node);
-      break;
+      return inferTernary(state, node);
 
     case "ArrowFunctionExpression":
-      type = inferTypeArrowFunction(state, node);
-      break;
+      return inferTypeArrowFunction(state, node);
 
     case "CallExpression":
-      type = inferTypeCallExpression(state, node);
-      break;
+      return inferTypeCallExpression(state, node);
 
-    case "ReturnStatement":
-      type = inferTypeReturnStatement(state, node);
-      break;
+    case "MemberExpression":
+      return inferTypeMemberExpression(state, node);
 
     case "ConstDeclaration":
-      type = inferTypeConstDeclaration(state, node);
-      break;
+      return inferTypeConstDeclaration(state, node);
+
+    case "ReturnStatement":
+      return inferTypeReturnStatement(state, node);
 
     default:
-      // For unknown node types, assign unknown type
-      console.warn(`Unknown node type: ${node.type}`);
-      type = primitive(Types.Unknown);
-      break;
+      reportError(state.errors, `Unknown node type: ${node.type}`, node);
+      return newTypeVar(state);
   }
-
-  // Add the type to the node itself for later reference
-  node._type = type;
-
-  // Emit node inference end event with the inferred type
-  emitTypeInferenceEvent(state, 'inferNodeComplete', {
-    nodeType: node.type,
-    inferredType: { ...compress(type) },
-    node: node
-  });
-
-  return type;
 }
 
 /**
@@ -688,7 +502,7 @@ function inferTypeCallExpression(state, node) {
         return returnType;
       }
     } else {
-      reportError(state.errors, "Called value is not a function", node, state);
+      reportError(state.errors, "Called value is not a function", node);
       return newTypeVar(state);
     }
   }
@@ -707,7 +521,6 @@ function inferTypeCallExpression(state, node) {
         state.errors,
         `Too many arguments provided to function`,
         node,
-        state
       );
       return newTypeVar(state);
     }
@@ -834,7 +647,6 @@ function inferTypeBinaryExpression(state, node) {
               state.errors,
               `The '+' operator requires either numeric operands or string operands`,
               node,
-              state
             );
             return newTypeVar(state);
           }
@@ -846,7 +658,6 @@ function inferTypeBinaryExpression(state, node) {
         state.errors,
         `Unsupported binary operator: ${node.operator}`,
         node,
-        state
       );
       return newTypeVar(state);
   }
@@ -1161,17 +972,9 @@ function inferTypeReturnStatement(state, node) {
  * Analyze the AST and infer types
  *
  * @param {object} ast - AST to analyze
- * @param {object} [options] - Options for type inference
- * @param {Function} [options.typeInferenceCallback] - Callback for type inference events
  * @returns {object} - Result with AST and errors
  */
-function inferAst(ast, options = {}) {
-  // Debug log to verify options
-  console.log("inferAst called with options:", options);
-  if (options.typeInferenceCallback) {
-    console.log("inferAst has typeInferenceCallback");
-  }
-
+function inferAst(ast) {
   // Initialize the typing environment
   const state = {
     errors: [],
@@ -1180,8 +983,6 @@ function inferAst(ast, options = {}) {
     nonGeneric: new Set(),
     // Counter for generating unique IDs for type variables
     nextTypeVarId: 0,
-    // Options including callbacks
-    options
   };
 
   infer(state, ast);
@@ -1194,21 +995,11 @@ function inferAst(ast, options = {}) {
  *
  * @param {object} ast - AST to analyze
  * @param {Array} nameErrors - Errors from name resolution
- * @param {object} [options] - Options for type inference
- * @param {Function} [options.typeInferenceCallback] - Callback for type inference events
  * @returns {object} - Result with AST and all errors
  */
-function typecheck(ast, nameErrors = [], options = {}) {
-  // Make sure options is properly initialized
-  options = options || {};
-
-  // Log the callback for debugging
-  if (options.typeInferenceCallback) {
-    console.log("Type inference callback provided");
-  }
-
+function typecheck(ast, nameErrors = []) {
   // Perform type inference
-  const { errors: typeErrors } = inferAst(ast, options);
+  const { errors: typeErrors } = inferAst(ast);
 
   // Combine errors from name resolution and type inference
   return {
@@ -1217,69 +1008,10 @@ function typecheck(ast, nameErrors = [], options = {}) {
   };
 }
 
-/**
- * Type check an AST
- *
- * This is the main entry point for type checking. It creates a new
- * typing state and infers the type of the AST.
- *
- * @param {object} ast - AST to type check
- * @param {object} options - Options for type checking
- * @returns {object} - Type checking result
- */
-function typeCheck(ast, options = {}) {
-  // Create a new typing state
-  const state = {
-    errors: [],
-    env: new Map(),
-    typeVarCounter: 0,
-    currentNode: null,
-    options: options
-  };
-
-  // Infer the type of the AST
-  const type = infer(state, ast);
-
-  // Return the result
-  return {
-    type,
-    errors: state.errors
-  };
-}
-
-// Export for browser environment
-if (typeof window !== "undefined") {
-  // Make sure CompilerModule is initialized
-  window.CompilerModule = window.CompilerModule || {};
-
-  // Log the exports for debugging
-  console.log("[typecheck.js] Exporting to window.CompilerModule:", {
-    typecheck: typeof typecheck === 'function' ? 'function exists' : 'not a function',
-    inferAst: typeof inferAst === 'function' ? 'function exists' : 'not a function',
-    Types: Types ? 'exists' : 'not defined',
-    typeToString: typeof typeToString === 'function' ? 'function exists' : 'not a function',
-  });
-
-  // Export functions and objects to window.CompilerModule
-  window.CompilerModule.typecheck = typecheck;
-  window.CompilerModule.inferAst = inferAst;
-  window.CompilerModule.Types = Types;
-  window.CompilerModule.typeToString = typeToString;
-
-  // Also expose directly on window for compatibility with functions that look for them there
-  window.typecheck = typecheck;
-  window.inferAst = inferAst;
-  window.typeToString = typeToString;
-  window.Types = Types;
-}
-
-// Export for Node.js environment
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {
-    infer: inferAst,
-    typecheck,
-    Types,
-    typeToString,
-    createArrayType,
-  };
-}
+module.exports = {
+  infer: inferAst,
+  typecheck,
+  Types,
+  typeToString,
+  createArrayType,
+};
