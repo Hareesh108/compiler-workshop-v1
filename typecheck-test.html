@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Type Checker Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      line-height: 1.5;
+    }
+    #container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    #source-input {
+      width: 100%;
+      height: 200px;
+      font-family: monospace;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    button {
+      padding: 10px 15px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #2b6cb0;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow: auto;
+      max-height: 300px;
+    }
+    .result-section {
+      margin-top: 20px;
+      border-top: 1px solid #eee;
+      padding-top: 10px;
+    }
+    #type-inference-display {
+      border: 1px solid #ddd;
+      padding: 10px;
+      background: #fff;
+      margin-top: 10px;
+      max-height: 400px;
+      overflow: auto;
+    }
+    .type-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .type-table th, .type-table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    .type-table th {
+      background-color: #f2f2f2;
+    }
+    .type-diff-added {
+      background-color: #e6ffed;
+    }
+    .type-diff-changed {
+      background-color: #fff9c4;
+    }
+    .type-error {
+      color: #cc0000;
+    }
+    .type-event-details {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Type Checker Test</h1>
+
+  <div id="container">
+    <div>
+      <h2>Source Code</h2>
+      <textarea id="source-input">const greeting = "Hello";
+const audience = true ? "world" : "nobody";
+const getMessage = () => {
+  return greeting + " " + audience;
+};</textarea>
+      <div>
+        <button id="run-button">Run Type Checker</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Type Inference</h2>
+      <div id="type-inference-display">
+        <div class="no-data">No type inference data yet. Run the type checker first.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="result-section">
+    <h2>Abstract Syntax Tree</h2>
+    <pre id="ast-output">No AST data yet.</pre>
+  </div>
+
+  <div class="result-section">
+    <h2>Console Output</h2>
+    <pre id="console-output">No output yet.</pre>
+  </div>
+
+  <!-- Include the necessary compiler modules -->
+  <script src="compiler/parse.js"></script>
+  <script src="compiler/typecheck.js"></script>
+
+  <!-- Helper functions from visualizer.js -->
+  <script>
+    // Store type inference events
+    let typeInferenceEvents = [];
+    let typeInferenceTable = {};
+    let typeVariables = new Map();
+
+    // Helper function to scroll an element into view if not already visible
+    function scrollIntoViewIfNeeded(element, container) {
+      const elementRect = element.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      const isNotFullyVisible =
+        elementRect.bottom > containerRect.bottom ||
+        elementRect.top < containerRect.top ||
+        elementRect.right > containerRect.right ||
+        elementRect.left < containerRect.left;
+
+      if (isNotFullyVisible) {
+        element.scrollIntoView({
+          behavior: "auto",
+          block: "nearest",
+          inline: "nearest"
+        });
+      }
+    }
+
+    function safeFormatType(type) {
+      try {
+        console.log('[test] safeFormatType called with:', type);
+
+        if (!type) {
+          console.log('[test] safeFormatType: type is null or undefined');
+          return 'undefined';
+        }
+
+        if (window.CompilerModule && window.CompilerModule.typeToString) {
+          console.log('[test] safeFormatType: using CompilerModule.typeToString');
+          try {
+            return window.CompilerModule.typeToString(type);
+          } catch (err) {
+            console.error('[test] Error in CompilerModule.typeToString:', err);
+          }
+        }
+
+        if (typeof type === 'string') {
+          return type;
+        }
+
+        if (type.kind === 'TypeVariable' || type.kind === 'var') {
+          const varId = type.id || type.name || 'unknown';
+          return `TypeVar(${varId})`;
+        }
+
+        if (type.kind === 'FunctionType' || type.kind === 'function') {
+          if (type.paramType) {
+            return `(${safeFormatType(type.paramType)}) => ${safeFormatType(type.returnType)}`;
+          } else if (type.paramTypes) {
+            return `(${type.paramTypes.map(safeFormatType).join(', ')}) => ${safeFormatType(type.returnType)}`;
+          } else {
+            return 'Function';
+          }
+        }
+
+        if (type.kind === 'PrimitiveType' || type.kind === 'primitive') {
+          const typeName = type.type || type.name || 'Unknown';
+          return typeName;
+        }
+
+        if (type.kind === 'ArrayType' || type.kind === 'array') {
+          return `Array<${safeFormatType(type.elementType)}>`;
+        }
+
+        if (typeof type === 'object') {
+          try {
+            return JSON.stringify(type);
+          } catch (e) {
+            return '[Complex Object]';
+          }
+        }
+
+        return String(type);
+      } catch (error) {
+        console.error('[test] Error in safeFormatType:', error);
+        return '[Error]';
+      }
+    }
+
+    function calculateTableDiff(oldTable, newTable) {
+      const diff = {
+        added: {},
+        removed: {},
+        changed: {}
+      };
+
+      for (const id in oldTable) {
+        if (!newTable[id]) {
+          diff.removed[id] = oldTable[id];
+        } else if (JSON.stringify(oldTable[id]) !== JSON.stringify(newTable[id])) {
+          diff.changed[id] = {
+            from: oldTable[id],
+            to: newTable[id]
+          };
+        }
+      }
+
+      for (const id in newTable) {
+        if (!oldTable[id]) {
+          diff.added[id] = newTable[id];
+        }
+      }
+
+      return diff;
+    }
+
+    function buildTypeInferenceTable(upToIndex) {
+      console.log(`[test] buildTypeInferenceTable called for index ${upToIndex}, total events: ${typeInferenceEvents.length}`);
+
+      const newTable = {};
+      typeVariables = new Map();
+
+      for (let i = 0; i <= upToIndex && i < typeInferenceEvents.length; i++) {
+        const event = typeInferenceEvents[i];
+        if (!event) {
+          console.warn(`[test] Event at index ${i} is null or undefined`);
+          continue;
+        }
+
+        console.log(`[test] Processing event ${i}/${upToIndex}: ${event.type}`);
+
+        switch (event.type) {
+          case 'createTypeVar':
+            if (event.typeVar) {
+              const id = event.typeVar.id;
+              newTable[id] = {
+                id: id,
+                name: event.typeVar.name || `t${id}`,
+                value: 'unbound',
+                constraints: [],
+                origin: event.node ? event.node.type : 'unknown'
+              };
+              typeVariables.set(id, event.typeVar);
+              console.log(`[test] Added type var ${id} to table`);
+            } else {
+              console.warn(`[test] createTypeVar event has no typeVar property:`, event);
+            }
+            break;
+
+          case 'bindTypeVar':
+            if (event.typeVar && event.typeVar.id && newTable[event.typeVar.id]) {
+              const id = event.typeVar.id;
+              newTable[id].value = safeFormatType(event.type || event.boundTo);
+              typeVariables.set(id, event.type || event.boundTo);
+              console.log(`[test] Updated type var ${id} with binding`);
+            } else {
+              console.warn(`[test] bindTypeVar event missing required properties:`, event);
+            }
+            break;
+
+          case 'unifyError':
+            const errorMessage = event.message || event.error;
+            console.log(`[test] Processing unifyError event:`, errorMessage);
+
+            let handled = false;
+
+            if (event.t1 && event.t1.kind === 'TypeVariable' && newTable[event.t1.id]) {
+              newTable[event.t1.id].error = errorMessage;
+              console.log(`[test] Added error to type var ${event.t1.id}`);
+              handled = true;
+            } else if (event.typeA && event.typeA.kind === 'TypeVariable' && newTable[event.typeA.id]) {
+              newTable[event.typeA.id].error = errorMessage;
+              console.log(`[test] Added error to type var ${event.typeA.id}`);
+              handled = true;
+            }
+
+            if (event.t2 && event.t2.kind === 'TypeVariable' && newTable[event.t2.id]) {
+              newTable[event.t2.id].error = errorMessage;
+              console.log(`[test] Added error to type var ${event.t2.id}`);
+              handled = true;
+            } else if (event.typeB && event.typeB.kind === 'TypeVariable' && newTable[event.typeB.id]) {
+              newTable[event.typeB.id].error = errorMessage;
+              console.log(`[test] Added error to type var ${event.typeB.id}`);
+              handled = true;
+            }
+
+            if (!handled) {
+              console.warn(`[test] Could not add error to any type vars in unifyError event:`, event);
+            }
+            break;
+
+          case 'unifyFunction':
+          case 'unifyArray':
+          case 'unifyPrimitive':
+          case 'unifyComplete':
+            console.log(`[test] Received unification event: ${event.type}`);
+            break;
+
+          case 'inferNodeStart':
+          case 'inferNodeComplete':
+            console.log(`[test] Received node inference event: ${event.type} for ${event.nodeType || 'unknown node type'}`);
+            break;
+
+          case 'addConstraint':
+            if (event.typeVar && event.typeVar.id && newTable[event.typeVar.id]) {
+              newTable[event.typeVar.id].constraints.push(safeFormatType(event.constraint));
+              console.log(`[test] Added constraint to type var ${event.typeVar.id}`);
+            } else {
+              console.warn(`[test] addConstraint event missing required properties:`, event);
+            }
+            break;
+
+          default:
+            console.log(`[test] Unhandled event type: ${event.type}`);
+        }
+      }
+
+      console.log(`[test] Built table with ${Object.keys(newTable).length} type variables`);
+      return newTable;
+    }
+
+    function updateTypeInferenceDisplay(stepIndex) {
+      const container = document.getElementById('type-inference-display');
+      console.log('[test] updateTypeInferenceDisplay container:', container ? 'found' : 'not found', 'for step', stepIndex);
+
+      if (!container) {
+        console.error('[test] Type inference display container not found');
+        return;
+      }
+
+      console.log(`[test] Updating type inference display for step ${stepIndex} with ${typeInferenceEvents.length} total events`);
+
+      const currentTable = buildTypeInferenceTable(stepIndex);
+      const prevTable = stepIndex > 0 ? buildTypeInferenceTable(stepIndex - 1) : {};
+
+      const currentTableSize = Object.keys(currentTable).length;
+      const prevTableSize = Object.keys(prevTable).length;
+      console.log(`[test] Table sizes - current: ${currentTableSize}, previous: ${prevTableSize}`);
+
+      const diff = calculateTableDiff(prevTable, currentTable);
+      console.log(`[test] Table diff - added: ${Object.keys(diff.added).length}, changed: ${Object.keys(diff.changed).length}, removed: ${Object.keys(diff.removed).length}`);
+
+      let html = '<div class="type-table">';
+      html += '<table>';
+      html += '<thead><tr><th>ID</th><th>Value</th><th>Constraints</th><th>Origin</th></tr></thead>';
+      html += '<tbody>';
+
+      const sortedIds = Object.keys(currentTable).sort((a, b) => parseInt(a) - parseInt(b));
+
+      if (sortedIds.length === 0) {
+        html += '<tr><td colspan="4" class="no-data">No type variables yet</td></tr>';
+      } else {
+        for (const id of sortedIds) {
+          const entry = currentTable[id];
+          let rowClass = '';
+
+          if (diff.added[id]) {
+            rowClass = 'type-diff-added';
+          } else if (diff.changed[id]) {
+            rowClass = 'type-diff-changed';
+          }
+
+          html += `<tr class="${rowClass}">`;
+          html += `<td>TypeVar(${entry.id}${entry.name ? `: ${entry.name}` : ''})</td>`;
+          html += `<td class="${entry.error ? 'type-error' : ''}">${entry.value}</td>`;
+          html += `<td>${entry.constraints.join(', ') || '-'}</td>`;
+          html += `<td>${entry.origin}</td>`;
+          html += '</tr>';
+        }
+      }
+
+      html += '</tbody></table></div>';
+
+      const currentEvent = typeInferenceEvents[stepIndex];
+      if (currentEvent) {
+        html += '<div class="type-event-details">';
+        html += `<h3>Event: ${currentEvent.type}</h3>`;
+
+        if (currentEvent.message) {
+          html += `<p class="event-message">${currentEvent.message}</p>`;
+        }
+
+        if (currentEvent.error) {
+          html += `<p class="event-error">${currentEvent.error}</p>`;
+        }
+
+        if (currentEvent.nodeType) {
+          html += `<p class="event-node">Node Type: ${currentEvent.nodeType}</p>`;
+        } else if (currentEvent.node && currentEvent.node.type) {
+          html += `<p class="event-node">Node Type: ${currentEvent.node.type}</p>`;
+        }
+
+        switch (currentEvent.type) {
+          case 'createTypeVar':
+            if (currentEvent.typeVar) {
+              html += `<p class="event-detail">Created type variable: ${safeFormatType(currentEvent.typeVar)}</p>`;
+            }
+            break;
+
+          case 'bindTypeVar':
+            if (currentEvent.typeVar) {
+              html += `<p class="event-detail">Bound type variable ${safeFormatType(currentEvent.typeVar)} to ${safeFormatType(currentEvent.type || currentEvent.boundTo)}</p>`;
+            }
+            break;
+
+          case 'unifyStart':
+            html += `<p class="event-detail">Unifying types:</p>`;
+            html += `<p class="event-detail-item">Type A: ${safeFormatType(currentEvent.t1 || currentEvent.typeA)}</p>`;
+            html += `<p class="event-detail-item">Type B: ${safeFormatType(currentEvent.t2 || currentEvent.typeB)}</p>`;
+            break;
+
+          case 'unifyComplete':
+            html += `<p class="event-detail">Unified types:</p>`;
+            html += `<p class="event-detail-item">Type A: ${safeFormatType(currentEvent.t1 || currentEvent.typeA)}</p>`;
+            html += `<p class="event-detail-item">Type B: ${safeFormatType(currentEvent.t2 || currentEvent.typeB)}</p>`;
+            break;
+        }
+
+        html += '</div>';
+      }
+
+      console.log(`[test] Generated HTML length: ${html.length} characters`);
+
+      try {
+        container.innerHTML = html;
+        console.log(`[test] Set container.innerHTML successfully`);
+      } catch (error) {
+        console.error(`[test] Error setting container.innerHTML:`, error);
+      }
+
+      if (stepIndex >= 0 && stepIndex < typeInferenceEvents.length) {
+        const typeVarElements = container.querySelectorAll('.type-diff-added, .type-diff-changed');
+        if (typeVarElements.length > 0) {
+          console.log(`[test] Found ${typeVarElements.length} highlighted type var elements`);
+          try {
+            scrollIntoViewIfNeeded(typeVarElements[0], container);
+            console.log(`[test] Scrolled to highlighted element`);
+          } catch (error) {
+            console.error(`[test] Error scrolling to element:`, error);
+          }
+        } else {
+          console.log(`[test] No highlighted type var elements found`);
+        }
+      }
+
+      console.log(`[test] Type inference display updated with ${sortedIds.length} type variables`);
+    }
+
+    // Listen for type inference events from the type checker
+    function typeInferenceCallback(event) {
+      console.log('[test] typeInferenceCallback received event:', event.type);
+
+      event.step = typeInferenceEvents.length;
+      console.log(`[test] Processing type inference event #${event.step}: ${event.type}`, event);
+
+      typeInferenceEvents.push(event);
+
+      try {
+        updateTypeInferenceDisplay(typeInferenceEvents.length - 1);
+        console.log(`[test] UI updated after event #${event.step}`);
+      } catch (error) {
+        console.error(`[test] Error updating UI after event #${event.step}:`, error);
+      }
+    }
+
+    // Custom console log capture
+    const originalConsoleLog = console.log;
+    const originalConsoleError = console.error;
+    const originalConsoleWarn = console.warn;
+
+    console.log = function(...args) {
+      const output = document.getElementById('console-output');
+      if (output) {
+        output.textContent += args.map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+        ).join(' ') + '\n';
+        output.scrollTop = output.scrollHeight;
+      }
+      originalConsoleLog.apply(console, args);
+    };
+
+    console.error = function(...args) {
+      const output = document.getElementById('console-output');
+      if (output) {
+        output.textContent += '❌ ERROR: ' + args.map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+        ).join(' ') + '\n';
+        output.scrollTop = output.scrollHeight;
+      }
+      originalConsoleError.apply(console, args);
+    };
+
+    console.warn = function(...args) {
+      const output = document.getElementById('console-output');
+      if (output) {
+        output.textContent += '⚠️ WARNING: ' + args.map(arg =>
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+        ).join(' ') + '\n';
+        output.scrollTop = output.scrollHeight;
+      }
+      originalConsoleWarn.apply(console, args);
+    };
+
+    // Main function to run the type checker
+    function runTypeChecker() {
+      const sourceCode = document.getElementById('source-input').value;
+      const consoleOutput = document.getElementById('console-output');
+      const astOutput = document.getElementById('ast-output');
+
+      // Clear previous outputs
+      console.log('[test] Running type checker...');
+      consoleOutput.textContent = '';
+      astOutput.textContent = '';
+      typeInferenceEvents = [];
+
+      try {
+        // Parse the source code
+        console.log('[test] Parsing source code...');
+        const tokens = window.CompilerModule.tokenize(sourceCode);
+        const ast = window.CompilerModule.parse(tokens);
+
+        // Display the AST
+        astOutput.textContent = JSON.stringify(ast, null, 2);
+
+        // Set up callback for type inference events
+        const typeCheckOptions = {
+          typeInferenceCallback: typeInferenceCallback
+        };
+
+        console.log('[test] Running type checker with callback...');
+
+        // Run the type checker
+        if (window.CompilerModule && window.CompilerModule.typecheck) {
+          console.log('[test] Using CompilerModule.typecheck...');
+          const errors = [];
+          const result = window.CompilerModule.typecheck(ast, errors, typeCheckOptions);
+
+          console.log('[test] Type check complete.', result);
+        } else {
+          console.error('[test] CompilerModule.typecheck not available!');
+        }
+
+        console.log(`[test] Collected ${typeInferenceEvents.length} type inference events`);
+
+        // Update the type inference display with the last event
+        if (typeInferenceEvents.length > 0) {
+          updateTypeInferenceDisplay(typeInferenceEvents.length - 1);
+        } else {
+          document.getElementById('type-inference-display').innerHTML =
+            '<div class="no-data">No type inference events were generated.</div>';
+        }
+
+      } catch (error) {
+        console.error('[test] Error during type checking:', error);
+      }
+    }
+
+    // Set up event listener for the run button
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('[test] DOM loaded, setting up event listeners...');
+
+      const runButton = document.getElementById('run-button');
+      if (runButton) {
+        runButton.addEventListener('click', runTypeChecker);
+      }
+
+      console.log('[test] Checking if CompilerModule is available:');
+      if (window.CompilerModule) {
+        console.log('[test] CompilerModule found with properties:', Object.keys(window.CompilerModule));
+      } else {
+        console.error('[test] CompilerModule not found!');
+      }
+    });
+  </script>
+</body>
+</html>
