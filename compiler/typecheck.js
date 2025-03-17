@@ -393,12 +393,6 @@ function unify(state, t1, t2, node) {
       error: "Incompatible types",
     });
   }
-
-  // Emit completion event
-  emitTypecheckEvent(state, "unifyComplete", {
-    type1: typeToString(compress(t1)),
-    type2: typeToString(compress(t2)),
-  });
 }
 
 /**

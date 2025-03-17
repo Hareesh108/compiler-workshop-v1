@@ -1267,12 +1267,6 @@ function updateTypecheckDisplay(state, stepIndex) {
         indentLevel++;
         break;
 
-      case "unifyComplete":
-        eventElement.classList.add("typecheck-unify-complete");
-        eventDetails = `Unified: ${event.type1} = ${event.type2}`;
-        if (indentLevel > 0) indentLevel--;
-        break;
-
       case "unifyError":
         eventElement.classList.add("typecheck-error");
         eventDetails = `Error: ${event.error} between ${event.type1} and ${event.type2}`;
