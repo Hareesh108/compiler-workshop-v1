@@ -120,6 +120,26 @@ h2 {
   font-size: 14px;
 }
 
+.typecheck-container {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.typecheck-display {
+  flex: 1;
+  overflow-y: auto;
+  font-family: monospace;
+  padding: 10px;
+  font-size: 14px;
+}
+
 .name-resolution-event {
   padding: 6px;
   border-bottom: 1px solid #eee;

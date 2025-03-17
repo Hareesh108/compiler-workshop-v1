@@ -193,7 +193,20 @@ function reportError(errors, message, node) {
 function newTypeVar(state, name = null) {
   const id = state.nextTypeVarId;
   state.nextTypeVarId = state.nextTypeVarId + 1;
-  return { kind: "TypeVariable", id, name: name || `t${id}`, symlink: null };
+  const typeVar = {
+    kind: "TypeVariable",
+    id,
+    name: name || `t${id}`,
+    symlink: null,
+  };
+
+  // Emit an event for creating a new type variable
+  emitTypecheckEvent(state, "newTypeVar", {
+    typeVar: { ...typeVar },
+    context: name ? `Named variable ${name}` : "Anonymous variable",
+  });
+
+  return typeVar;
 }
 
 /**
@@ -283,6 +296,13 @@ function unify(state, t1, t2, node) {
   t1 = compress(t1);
   t2 = compress(t2);
 
+  // Emit start unification event
+  emitTypecheckEvent(state, "unifyStart", {
+    type1: typeToString(t1),
+    type2: typeToString(t2),
+    node: node ? { type: node.type, position: node.position } : null,
+  });
+
   // Case 1: First type is a variable
   if (t1.kind === "TypeVariable") {
     // If they're not already the same variable
@@ -294,21 +314,43 @@ function unify(state, t1, t2, node) {
           `Infinite unification: cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
           node,
         );
+
+        emitTypecheckEvent(state, "unifyError", {
+          type1: typeToString(t1),
+          type2: typeToString(t2),
+          error: "Infinite unification",
+        });
+
         return;
       }
 
       // Set the type variable to point to the other type
       t1.symlink = t2;
+
+      emitTypecheckEvent(state, "typeVarAssign", {
+        typeVar: t1.name,
+        assignedType: typeToString(t2),
+      });
     }
   }
   // Case 2: Both are function types
   else if (t1.kind === "FunctionType" && t2.kind === "FunctionType") {
+    emitTypecheckEvent(state, "unifyFunction", {
+      func1: typeToString(t1),
+      func2: typeToString(t2),
+    });
+
     // Recursively unify parameter and return types
     unify(state, t1.paramType, t2.paramType, node);
     unify(state, t1.returnType, t2.returnType, node);
   }
   // Case 3: Both are array types
   else if (t1.kind === "ArrayType" && t2.kind === "ArrayType") {
+    emitTypecheckEvent(state, "unifyArray", {
+      array1: typeToString(t1),
+      array2: typeToString(t2),
+    });
+
     // Recursively unify element types
     unify(state, t1.elementType, t2.elementType, node);
   }
@@ -321,6 +363,16 @@ function unify(state, t1, t2, node) {
         `Type mismatch: ${typeToString(t1)} is not compatible with ${typeToString(t2)}`,
         node,
       );
+
+      emitTypecheckEvent(state, "unifyError", {
+        type1: typeToString(t1),
+        type2: typeToString(t2),
+        error: "Type mismatch",
+      });
+    } else {
+      emitTypecheckEvent(state, "unifySuccess", {
+        type: typeToString(t1),
+      });
     }
   }
   // Case 5: Second type is a variable (swap and try again)
@@ -334,7 +386,19 @@ function unify(state, t1, t2, node) {
       `Cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
       node,
     );
+
+    emitTypecheckEvent(state, "unifyError", {
+      type1: typeToString(t1),
+      type2: typeToString(t2),
+      error: "Incompatible types",
+    });
   }
+
+  // Emit completion event
+  emitTypecheckEvent(state, "unifyComplete", {
+    type1: typeToString(compress(t1)),
+    type2: typeToString(compress(t2)),
+  });
 }
 
 /**
@@ -351,6 +415,10 @@ function enterScope(state) {
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
 
+  emitTypecheckEvent(state, "enterScope", {
+    parentScope: outerScope ? Object.keys(outerScope) : [],
+  });
+
   state.previousScope = outerScope;
   state.currentScope = newScope;
 }
@@ -361,6 +429,18 @@ function enterScope(state) {
  * @param {object} state - Current type inference state
  */
 function exitScope(state) {
+  const scopeVars = Object.keys(state.currentScope);
+
+  emitTypecheckEvent(state, "exitScope", {
+    variables: scopeVars,
+    types: scopeVars.map((variable) => {
+      return {
+        name: variable,
+        type: typeToString(state.currentScope[variable]),
+      };
+    }),
+  });
+
   state.currentScope = state.previousScope;
 }
 
@@ -969,12 +1049,30 @@ function inferTypeReturnStatement(state, node) {
 }
 
 /**
+ * Emit a typecheck event via the callback if provided
+ *
+ * @param {object} state - The current state
+ * @param {string} eventType - The type of event (e.g., 'newTypeVar', 'unify')
+ * @param {object} details - Details about the event
+ */
+function emitTypecheckEvent(state, eventType, details) {
+  if (state.options && state.options.onTypecheck) {
+    state.options.onTypecheck({
+      type: eventType,
+      ...details,
+    });
+  }
+}
+
+/**
  * Analyze the AST and infer types
  *
  * @param {object} ast - AST to analyze
+ * @param {object} [options] - Options for analysis
+ * @param {Function} [options.onTypecheck] - Callback for typecheck events
  * @returns {object} - Result with AST and errors
  */
-function inferAst(ast) {
+function inferAst(ast, options = {}) {
   // Initialize the typing environment
   const state = {
     errors: [],
@@ -983,6 +1081,7 @@ function inferAst(ast) {
     nonGeneric: new Set(),
     // Counter for generating unique IDs for type variables
     nextTypeVarId: 0,
+    options,
   };
 
   infer(state, ast);
@@ -995,11 +1094,13 @@ function inferAst(ast) {
  *
  * @param {object} ast - AST to analyze
  * @param {Array} nameErrors - Errors from name resolution
+ * @param {object} options - Options for analysis
+ * @param {Function} [options.onTypecheck] - Callback for typecheck events
  * @returns {object} - Result with AST and all errors
  */
-function typecheck(ast, nameErrors = []) {
+function typecheck(ast, nameErrors = [], options = {}) {
   // Perform type inference
-  const { errors: typeErrors } = inferAst(ast);
+  const { errors: typeErrors } = inferAst(ast, options);
 
   // Combine errors from name resolution and type inference
   return {
@@ -1008,10 +1109,25 @@ function typecheck(ast, nameErrors = []) {
   };
 }
 
-module.exports = {
-  infer: inferAst,
-  typecheck,
-  Types,
-  typeToString,
-  createArrayType,
-};
+// Export functions for use in the browser
+if (typeof window !== "undefined") {
+  window.CompilerModule = window.CompilerModule || {};
+
+  // Expose functions to the global CompilerModule
+  window.CompilerModule.infer = inferAst;
+  window.CompilerModule.typecheck = typecheck;
+  window.CompilerModule.Types = Types;
+  window.CompilerModule.typeToString = typeToString;
+  window.CompilerModule.createArrayType = createArrayType;
+}
+
+// Export for Node.js environment
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    infer: inferAst,
+    typecheck,
+    Types,
+    typeToString,
+    createArrayType,
+  };
+}

@@ -110,7 +110,7 @@ function tokenize(sourceCode, options = {}) {
         value: whitespaceText,
         position,
         length: whitespaceText.length,
-        consumedText: whitespaceText
+        consumedText: whitespaceText,
       });
       position += whitespaceText.length;
     }
@@ -146,7 +146,7 @@ function tokenize(sourceCode, options = {}) {
             value,
             position: startPosition,
             length: value.length,
-            consumedText: value
+            consumedText: value,
           });
 
           position += value.length;
@@ -161,7 +161,7 @@ function tokenize(sourceCode, options = {}) {
         const token = {
           type: pattern.type,
           value,
-          position: startPosition
+          position: startPosition,
         };
 
         tokens.push(token);
@@ -170,7 +170,7 @@ function tokenize(sourceCode, options = {}) {
         onToken({
           ...token,
           length: value.length,
-          consumedText: value
+          consumedText: value,
         });
 
         // Advance our position by the length of the matched token
@@ -197,7 +197,7 @@ function tokenize(sourceCode, options = {}) {
   onToken({
     ...eofToken,
     length: 0,
-    consumedText: ""
+    consumedText: "",
   });
 
   return tokens;
@@ -268,7 +268,7 @@ function parse(tokens, options = {}) {
     // Emit an event for the program start
     onNode({
       type: "ProgramStart",
-      position: peek().position
+      position: peek().position,
     });
 
     while (!check("EOF")) {
@@ -277,7 +277,11 @@ function parse(tokens, options = {}) {
       } catch (error) {
         // Skip to the next statement on error
         console.error("Parse error:", error);
-        while (current < tokens.length && !check("SEMICOLON") && !check("EOF")) {
+        while (
+          current < tokens.length &&
+          !check("SEMICOLON") &&
+          !check("EOF")
+        ) {
           next();
         }
         if (check("SEMICOLON")) next();
@@ -287,14 +291,14 @@ function parse(tokens, options = {}) {
     // Create the program node
     const programNode = {
       type: "Program",
-      body: statements
+      body: statements,
     };
 
     // Emit an event for the completed program
     onNode({
       type: "ProgramComplete",
       node: programNode,
-      position: tokens[tokens.length - 1].position
+      position: tokens[tokens.length - 1].position,
     });
 
     return programNode;
@@ -311,7 +315,7 @@ function parse(tokens, options = {}) {
     // Emit an event for statement start
     onNode({
       type: "StatementStart",
-      position: peek().position
+      position: peek().position,
     });
 
     let statement;
@@ -332,7 +336,7 @@ function parse(tokens, options = {}) {
     onNode({
       type: "StatementComplete",
       node: statement,
-      position: tokens[current - 1].position
+      position: tokens[current - 1].position,
     });
 
     return statement;
@@ -349,7 +353,7 @@ function parse(tokens, options = {}) {
     const startPosition = peek().position;
     onNode({
       type: "ReturnStatementStart",
-      position: startPosition
+      position: startPosition,
     });
 
     // Consume the 'return' keyword
@@ -364,14 +368,14 @@ function parse(tokens, options = {}) {
 
     const returnStatement = {
       type: "ReturnStatement",
-      argument
+      argument,
     };
 
     // Emit an event for return statement complete
     onNode({
       type: "ReturnStatementComplete",
       node: returnStatement,
-      position: peek() ? peek().position : tokens[current - 1].position
+      position: peek() ? peek().position : tokens[current - 1].position,
     });
 
     return returnStatement;
@@ -388,7 +392,7 @@ function parse(tokens, options = {}) {
     const startPosition = peek().position;
     onNode({
       type: "ConstDeclarationStart",
-      position: startPosition
+      position: startPosition,
     });
 
     // Consume the 'const' keyword
@@ -397,14 +401,14 @@ function parse(tokens, options = {}) {
     // Get the variable name
     const id = {
       type: "Identifier",
-      name: expect("IDENTIFIER", "Expected variable name").value
+      name: expect("IDENTIFIER", "Expected variable name").value,
     };
 
     // Emit event for identifier
     onNode({
       type: "Identifier",
       node: id,
-      position: tokens[current - 1].position
+      position: tokens[current - 1].position,
     });
 
     // Parse type annotation if present (with colon)
@@ -425,14 +429,14 @@ function parse(tokens, options = {}) {
       type: "ConstDeclaration",
       id,
       init,
-      typeAnnotation
+      typeAnnotation,
     };
 
     // Emit event for const declaration complete
     onNode({
       type: "ConstDeclarationComplete",
       node: constDeclaration,
-      position: peek() ? peek().position : tokens[current - 1].position
+      position: peek() ? peek().position : tokens[current - 1].position,
     });
 
     return constDeclaration;
@@ -448,7 +452,7 @@ function parse(tokens, options = {}) {
     const startPosition = peek().position;
     onNode({
       type: "ExpressionStart",
-      position: startPosition
+      position: startPosition,
     });
 
     const expression = parseTernary();
@@ -457,7 +461,7 @@ function parse(tokens, options = {}) {
     onNode({
       type: "ExpressionComplete",
       node: expression,
-      position: peek() ? peek().position : tokens[current - 1].position
+      position: peek() ? peek().position : tokens[current - 1].position,
     });
 
     return expression;
@@ -479,7 +483,7 @@ function parse(tokens, options = {}) {
       // Emit event for ternary start
       onNode({
         type: "TernaryStart",
-        position: peek().position
+        position: peek().position,
       });
 
       // Consume the question mark
@@ -499,14 +503,14 @@ function parse(tokens, options = {}) {
         type: "ConditionalExpression",
         test: condition,
         consequent,
-        alternate
+        alternate,
       };
 
       // Emit event for ternary complete
       onNode({
         type: "TernaryComplete",
         node: ternary,
-        position: peek() ? peek().position : tokens[current - 1].position
+        position: peek() ? peek().position : tokens[current - 1].position,
       });
 
       return ternary;
@@ -531,7 +535,7 @@ function parse(tokens, options = {}) {
       // Emit event for binary expression start
       onNode({
         type: "BinaryExpressionStart",
-        position: peek().position
+        position: peek().position,
       });
 
       // Get the operator
@@ -545,14 +549,14 @@ function parse(tokens, options = {}) {
         type: "BinaryExpression",
         left,
         operator,
-        right
+        right,
       };
 
       // Emit event for binary expression complete
       onNode({
         type: "BinaryExpressionComplete",
         node: left,
-        position: peek() ? peek().position : tokens[current - 1].position
+        position: peek() ? peek().position : tokens[current - 1].position,
       });
     }
 
@@ -576,7 +580,7 @@ function parse(tokens, options = {}) {
     const startPosition = peek().position;
     onNode({
       type: "ArrowFunctionStart",
-      position: startPosition
+      position: startPosition,
     });
 
     // Start with a left parenthesis
@@ -593,14 +597,14 @@ function parse(tokens, options = {}) {
         // Start with a parameter without a type annotation
         let param = {
           type: "Identifier",
-          name: paramToken.value
+          name: paramToken.value,
         };
 
         // Emit event for parameter identifier
         onNode({
           type: "Identifier",
           node: param,
-          position: tokens[current - 1].position
+          position: tokens[current - 1].position,
         });
 
         // Check for type annotation (with colon)
@@ -665,14 +669,14 @@ function parse(tokens, options = {}) {
 
       body = {
         type: "BlockStatement",
-        body: blockStatements
+        body: blockStatements,
       };
 
       // Emit event for block statement
       onNode({
         type: "BlockStatement",
         node: body,
-        position: tokens[current - 1].position
+        position: tokens[current - 1].position,
       });
     } else {
       // Expression body without braces - parse as expression
@@ -686,14 +690,14 @@ function parse(tokens, options = {}) {
       params,
       body,
       expression, // true if body is an expression, false if it's a block
-      returnType
+      returnType,
     };
 
     // Emit event for arrow function complete
     onNode({
       type: "ArrowFunctionComplete",
       node: arrowFunction,
-      position: peek() ? peek().position : tokens[current - 1].position
+      position: peek() ? peek().position : tokens[current - 1].position,
     });
 
     return arrowFunction;
@@ -1000,7 +1004,7 @@ function parse(tokens, options = {}) {
     const startPosition = peek().position;
     onNode({
       type: "PrimaryStart",
-      position: startPosition
+      position: startPosition,
     });
 
     let node;
@@ -1120,14 +1124,14 @@ function parse(tokens, options = {}) {
       const token = next();
       node = {
         type: "StringLiteral",
-        value: token.value.slice(1, -1) // Remove the quotes
+        value: token.value.slice(1, -1), // Remove the quotes
       };
 
       // Emit event for string literal
       onNode({
         type: "StringLiteral",
         node,
-        position: tokens[current - 1].position
+        position: tokens[current - 1].position,
       });
     } else if (check("NUMBER")) {
       // Number literal
@@ -1136,42 +1140,42 @@ function parse(tokens, options = {}) {
 
       node = {
         type: "NumericLiteral",
-        value
+        value,
       };
 
       // Emit event for number literal
       onNode({
         type: "NumericLiteral",
         node,
-        position: tokens[current - 1].position
+        position: tokens[current - 1].position,
       });
     } else if (check("BOOLEAN")) {
       // Boolean literal
       const token = next();
       node = {
         type: "BooleanLiteral",
-        value: token.value === "true"
+        value: token.value === "true",
       };
 
       // Emit event for boolean literal
       onNode({
         type: "BooleanLiteral",
         node,
-        position: tokens[current - 1].position
+        position: tokens[current - 1].position,
       });
     } else if (check("IDENTIFIER")) {
       // Variable reference or function call
       const token = next();
       node = {
         type: "Identifier",
-        name: token.value
+        name: token.value,
       };
 
       // Emit event for identifier
       onNode({
         type: "Identifier",
         node,
-        position: tokens[current - 1].position
+        position: tokens[current - 1].position,
       });
 
       // If the next token is a '(', this is a function call
@@ -1196,7 +1200,7 @@ function parse(tokens, options = {}) {
     onNode({
       type: "PrimaryComplete",
       node,
-      position: peek() ? peek().position : tokens[current - 1].position
+      position: peek() ? peek().position : tokens[current - 1].position,
     });
 
     return node;
@@ -1227,7 +1231,7 @@ function parse(tokens, options = {}) {
     return {
       type: "CallExpression",
       callee,
-      arguments: args
+      arguments: args,
     };
   }
 

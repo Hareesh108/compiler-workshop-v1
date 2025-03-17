@@ -28,7 +28,7 @@ function buildTokenizationData(sourceCode) {
     // Mapping from source code positions to tokens
     sourceToToken: {},
     // Mapping from token index to source code range
-    tokenToSource: {}
+    tokenToSource: {},
   };
 
   // Run the tokenizer with the onToken callback
@@ -54,10 +54,10 @@ function buildTokenizationData(sourceCode) {
         tokenizationData.tokenToSource[tokenIndex] = {
           start: tokenEvent.position,
           end: tokenEvent.position + tokenEvent.length,
-          text: tokenEvent.consumedText
+          text: tokenEvent.consumedText,
         };
       }
-    }
+    },
   });
 
   return tokenizationData;
@@ -77,7 +77,7 @@ function buildAstData(sourceCode, tokens) {
     tokens,
     nodes: [],
     events: [],
-    rootNode: null
+    rootNode: null,
   };
 
   // Node ID counter to assign unique IDs to each node
@@ -93,23 +93,23 @@ function buildAstData(sourceCode, tokens) {
       astData.events.push(nodeEvent);
 
       // If this is a completed node, store it
-      if (nodeEvent.type.endsWith('Complete')) {
+      if (nodeEvent.type.endsWith("Complete")) {
         // Store the node with its ID
         const nodeWithId = {
           ...nodeEvent.node,
           _id: nodeEvent.id,
-          _type: nodeEvent.type
+          _type: nodeEvent.type,
         };
 
         // Add to nodes list
         astData.nodes.push(nodeWithId);
 
         // If this is the program root, store it as rootNode
-        if (nodeEvent.type === 'ProgramComplete') {
+        if (nodeEvent.type === "ProgramComplete") {
           astData.rootNode = nodeWithId;
         }
       }
-    }
+    },
   });
 
   return astData;
@@ -231,11 +231,41 @@ function buildNameResolutionData(sourceCode, tokens, astData) {
       onNameResolution: (event) => {
         // Add this event to our list
         nameResolutionData.events.push(event);
-      }
+      },
     });
   }
 
   return nameResolutionData;
+}
+
+/**
+ * Build a type checking data structure that records events
+ *
+ * @param {string} sourceCode - Source code for type checking
+ * @param {Array} tokens - Tokens for parsing
+ * @param {Object} astData - AST data from parsing
+ * @param {Object} nameResolutionData - Name resolution data
+ * @returns {Object} - Contains type checking events
+ */
+function buildTypecheckData(sourceCode, tokens, astData, nameResolutionData) {
+  // Initialize data structure
+  const typecheckData = {
+    sourceCode,
+    tokens,
+    events: [],
+  };
+
+  // Run type checking with onTypecheck callback
+  if (window.CompilerModule.typecheck) {
+    window.CompilerModule.typecheck(astData.rootNode, [], {
+      onTypecheck: (event) => {
+        // Add this event to our list
+        typecheckData.events.push(event);
+      },
+    });
+  }
+
+  return typecheckData;
 }
 
 /**
@@ -260,7 +290,11 @@ function initializeVisualization() {
     nameResolutionData: null,
     nameResolutionEvents: [],
 
-    totalSteps: 0, // Total steps across tokenization, parsing, and name resolution
+    // Type checking state
+    typecheckData: null,
+    typecheckEvents: [],
+
+    totalSteps: 0, // Total steps across tokenization, parsing, name resolution, and typechecking
 
     // Example code snippets
     examples: {
@@ -292,6 +326,7 @@ const emptyReturn = () => {
     tokensListElement: document.getElementById("tokens-list"),
     astTreeElement: document.getElementById("ast-tree"),
     nameResolutionListElement: document.getElementById("name-resolution-list"),
+    typecheckListElement: document.getElementById("typecheck-list"),
     scrubber: document.getElementById("scrubber"),
     exampleSelect: document.getElementById("example-select"),
     customInputContainer: document.getElementById("custom-input-container"),
@@ -359,7 +394,7 @@ function loadExample(state, exampleKey) {
 }
 
 /**
- * Run the full compilation pipeline (tokenization and parsing)
+ * Run the full compilation pipeline (tokenization, parsing, name resolution, and type checking)
  *
  * @param {Object} state - Visualization state
  */
@@ -371,11 +406,13 @@ function runCompilation(state) {
   state.astSteps = [];
   state.nameResolutionData = null;
   state.nameResolutionEvents = [];
+  state.typecheckData = null;
+  state.typecheckEvents = [];
 
   // Add initial step (empty state)
   state.visualizationSteps.push({
     position: 0,
-    currentTokens: []
+    currentTokens: [],
   });
 
   try {
@@ -388,11 +425,13 @@ function runCompilation(state) {
     initializeSourceCodeDisplay(state);
 
     // For each token event, create a visualization step
-    tokenizationData.events.forEach(event => {
+    tokenizationData.events.forEach((event) => {
       if (event.type !== "WHITESPACE" && event.type !== "COMMENT") {
         state.visualizationSteps.push({
           position: event.position + event.length,
-          currentTokens: [...state.tokens.slice(0, state.tokens.indexOf(event) + 1)]
+          currentTokens: [
+            ...state.tokens.slice(0, state.tokens.indexOf(event) + 1),
+          ],
         });
       }
     });
@@ -406,15 +445,28 @@ function runCompilation(state) {
       state.nameResolutionData = buildNameResolutionData(
         state.sourceCode,
         state.tokens,
-        state.astData
+        state.astData,
       );
       state.nameResolutionEvents = state.nameResolutionData.events;
     }
 
+    // 4. Build type checking data
+    if (window.CompilerModule.typecheck) {
+      state.typecheckData = buildTypecheckData(
+        state.sourceCode,
+        state.tokens,
+        state.astData,
+        state.nameResolutionData,
+      );
+      state.typecheckEvents = state.typecheckData.events;
+    }
+
     // Calculate total steps
-    state.totalSteps = state.visualizationSteps.length +
-                       state.astSteps.length +
-                       state.nameResolutionEvents.length;
+    state.totalSteps =
+      state.visualizationSteps.length +
+      state.astSteps.length +
+      state.nameResolutionEvents.length +
+      state.typecheckEvents.length;
 
     // Update scrubber range
     state.ui.scrubber.max = state.totalSteps - 1;
@@ -437,10 +489,14 @@ function updateVisualization(state) {
   const scrubberValue = parseInt(state.ui.scrubber.value, 10);
   const totalTokenizationSteps = state.visualizationSteps.length;
   const totalAstSteps = state.astSteps.length;
+  const totalNameResolutionSteps = state.nameResolutionEvents.length;
 
   // Show the step number in container titles for debugging
-  const astTitle = document.querySelector('.ast-container h2');
-  const nameResolutionTitle = document.querySelector('.name-resolution-container h2');
+  const astTitle = document.querySelector(".ast-container h2");
+  const nameResolutionTitle = document.querySelector(
+    ".name-resolution-container h2",
+  );
+  const typecheckTitle = document.querySelector(".typecheck-container h2");
 
   // Reset titles
   if (astTitle) {
@@ -449,6 +505,10 @@ function updateVisualization(state) {
 
   if (nameResolutionTitle) {
     nameResolutionTitle.textContent = "Name Resolution";
+  }
+
+  if (typecheckTitle) {
+    typecheckTitle.textContent = "Type Checking";
   }
 
   // Determine which phase we're in based on scrubber value
@@ -468,11 +528,9 @@ function updateVisualization(state) {
     // Clear name resolution display
     state.ui.nameResolutionListElement.innerHTML = "";
 
-    if (nameResolutionTitle) {
-      nameResolutionTitle.textContent = "Name Resolution";
-    }
-  }
-  else if (scrubberValue < totalTokenizationSteps + totalAstSteps) {
+    // Clear typecheck display
+    state.ui.typecheckListElement.innerHTML = "";
+  } else if (scrubberValue < totalTokenizationSteps + totalAstSteps) {
     // AST phase
     const astStepIndex = scrubberValue - totalTokenizationSteps;
 
@@ -488,13 +546,19 @@ function updateVisualization(state) {
     // Clear name resolution display
     state.ui.nameResolutionListElement.innerHTML = "";
 
+    // Clear typecheck display
+    state.ui.typecheckListElement.innerHTML = "";
+
     if (astTitle) {
       astTitle.textContent = `Abstract Syntax Tree`;
     }
-  }
-  else {
+  } else if (
+    scrubberValue <
+    totalTokenizationSteps + totalAstSteps + totalNameResolutionSteps
+  ) {
     // Name resolution phase
-    const nameResolutionStepIndex = scrubberValue - totalTokenizationSteps - totalAstSteps;
+    const nameResolutionStepIndex =
+      scrubberValue - totalTokenizationSteps - totalAstSteps;
 
     // Show all tokens
     updateTokensDisplay(state, true);
@@ -508,8 +572,37 @@ function updateVisualization(state) {
     // Update name resolution with the current step
     updateNameResolutionDisplay(state, nameResolutionStepIndex);
 
+    // Clear typecheck display
+    state.ui.typecheckListElement.innerHTML = "";
+
     if (nameResolutionTitle) {
       nameResolutionTitle.textContent = `Name Resolution`;
+    }
+  } else {
+    // Type checking phase
+    const typecheckStepIndex =
+      scrubberValue -
+      totalTokenizationSteps -
+      totalAstSteps -
+      totalNameResolutionSteps;
+
+    // Show all tokens
+    updateTokensDisplay(state, true);
+
+    // Show all source code
+    updateSourceCodeHighlighting(state, true);
+
+    // Show full AST
+    updateAstDisplay(state, state.astSteps.length - 1);
+
+    // Show full name resolution
+    updateNameResolutionDisplay(state, state.nameResolutionEvents.length - 1);
+
+    // Update typecheck display with the current step
+    updateTypecheckDisplay(state, typecheckStepIndex);
+
+    if (typecheckTitle) {
+      typecheckTitle.textContent = `Type Checking`;
     }
   }
 }
@@ -536,7 +629,7 @@ function updateTokensDisplay(state, showAll = false) {
     // Show all tokens
     tokens = state.tokens;
   } else {
-  // In tokenization mode, show tokens up to current step
+    // In tokenization mode, show tokens up to current step
     const step = state.visualizationSteps[state.currentStepIndex];
     tokens = step.currentTokens || [];
     currentTokenIndex = tokens.length - 1;
@@ -585,19 +678,21 @@ function updateTokensDisplay(state, showAll = false) {
 function updateSourceCodeHighlighting(state, showAll = false) {
   if (state.currentStepIndex === 0 && !showAll) {
     // Reset all source code highlighting
-    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
-    allChars.forEach(char => {
-      char.classList.remove('text-consumed', 'text-current');
+    const allChars =
+      state.ui.sourceCodeElement.querySelectorAll(".source-char");
+    allChars.forEach((char) => {
+      char.classList.remove("text-consumed", "text-current");
     });
     return;
   }
 
   // If showing all, mark everything as consumed
   if (showAll) {
-    const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
-    allChars.forEach(char => {
-      char.classList.remove('text-current', 'text-whitespace', 'text-clicked');
-      char.classList.add('text-consumed');
+    const allChars =
+      state.ui.sourceCodeElement.querySelectorAll(".source-char");
+    allChars.forEach((char) => {
+      char.classList.remove("text-current", "text-whitespace", "text-clicked");
+      char.classList.add("text-consumed");
     });
     return;
   }
@@ -613,9 +708,14 @@ function updateSourceCodeHighlighting(state, showAll = false) {
   const highlightClass = "text-current";
 
   // Clear previous highlighting
-  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
-  allChars.forEach(char => {
-    char.classList.remove('text-consumed', 'text-current', 'text-whitespace', 'text-clicked');
+  const allChars = state.ui.sourceCodeElement.querySelectorAll(".source-char");
+  allChars.forEach((char) => {
+    char.classList.remove(
+      "text-consumed",
+      "text-current",
+      "text-whitespace",
+      "text-clicked",
+    );
 
     // Mark all characters before the current position as consumed
     const charPos = parseInt(char.dataset.pos, 10);
@@ -624,13 +724,15 @@ function updateSourceCodeHighlighting(state, showAll = false) {
       if (charPos >= currentPosition && charPos < currentEndPosition) {
         char.classList.add(highlightClass);
       } else {
-        char.classList.add('text-consumed');
+        char.classList.add("text-consumed");
       }
     }
   });
 
   // Scroll to the current highlighted section if not in view
-  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector(`.${highlightClass}`);
+  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector(
+    `.${highlightClass}`,
+  );
   if (firstHighlightedChar) {
     setTimeout(() => {
       scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
@@ -646,15 +748,17 @@ function updateSourceCodeHighlighting(state, showAll = false) {
  */
 function highlightToken(state, tokenIndex) {
   // Clear any existing token highlighting
-  const allTokens = state.ui.tokensListElement.querySelectorAll('.token');
-  allTokens.forEach(el => {
-    el.classList.remove('token-clicked');
+  const allTokens = state.ui.tokensListElement.querySelectorAll(".token");
+  allTokens.forEach((el) => {
+    el.classList.remove("token-clicked");
   });
 
   // Find and highlight the specified token
-  const tokenElement = state.ui.tokensListElement.querySelector(`[data-token-index="${tokenIndex}"]`);
+  const tokenElement = state.ui.tokensListElement.querySelector(
+    `[data-token-index="${tokenIndex}"]`,
+  );
   if (tokenElement) {
-    tokenElement.classList.add('token-clicked');
+    tokenElement.classList.add("token-clicked");
     scrollIntoViewIfNeeded(tokenElement, state.ui.tokensListElement);
     return true;
   }
@@ -673,13 +777,16 @@ function highlightSourceRange(state, tokenIndex) {
   if (!sourceRange) return false;
 
   // Get the current scrubber position to determine what should be marked as consumed
-  const currentStep = state.visualizationSteps[state.currentStepIndex - 1] || { position: 0, length: 0 };
+  const currentStep = state.visualizationSteps[state.currentStepIndex - 1] || {
+    position: 0,
+    length: 0,
+  };
   const currentTokenEndPos = currentStep.position + currentStep.length;
 
   // Clear highlighting for clicked state
-  const allChars = state.ui.sourceCodeElement.querySelectorAll('.source-char');
-  allChars.forEach(char => {
-    char.classList.remove('text-clicked');
+  const allChars = state.ui.sourceCodeElement.querySelectorAll(".source-char");
+  allChars.forEach((char) => {
+    char.classList.remove("text-clicked");
 
     // Ensure consumed text is still marked as consumed
     const charPos = parseInt(char.dataset.pos, 10);
@@ -688,14 +795,14 @@ function highlightSourceRange(state, tokenIndex) {
     if (state.currentStepIndex > 0) {
       if (charPos < currentTokenEndPos) {
         // Only remove current highlighting, keep consumed
-        char.classList.remove('text-current');
+        char.classList.remove("text-current");
 
         // The characters of the current token are highlighted with text-current
         if (charPos >= currentStep.position && charPos < currentTokenEndPos) {
           // Do nothing, we're removing this class
         } else {
           // Make sure consumed text stays consumed
-          char.classList.add('text-consumed');
+          char.classList.add("text-consumed");
         }
       }
     }
@@ -703,14 +810,17 @@ function highlightSourceRange(state, tokenIndex) {
 
   // Add the clicked highlighting to the selected token's characters
   for (let i = sourceRange.start; i < sourceRange.end; i++) {
-    const charSpan = state.ui.sourceCodeElement.querySelector(`[data-pos="${i}"]`);
+    const charSpan = state.ui.sourceCodeElement.querySelector(
+      `[data-pos="${i}"]`,
+    );
     if (charSpan) {
-      charSpan.classList.add('text-clicked');
+      charSpan.classList.add("text-clicked");
     }
   }
 
   // Scroll to the highlighted source if not in view
-  const firstHighlightedChar = state.ui.sourceCodeElement.querySelector('.text-clicked');
+  const firstHighlightedChar =
+    state.ui.sourceCodeElement.querySelector(".text-clicked");
   if (firstHighlightedChar) {
     setTimeout(() => {
       scrollIntoViewIfNeeded(firstHighlightedChar, state.ui.sourceCodeElement);
@@ -743,22 +853,25 @@ function updateAstDisplay(state, astStepIndex) {
     const event = state.astSteps[i];
     if (!event) continue;
 
-    if (event.type.includes('BinaryExpression')) {
+    if (event.type.includes("BinaryExpression")) {
       // Process this event - don't skip it
     }
     // Skip Program, Primary, generic Expression, and most Statement events
-    else if (event.type.includes('Program') ||
-        event.type.includes('Primary') ||
-        event.type === 'ExpressionStart' ||
-        event.type === 'ExpressionComplete' ||
-        (event.type.includes('Statement') && !event.type.includes('ReturnStatement'))) {
+    else if (
+      event.type.includes("Program") ||
+      event.type.includes("Primary") ||
+      event.type === "ExpressionStart" ||
+      event.type === "ExpressionComplete" ||
+      (event.type.includes("Statement") &&
+        !event.type.includes("ReturnStatement"))
+    ) {
       continue; // Skip this event
     }
 
     // Handle indentation - decrease level when a node is complete
-    if (event.type.endsWith('Complete')) {
+    if (event.type.endsWith("Complete")) {
       // Find matching start node in the stack
-      const nodeType = event.type.replace('Complete', '');
+      const nodeType = event.type.replace("Complete", "");
       const matchIndex = nodeStack.lastIndexOf(nodeType);
 
       if (matchIndex !== -1) {
@@ -773,12 +886,12 @@ function updateAstDisplay(state, astStepIndex) {
     }
 
     // Create the event element
-    const eventElement = document.createElement('div');
-    eventElement.className = 'ast-event';
+    const eventElement = document.createElement("div");
+    eventElement.className = "ast-event";
 
     // Mark the current event
     if (i === astStepIndex) {
-      eventElement.classList.add('ast-event-current');
+      eventElement.classList.add("ast-event-current");
     }
 
     // Apply indentation based on nesting level using CSS classes
@@ -789,7 +902,7 @@ function updateAstDisplay(state, astStepIndex) {
     }
 
     // Simplify the event type for display (remove Start)
-    const cleanEventType = event.type.replace('Start', '');
+    const cleanEventType = event.type.replace("Start", "");
 
     // Add specific node type class for styling
     eventElement.classList.add(`ast-event-${cleanEventType}`);
@@ -798,29 +911,38 @@ function updateAstDisplay(state, astStepIndex) {
     let eventDetails = cleanEventType;
 
     // Add appropriate styling
-    eventElement.classList.add('ast-event-start');
+    eventElement.classList.add("ast-event-start");
 
     // Add node details for specific node types
     if (event.node) {
-      if (cleanEventType === 'ConstDeclaration' && event.node.id) {
+      if (cleanEventType === "ConstDeclaration" && event.node.id) {
         eventDetails = `${cleanEventType}: ${event.node.id.name}`;
-      } else if (cleanEventType === 'StringLiteral' && event.node.value !== undefined) {
+      } else if (
+        cleanEventType === "StringLiteral" &&
+        event.node.value !== undefined
+      ) {
         eventDetails = `${cleanEventType}: "${event.node.value}"`;
-      } else if (cleanEventType === 'NumericLiteral' && event.node.value !== undefined) {
+      } else if (
+        cleanEventType === "NumericLiteral" &&
+        event.node.value !== undefined
+      ) {
         eventDetails = `${cleanEventType}: ${event.node.value}`;
-      } else if (cleanEventType === 'BooleanLiteral' && event.node.value !== undefined) {
+      } else if (
+        cleanEventType === "BooleanLiteral" &&
+        event.node.value !== undefined
+      ) {
         eventDetails = `${cleanEventType}: ${event.node.value}`;
-      } else if (cleanEventType === 'Identifier' && event.node.name) {
+      } else if (cleanEventType === "Identifier" && event.node.name) {
         eventDetails = `${cleanEventType}: ${event.node.name}`;
       } else if (event.node.operator) {
         // Highlight any operator, not just in BinaryExpression
         eventDetails = `Operator: ${event.node.operator}`;
         // Add special CSS class for operators
-        eventElement.classList.add('ast-event-operator');
-      } else if (cleanEventType === 'ConditionalExpression') {
+        eventElement.classList.add("ast-event-operator");
+      } else if (cleanEventType === "ConditionalExpression") {
         // Show ternary operators
         eventDetails = `Operator: ? :`;
-        eventElement.classList.add('ast-event-operator');
+        eventElement.classList.add("ast-event-operator");
       }
     }
 
@@ -828,7 +950,7 @@ function updateAstDisplay(state, astStepIndex) {
     state.ui.astTreeElement.appendChild(eventElement);
 
     // For 'Start' events, push node type to stack and increase indentation
-    if (event.type.endsWith('Start')) {
+    if (event.type.endsWith("Start")) {
       nodeStack.push(cleanEventType);
       indentLevel = nodeStack.length;
     }
@@ -836,7 +958,8 @@ function updateAstDisplay(state, astStepIndex) {
 
   // Scroll to the current event
   if (astStepIndex >= 0 && astStepIndex < state.astSteps.length) {
-    const currentElement = state.ui.astTreeElement.querySelector('.ast-event-current');
+    const currentElement =
+      state.ui.astTreeElement.querySelector(".ast-event-current");
     if (currentElement) {
       scrollIntoViewIfNeeded(currentElement, state.ui.astTreeElement);
     }
@@ -849,17 +972,17 @@ function updateAstDisplay(state, astStepIndex) {
  * @param {string} message - Message to display
  */
 function showToast(message) {
-  const toast = document.createElement('div');
-  toast.className = 'toast';
+  const toast = document.createElement("div");
+  toast.className = "toast";
   toast.textContent = message;
   document.body.appendChild(toast);
 
   // Show the toast
-  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => toast.classList.add("show"), 10);
 
   // Hide and remove the toast after 3 seconds
   setTimeout(() => {
-    toast.classList.remove('show');
+    toast.classList.remove("show");
     setTimeout(() => document.body.removeChild(toast), 300);
   }, 3000);
 }
@@ -871,7 +994,7 @@ function showToast(message) {
  */
 function initializeSourceCodeDisplay(state) {
   // Clear the source code display
-  state.ui.sourceCodeElement.innerHTML = '';
+  state.ui.sourceCodeElement.innerHTML = "";
 
   // Create a document fragment to batch DOM operations
   const fragment = document.createDocumentFragment();
@@ -880,15 +1003,15 @@ function initializeSourceCodeDisplay(state) {
   for (let i = 0; i < state.sourceCode.length; i++) {
     const char = state.sourceCode[i];
 
-    if (char === '\n') {
+    if (char === "\n") {
       // For newlines, add a line break element
-      fragment.appendChild(document.createElement('br'));
+      fragment.appendChild(document.createElement("br"));
 
       // Also add a hidden span to track the newline character's position
-      const newlineMarker = document.createElement('span');
-      newlineMarker.style.display = 'none';
+      const newlineMarker = document.createElement("span");
+      newlineMarker.style.display = "none";
       newlineMarker.dataset.pos = i;
-      newlineMarker.className = 'source-char newline-char';
+      newlineMarker.className = "source-char newline-char";
 
       // Find which token this newline belongs to (if any)
       const tokenIndex = state.tokenizationData.sourceToToken[i];
@@ -899,10 +1022,10 @@ function initializeSourceCodeDisplay(state) {
       fragment.appendChild(newlineMarker);
     } else {
       // For regular characters, create a visible span
-      const charSpan = document.createElement('span');
+      const charSpan = document.createElement("span");
       charSpan.textContent = char;
       charSpan.dataset.pos = i;
-      charSpan.className = 'source-char';
+      charSpan.className = "source-char";
 
       // Find which token this character belongs to
       const tokenIndex = state.tokenizationData.sourceToToken[i];
@@ -918,9 +1041,9 @@ function initializeSourceCodeDisplay(state) {
   state.ui.sourceCodeElement.appendChild(fragment);
 
   // Add click handler to the source code container
-  state.ui.sourceCodeElement.addEventListener('click', (event) => {
+  state.ui.sourceCodeElement.addEventListener("click", (event) => {
     // Find the closest character span that was clicked
-    const charSpan = event.target.closest('.source-char');
+    const charSpan = event.target.closest(".source-char");
     if (!charSpan) return;
 
     const position = parseInt(charSpan.dataset.pos, 10);
@@ -957,7 +1080,7 @@ function scrollIntoViewIfNeeded(element, container) {
     element.scrollIntoView({
       behavior: "auto",
       block: "nearest",
-      inline: "nearest"
+      inline: "nearest",
     });
   }
 }
@@ -973,9 +1096,11 @@ function updateNameResolutionDisplay(state, stepIndex) {
   state.ui.nameResolutionListElement.innerHTML = "";
 
   // If no events or invalid step, return early
-  if (!state.nameResolutionEvents ||
-      !state.nameResolutionEvents.length ||
-      stepIndex < 0) {
+  if (
+    !state.nameResolutionEvents ||
+    !state.nameResolutionEvents.length ||
+    stepIndex < 0
+  ) {
     return;
   }
 
@@ -984,16 +1109,20 @@ function updateNameResolutionDisplay(state, stepIndex) {
   const scopeStack = [];
 
   // Show events up to the current step
-  for (let i = 0; i <= stepIndex && i < state.nameResolutionEvents.length; i++) {
+  for (
+    let i = 0;
+    i <= stepIndex && i < state.nameResolutionEvents.length;
+    i++
+  ) {
     const event = state.nameResolutionEvents[i];
 
     // Skip program/global scope events
-    if (event.type === 'enterProgram' || event.type === 'leaveProgram') {
+    if (event.type === "enterProgram" || event.type === "leaveProgram") {
       continue;
     }
 
     // Skip leave scope events since we'll show nesting with indentation
-    if (event.type === 'leaveScope') {
+    if (event.type === "leaveScope") {
       // Decrease indentation when leaving a scope
       if (indentLevel > 0) {
         indentLevel--;
@@ -1005,12 +1134,12 @@ function updateNameResolutionDisplay(state, stepIndex) {
     }
 
     // Create the event element
-    const eventElement = document.createElement('div');
-    eventElement.className = 'name-resolution-event';
+    const eventElement = document.createElement("div");
+    eventElement.className = "name-resolution-event";
 
     // Mark the current event
     if (i === stepIndex) {
-      eventElement.classList.add('name-resolution-event-current');
+      eventElement.classList.add("name-resolution-event-current");
     }
 
     // Apply indentation based on scope nesting using CSS classes
@@ -1021,29 +1150,29 @@ function updateNameResolutionDisplay(state, stepIndex) {
     }
 
     // Format event information based on event type
-    let eventDetails = '';
+    let eventDetails = "";
 
     // Add appropriate styling based on event type
     switch (event.type) {
-      case 'declare':
-        eventElement.classList.add('name-resolution-declare');
+      case "declare":
+        eventElement.classList.add("name-resolution-declare");
         eventDetails = `Declared: ${event.name}`;
         break;
 
-      case 'declareParam':
-        eventElement.classList.add('name-resolution-declare-param');
+      case "declareParam":
+        eventElement.classList.add("name-resolution-declare-param");
         eventDetails = `Parameter: ${event.name}`;
         break;
 
-      case 'lookup':
-        eventElement.classList.add('name-resolution-lookup');
+      case "lookup":
+        eventElement.classList.add("name-resolution-lookup");
         // Add emoji based on whether the variable was found
-        const emoji = event.found ? '✅' : '❌';
+        const emoji = event.found ? "✅" : "❌";
         eventDetails = `Lookup: ${event.name} ${emoji}`;
         break;
 
-      case 'enterScope':
-        eventElement.classList.add('name-resolution-scope');
+      case "enterScope":
+        eventElement.classList.add("name-resolution-scope");
         // Simplified scope name
         eventDetails = `${event.nodeType} scope`;
 
@@ -1062,9 +1191,14 @@ function updateNameResolutionDisplay(state, stepIndex) {
 
   // Scroll to the current event
   if (stepIndex >= 0 && stepIndex < state.nameResolutionEvents.length) {
-    const currentElement = state.ui.nameResolutionListElement.querySelector('.name-resolution-event-current');
+    const currentElement = state.ui.nameResolutionListElement.querySelector(
+      ".name-resolution-event-current",
+    );
     if (currentElement) {
-      scrollIntoViewIfNeeded(currentElement, state.ui.nameResolutionListElement);
+      scrollIntoViewIfNeeded(
+        currentElement,
+        state.ui.nameResolutionListElement,
+      );
     }
   }
 }
@@ -1074,8 +1208,134 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeVisualization();
 });
 
+/**
+ * Update the type checking display based on the current step
+ *
+ * @param {Object} state - Visualization state
+ * @param {number} stepIndex - Current step index in type checking
+ */
+function updateTypecheckDisplay(state, stepIndex) {
+  // Clear the typecheck list
+  state.ui.typecheckListElement.innerHTML = "";
+
+  // If no events or invalid step, return early
+  if (
+    !state.typecheckEvents ||
+    !state.typecheckEvents.length ||
+    stepIndex < 0 ||
+    stepIndex >= state.typecheckEvents.length
+  ) {
+    return;
+  }
+
+  // Track indentation level for nesting
+  let indentLevel = 0;
+
+  // Show events up to the current step
+  for (let i = 0; i <= stepIndex; i++) {
+    const event = state.typecheckEvents[i];
+
+    // Create the event element
+    const eventElement = document.createElement("div");
+    eventElement.className = "typecheck-event";
+
+    // Mark the current event
+    if (i === stepIndex) {
+      eventElement.classList.add("typecheck-event-current");
+    }
+
+    // Apply indentation based on nesting
+    if (indentLevel > 0) {
+      // Add the appropriate indentation class (limited to 5 levels)
+      const indentClass = `typecheck-indent-${Math.min(indentLevel, 5)}`;
+      eventElement.classList.add(indentClass);
+    }
+
+    // Format event information based on event type
+    let eventDetails = "";
+
+    // Add appropriate styling based on event type
+    switch (event.type) {
+      case "newTypeVar":
+        eventElement.classList.add("typecheck-new-var");
+        eventDetails = `New type variable: ${event.typeVar.name}`;
+        break;
+
+      case "unifyStart":
+        eventElement.classList.add("typecheck-unify-start");
+        eventDetails = `Unify: ${event.type1} with ${event.type2}`;
+        indentLevel++;
+        break;
+
+      case "unifyComplete":
+        eventElement.classList.add("typecheck-unify-complete");
+        eventDetails = `Unified: ${event.type1} = ${event.type2}`;
+        if (indentLevel > 0) indentLevel--;
+        break;
+
+      case "unifyError":
+        eventElement.classList.add("typecheck-error");
+        eventDetails = `Error: ${event.error} between ${event.type1} and ${event.type2}`;
+        if (indentLevel > 0) indentLevel--;
+        break;
+
+      case "typeVarAssign":
+        eventElement.classList.add("typecheck-assign");
+        eventDetails = `Set ${event.typeVar} = ${event.assignedType}`;
+        break;
+
+      case "unifyFunction":
+        eventElement.classList.add("typecheck-function");
+        eventDetails = `Unify functions: ${event.func1} with ${event.func2}`;
+        break;
+
+      case "unifyArray":
+        eventElement.classList.add("typecheck-array");
+        eventDetails = `Unify arrays: ${event.array1} with ${event.array2}`;
+        break;
+
+      case "unifySuccess":
+        eventElement.classList.add("typecheck-success");
+        eventDetails = `Match: ${event.type}`;
+        break;
+
+      case "enterScope":
+        eventElement.classList.add("typecheck-scope");
+        eventDetails = `Enter scope with ${event.parentScope.length} parent variables`;
+        indentLevel++;
+        break;
+
+      case "exitScope":
+        if (indentLevel > 0) indentLevel--;
+        eventElement.classList.add("typecheck-scope");
+
+        // Show variables in this scope with their types
+        const varDetails = event.types
+          .map((v) => `${v.name}: ${v.type}`)
+          .join(", ");
+
+        eventDetails = `Exit scope with types: ${varDetails || "none"}`;
+        break;
+
+      default:
+        eventDetails = `${event.type}: ${JSON.stringify(event)}`;
+    }
+
+    eventElement.textContent = eventDetails;
+    state.ui.typecheckListElement.appendChild(eventElement);
+  }
+
+  // Scroll to the current event
+  const currentElement = state.ui.typecheckListElement.querySelector(
+    ".typecheck-event-current",
+  );
+  if (currentElement) {
+    scrollIntoViewIfNeeded(currentElement, state.ui.typecheckListElement);
+  }
+}
+
 // Update CSS rule for placeholders
-const style = document.createElement('style');
+const style = document.createElement("style");
 style.textContent = `
   .ast-placeholder {
     color: #999;
@@ -1089,5 +1349,63 @@ style.textContent = `
     font-style: italic;
     font-size: 0.9em;
   }
+  
+  /* Typecheck display styles */
+  .typecheck-event {
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 3px;
+    font-family: monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .typecheck-event-current {
+    background-color: rgba(255, 255, 0, 0.2);
+    font-weight: bold;
+  }
+  
+  .typecheck-new-var {
+    color: #6a0dad; /* Purple */
+  }
+  
+  .typecheck-unify-start {
+    color: #0000ff; /* Blue */
+  }
+  
+  .typecheck-unify-complete {
+    color: #008000; /* Green */
+  }
+  
+  .typecheck-error {
+    color: #ff0000; /* Red */
+    background-color: rgba(255, 0, 0, 0.1);
+  }
+  
+  .typecheck-assign {
+    color: #ff8c00; /* Orange */
+  }
+  
+  .typecheck-function,
+  .typecheck-array {
+    color: #4682b4; /* Steel Blue */
+  }
+  
+  .typecheck-success {
+    color: #228b22; /* Forest Green */
+  }
+  
+  .typecheck-scope {
+    color: #808080; /* Gray */
+    font-style: italic;
+  }
+  
+  /* Indentation for nested operations */
+  .typecheck-indent-1 { padding-left: 20px; }
+  .typecheck-indent-2 { padding-left: 40px; }
+  .typecheck-indent-3 { padding-left: 60px; }
+  .typecheck-indent-4 { padding-left: 80px; }
+  .typecheck-indent-5 { padding-left: 100px; }
 `;
 document.head.appendChild(style);

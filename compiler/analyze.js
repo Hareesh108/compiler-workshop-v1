@@ -58,7 +58,7 @@ function declareInScope(scope, name, node) {
   // Add the declaration to this scope
   scope.declarations.set(name, {
     node,
-    references: []
+    references: [],
   });
 
   return true;
@@ -184,9 +184,9 @@ function visitNode(state, node) {
   // Create a new scope if this node introduces a new scope
   if (isNodeWithScope(node)) {
     // Emit event for entering a scope
-    emitNameResolutionEvent(state, 'enterScope', {
+    emitNameResolutionEvent(state, "enterScope", {
       nodeType: node.type,
-      location: node.location
+      location: node.location,
     });
 
     // Create a new scope with the current scope as parent
@@ -208,9 +208,9 @@ function visitNode(state, node) {
     state.currentScope = previousScope;
 
     // Emit event for leaving a scope
-    emitNameResolutionEvent(state, 'leaveScope', {
+    emitNameResolutionEvent(state, "leaveScope", {
       nodeType: node.type,
-      location: node.location
+      location: node.location,
     });
   } else {
     // Process node normally without changing scope
@@ -309,20 +309,20 @@ function visitConstDeclaration(state, node) {
     reportError(
       state.errors,
       `Duplicate declaration of variable: ${node.id.name}`,
-      node
+      node,
     );
   } else {
     // Emit declaration event
-    emitNameResolutionEvent(state, 'declare', {
+    emitNameResolutionEvent(state, "declare", {
       name: node.id.name,
       node,
-      scope: state.currentScope
+      scope: state.currentScope,
     });
   }
 
   // Process the identifier (this is just for completeness; we don't need to check
   // for undeclared references since we just declared it)
-  node.id._context = 'declaration';
+  node.id._context = "declaration";
   visitNode(state, node.id);
 }
 
@@ -356,7 +356,7 @@ function visitArrowFunction(state, node) {
 function visitIdentifier(state, node) {
   // Skip if this is not a variable reference
   // (e.g., it's a property in a member expression)
-  if (node._context !== 'variable') {
+  if (node._context !== "variable") {
     return;
   }
 
@@ -364,15 +364,19 @@ function visitIdentifier(state, node) {
   const declaration = getDeclarationFromScope(state.currentScope, node.name);
 
   // Record the lookup event
-  emitNameResolutionEvent(state, 'lookup', {
+  emitNameResolutionEvent(state, "lookup", {
     name: node.name,
     node,
     found: !!declaration,
-    location: declaration ? declaration.node.location : null
+    location: declaration ? declaration.node.location : null,
   });
 
   if (!declaration) {
-    reportError(state.errors, `Reference to undeclared variable: ${node.name}`, node);
+    reportError(
+      state.errors,
+      `Reference to undeclared variable: ${node.name}`,
+      node,
+    );
     return;
   }
 
@@ -395,8 +399,8 @@ function visitIdentifier(state, node) {
 function visitReturnStatement(state, node) {
   // If we have a return value, mark any identifiers and process it
   if (node.argument) {
-    if (node.argument.type === 'Identifier') {
-      node.argument._context = 'variable';
+    if (node.argument.type === "Identifier") {
+      node.argument._context = "variable";
     }
     visitNode(state, node.argument);
   }
@@ -412,12 +416,12 @@ function visitReturnStatement(state, node) {
  */
 function visitBinaryExpression(state, node) {
   // Mark identifiers as variable references
-  if (node.left && node.left.type === 'Identifier') {
-    node.left._context = 'variable';
+  if (node.left && node.left.type === "Identifier") {
+    node.left._context = "variable";
   }
 
-  if (node.right && node.right.type === 'Identifier') {
-    node.right._context = 'variable';
+  if (node.right && node.right.type === "Identifier") {
+    node.right._context = "variable";
   }
 
   // Visit left and right operands
@@ -440,8 +444,8 @@ function visitBinaryExpression(state, node) {
  */
 function visitConditionalExpression(state, node) {
   // Mark identifiers in the test condition
-  if (node.test && node.test.type === 'Identifier') {
-    node.test._context = 'variable';
+  if (node.test && node.test.type === "Identifier") {
+    node.test._context = "variable";
   }
 
   // Process test condition
@@ -450,8 +454,8 @@ function visitConditionalExpression(state, node) {
   }
 
   // Mark identifiers in the consequent (true branch)
-  if (node.consequent && node.consequent.type === 'Identifier') {
-    node.consequent._context = 'variable';
+  if (node.consequent && node.consequent.type === "Identifier") {
+    node.consequent._context = "variable";
   }
 
   // Process consequent (true branch)
@@ -460,8 +464,8 @@ function visitConditionalExpression(state, node) {
   }
 
   // Mark identifiers in the alternate (false branch)
-  if (node.alternate && node.alternate.type === 'Identifier') {
-    node.alternate._context = 'variable';
+  if (node.alternate && node.alternate.type === "Identifier") {
+    node.alternate._context = "variable";
   }
 
   // Process alternate (false branch)
@@ -514,7 +518,7 @@ function analyze(ast, options = {}) {
     currentScope: createScope(), // Initialize with global scope
     errors: [],
     scopes: new Map(), // Map from nodes to their scopes
-    options
+    options,
   };
 
   visitNode(state, ast);
@@ -522,7 +526,7 @@ function analyze(ast, options = {}) {
   return {
     ast,
     errors: state.errors,
-    scopes: state.scopes
+    scopes: state.scopes,
   };
 }
 
@@ -540,7 +544,7 @@ function analyzeCode(sourceCode, { compile = true, onNameResolution } = {}) {
   const parseResult = window.CompilerModule.parseCode(sourceCode);
 
   if (parseResult.errors.length > 0) {
-    return parseResult;  // Return early if there are syntax errors
+    return parseResult; // Return early if there are syntax errors
   }
 
   // Then, perform semantic analysis on the AST
@@ -549,7 +553,7 @@ function analyzeCode(sourceCode, { compile = true, onNameResolution } = {}) {
   return {
     ast: parseResult.ast,
     errors: [...parseResult.errors, ...analysisResult.errors],
-    scopes: analysisResult.scopes
+    scopes: analysisResult.scopes,
   };
 }
 
@@ -564,7 +568,7 @@ function emitNameResolutionEvent(state, eventType, details) {
   if (state.options.onNameResolution) {
     state.options.onNameResolution({
       type: eventType,
-      ...details
+      ...details,
     });
   }
 }
@@ -576,9 +580,9 @@ function emitNameResolutionEvent(state, eventType, details) {
  * @returns {boolean} - True if the node introduces a new scope
  */
 function isNodeWithScope(node) {
-  return node && (
-    node.type === "ArrowFunctionExpression" ||
-    node.type === "BlockStatement"
+  return (
+    node &&
+    (node.type === "ArrowFunctionExpression" || node.type === "BlockStatement")
   );
 }
 
@@ -670,14 +674,14 @@ function visitFunction(state, node) {
         reportError(
           state.errors,
           `Duplicate parameter name: ${param.name}`,
-          param
+          param,
         );
       } else {
         // Emit function parameter declaration event
-        emitNameResolutionEvent(state, 'declareParam', {
+        emitNameResolutionEvent(state, "declareParam", {
           name: param.name,
           node: param,
-          scope: state.currentScope
+          scope: state.currentScope,
         });
       }
     }
