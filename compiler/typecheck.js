@@ -188,9 +188,10 @@ function reportError(errors, message, node) {
  *
  * @param {object} state - Current type inference state
  * @param {string|null} name - Optional name for the type variable
+ * @param {string|null} context - Optional context information about where this type variable came from
  * @returns {object} - A new type variable
  */
-function newTypeVar(state, name = null) {
+function newTypeVar(state, name = null, context = null) {
   const id = state.nextTypeVarId;
   state.nextTypeVarId = state.nextTypeVarId + 1;
   const typeVar = {
@@ -200,10 +201,19 @@ function newTypeVar(state, name = null) {
     symlink: null,
   };
 
+  // Determine the context for this type variable
+  let contextInfo = "Anonymous variable";
+  if (name) {
+    contextInfo = `Named variable ${name}`;
+  }
+  if (context) {
+    contextInfo = context;
+  }
+
   // Emit an event for creating a new type variable
   emitTypecheckEvent(state, "newTypeVar", {
     typeVar: { ...typeVar },
-    context: name ? `Named variable ${name}` : "Anonymous variable",
+    context: contextInfo,
   });
 
   return typeVar;
@@ -227,7 +237,7 @@ function freshInstance(state, type, mappings = new Map()) {
   if (type.kind === "TypeVariable") {
     // If we haven't seen this type variable before, create a fresh copy
     if (!mappings.has(type)) {
-      mappings.set(type, newTypeVar(state));
+      mappings.set(type, newTypeVar(state, null, `Fresh instance of ${type.name}`));
     }
     return mappings.get(type);
   } else if (type.kind === "FunctionType") {
@@ -261,7 +271,7 @@ function getType(state, name) {
 
   // If not found, create a fresh type variable
   if (!type) {
-    const typeVar = newTypeVar(state);
+    const typeVar = newTypeVar(state, null, `Variable lookup: ${name}`);
     state.currentScope[name] = typeVar;
     return typeVar;
   }
@@ -485,7 +495,7 @@ function checkReturnPosition(state, node, body) {
 function infer(state, node) {
   // Handle null/undefined or non-object nodes
   if (!node || typeof node !== "object") {
-    return newTypeVar(state);
+    return newTypeVar(state, null, "Missing or invalid node");
   }
 
   // Dispatch based on node type
@@ -533,7 +543,7 @@ function infer(state, node) {
 
     default:
       reportError(state.errors, `Unknown node type: ${node.type}`, node);
-      return newTypeVar(state);
+      return newTypeVar(state, null, `Unknown node type: ${node.type}`);
   }
 }
 
@@ -553,7 +563,7 @@ function inferTypeCallExpression(state, node) {
     // If it's not yet resolved to a function, create a fresh function type
     if (fnType.kind === "TypeVariable") {
       // Create a return type variable
-      const returnType = newTypeVar(state);
+      const returnType = newTypeVar(state, null, `Return type for call to ${node.callee.type === 'Identifier' ? node.callee.name : 'expression'}`);
 
       if (node.arguments.length === 0) {
         // For zero arguments, create a Void -> returnType function
@@ -586,7 +596,7 @@ function inferTypeCallExpression(state, node) {
 
   // Handle multi-parameter functions (curried form)
   let currentFnType = fnType;
-  let resultType = newTypeVar(state);
+  let resultType = newTypeVar(state, null, `Result of function call${node.callee.type === 'Identifier' ? ' to ' + node.callee.name : ''}`);
 
   // Check each argument against the expected parameter type
   for (let i = 0; i < node.arguments.length; i++) {
@@ -756,7 +766,7 @@ function inferTernary(state, node) {
   const thenBranchType = infer(state, node.thenBranch);
   const elseBranchType = infer(state, node.elseBranch);
 
-  const answer = newTypeVar(state);
+  const answer = newTypeVar(state, null, "Ternary condition result");
   unify(state, thenBranchType, answer, node.thenBranch);
   unify(state, elseBranchType, answer, node.elseBranch);
 
@@ -790,7 +800,7 @@ function inferTypeArrowFunction(state, node) {
       paramType = createTypeFromAnnotation(state, param.typeAnnotation);
     } else {
       // Otherwise use a fresh type variable
-      paramType = newTypeVar(state);
+      paramType = newTypeVar(state, null, `Parameter ${param.name}`);
     }
 
     state.currentScope[param.name] = paramType;
@@ -877,7 +887,7 @@ function inferTypeArrayLiteral(state, node) {
   // Handle empty array case
   if (node.elements.length === 0) {
     // For empty arrays, we create a parametric array type
-    const elemType = newTypeVar(state);
+    const elemType = newTypeVar(state, null, "Empty array element type");
     return createArrayType(elemType);
   }
 
@@ -920,7 +930,7 @@ function inferTypeMemberExpression(state, node) {
 
   // If object is not already an array type, create a type variable for the element type
   // and unify the object with an array of that element type
-  const elementType = newTypeVar(state);
+  const elementType = newTypeVar(state, null, "Array access element type");
   const arrayType = createArrayType(elementType);
 
   // Unify the object type with the array type
@@ -960,7 +970,7 @@ function createTypeFromAnnotation(state, annotation) {
 
         default:
           // For custom/unknown types, use a type variable
-          return newTypeVar(state);
+          return newTypeVar(state, null, `Unknown type annotation: ${annotation.valueType}`);
       }
     }
 
