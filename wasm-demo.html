@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebAssembly Code Generation Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1, h2, h3 {
+      color: #2c3e50;
+    }
+    
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    
+    textarea {
+      width: 100%;
+      height: 300px;
+      font-family: monospace;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    
+    .output {
+      background-color: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      min-height: 300px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+    
+    .controls {
+      grid-column: span 2;
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    button:hover {
+      background-color: #45a049;
+    }
+    
+    .error {
+      color: #e74c3c;
+      font-weight: bold;
+    }
+    
+    .success {
+      color: #2ecc71;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>WebAssembly Code Generation Demo</h1>
+  <p>
+    Write your code in the editor and click "Compile to WebAssembly" to see it transformed into WebAssembly.
+    Then use "Run WebAssembly" to execute the compiled code.
+  </p>
+  
+  <div class="container">
+    <div>
+      <h2>Source Code</h2>
+      <textarea id="source-code">// Write your code here
+const add = (a, b) => a + b;
+
+const factorial = (n) => {
+  return n <= 1 ? 1 : n * factorial(n - 1);
+};
+
+const fibonacci = (n) => {
+  return n <= 1 ? n : fibonacci(n - 1) + fibonacci(n - 2);
+};</textarea>
+    </div>
+    
+    <div>
+      <h2>Output</h2>
+      <div id="output" class="output"></div>
+    </div>
+    
+    <div class="controls">
+      <button id="compile-btn">Compile to WebAssembly</button>
+      <button id="run-btn" disabled>Run WebAssembly</button>
+      <select id="function-select" disabled>
+        <option value="">Select a function to call...</option>
+      </select>
+      <input id="arg-input" type="text" placeholder="Arguments (comma separated)" disabled>
+      <button id="call-btn" disabled>Call Function</button>
+    </div>
+  </div>
+  
+  <!-- Initialize the compiler module object -->
+  <script>
+    window.CompilerModule = {};
+  </script>
+  
+  <!-- Load the compiler modules -->
+  <script src="compiler/parse.js"></script>
+  <script src="compiler/analyze.js"></script>
+  <script src="compiler/typecheck.js"></script>
+  <script src="compiler/generate-wasm.js"></script>
+  
+  <script>
+    const sourceCodeArea = document.getElementById('source-code');
+    const outputArea = document.getElementById('output');
+    const compileBtn = document.getElementById('compile-btn');
+    const runBtn = document.getElementById('run-btn');
+    const functionSelect = document.getElementById('function-select');
+    const argInput = document.getElementById('arg-input');
+    const callBtn = document.getElementById('call-btn');
+    
+    let wasmInstance = null;
+    let wasmExports = null;
+    
+    // Compile source code to WebAssembly
+    compileBtn.addEventListener('click', async () => {
+      const sourceCode = sourceCodeArea.value;
+      outputArea.innerHTML = 'Compiling...\n';
+      
+      try {
+        // Run the compiler
+        const result = window.CompilerModule.generateWasm(sourceCode);
+        
+        if (result.errors.length > 0) {
+          outputArea.innerHTML = '<span class="error">Compilation failed with errors:</span>\n\n';
+          result.errors.forEach(error => {
+            outputArea.innerHTML += `- ${error.message}\n`;
+          });
+          
+          // Reset WebAssembly state
+          wasmInstance = null;
+          wasmExports = null;
+          runBtn.disabled = true;
+          functionSelect.disabled = true;
+          argInput.disabled = true;
+          callBtn.disabled = true;
+          
+          return;
+        }
+        
+        outputArea.innerHTML = '<span class="success">Compilation successful!</span>\n\n';
+        outputArea.innerHTML += `WebAssembly binary size: ${result.wasm.byteLength} bytes\n`;
+        
+        // Enable the run button
+        runBtn.disabled = false;
+        
+        // Store the WebAssembly binary for later use
+        window.wasmBinary = result.wasm;
+        
+      } catch (error) {
+        outputArea.innerHTML = `<span class="error">Error during compilation:</span>\n\n${error.message}`;
+        console.error(error);
+        
+        // Reset WebAssembly state
+        wasmInstance = null;
+        wasmExports = null;
+        runBtn.disabled = true;
+        functionSelect.disabled = true;
+        argInput.disabled = true;
+        callBtn.disabled = true;
+      }
+    });
+    
+    // Run the compiled WebAssembly
+    runBtn.addEventListener('click', async () => {
+      if (!window.wasmBinary) {
+        outputArea.innerHTML = '<span class="error">No WebAssembly binary available. Please compile first.</span>';
+        return;
+      }
+      
+      outputArea.innerHTML = 'Instantiating WebAssembly module...\n';
+      
+      try {
+        // Instantiate the WebAssembly module
+        const result = await window.CompilerModule.instantiateWasm(window.wasmBinary);
+        wasmInstance = result.instance;
+        wasmExports = result.exports;
+        
+        outputArea.innerHTML = '<span class="success">WebAssembly module instantiated successfully!</span>\n\n';
+        outputArea.innerHTML += 'Available exports:\n';
+        
+        // Clear select options
+        functionSelect.innerHTML = '<option value="">Select a function to call...</option>';
+        
+        // List available exported functions
+        let exportCount = 0;
+        for (const exportName in wasmExports) {
+          if (typeof wasmExports[exportName] === 'function') {
+            outputArea.innerHTML += `- ${exportName}\n`;
+            
+            // Add to select options
+            const option = document.createElement('option');
+            option.value = exportName;
+            option.textContent = exportName;
+            functionSelect.appendChild(option);
+            
+            exportCount++;
+          }
+        }
+        
+        if (exportCount > 0) {
+          outputArea.innerHTML += '\nSelect a function from the dropdown and provide arguments to call it.';
+          functionSelect.disabled = false;
+          argInput.disabled = false;
+          callBtn.disabled = false;
+        } else {
+          outputArea.innerHTML += '\nNo functions exported from the WebAssembly module.';
+        }
+        
+      } catch (error) {
+        outputArea.innerHTML = `<span class="error">Error instantiating WebAssembly:</span>\n\n${error.message}`;
+        console.error(error);
+      }
+    });
+    
+    // Call a WebAssembly function
+    callBtn.addEventListener('click', () => {
+      const functionName = functionSelect.value;
+      if (!functionName) {
+        outputArea.innerHTML = '<span class="error">Please select a function to call.</span>';
+        return;
+      }
+      
+      const argsString = argInput.value.trim();
+      let args = [];
+      
+      // Parse arguments
+      if (argsString) {
+        try {
+          args = argsString.split(',').map(arg => {
+            arg = arg.trim();
+            // Try to convert to number if possible
+            if (!isNaN(Number(arg))) {
+              return Number(arg);
+            }
+            return arg;
+          });
+        } catch (error) {
+          outputArea.innerHTML = `<span class="error">Error parsing arguments:</span>\n\n${error.message}`;
+          return;
+        }
+      }
+      
+      // Call the WebAssembly function
+      try {
+        const func = wasmExports[functionName];
+        const startTime = performance.now();
+        const result = func(...args);
+        const endTime = performance.now();
+        
+        outputArea.innerHTML = `<span class="success">Function ${functionName} called successfully!</span>\n\n`;
+        outputArea.innerHTML += `Result: ${result}\n`;
+        outputArea.innerHTML += `Execution time: ${(endTime - startTime).toFixed(2)}ms`;
+        
+      } catch (error) {
+        outputArea.innerHTML = `<span class="error">Error calling function ${functionName}:</span>\n\n${error.message}`;
+        console.error(error);
+      }
+    });
+  </script>
+</body>
+</html>
