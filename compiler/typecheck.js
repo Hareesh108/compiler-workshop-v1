@@ -201,20 +201,14 @@ function newTypeVar(state, name = null, context = null) {
     symlink: null,
   };
 
-  // Determine the context for this type variable
-  let contextInfo = "Anonymous variable";
-  if (name) {
-    contextInfo = `Named variable ${name}`;
-  }
-  if (context) {
-    contextInfo = context;
-  }
-
-  // Emit an event for creating a new type variable
-  emitTypecheckEvent(state, "newTypeVar", {
-    typeVar: { ...typeVar },
-    context: contextInfo,
-  });
+  // Context information kept for documentation but events removed
+  // let contextInfo = "Anonymous variable";
+  // if (name) {
+  //   contextInfo = `Named variable ${name}`;
+  // }
+  // if (context) {
+  //   contextInfo = context;
+  // }
 
   return typeVar;
 }
@@ -306,12 +300,7 @@ function unify(state, t1, t2, node) {
   t1 = compress(t1);
   t2 = compress(t2);
 
-  // Emit start unification event
-  emitTypecheckEvent(state, "unifyStart", {
-    type1: typeToString(t1),
-    type2: typeToString(t2),
-    node: node ? { type: node.type, position: node.position } : null,
-  });
+
 
   // Case 1: First type is a variable
   if (t1.kind === "TypeVariable") {
@@ -325,11 +314,7 @@ function unify(state, t1, t2, node) {
           node,
         );
 
-        emitTypecheckEvent(state, "unifyError", {
-          type1: typeToString(t1),
-          type2: typeToString(t2),
-          error: "Infinite unification",
-        });
+
 
         return;
       }
@@ -337,18 +322,12 @@ function unify(state, t1, t2, node) {
       // Set the type variable to point to the other type
       t1.symlink = t2;
 
-      emitTypecheckEvent(state, "typeVarAssign", {
-        typeVar: t1.name,
-        assignedType: typeToString(t2),
-      });
+
     }
   }
   // Case 2: Both are function types
   else if (t1.kind === "FunctionType" && t2.kind === "FunctionType") {
-    emitTypecheckEvent(state, "unifyFunction", {
-      func1: typeToString(t1),
-      func2: typeToString(t2),
-    });
+
 
     // Recursively unify parameter and return types
     unify(state, t1.paramType, t2.paramType, node);
@@ -356,10 +335,7 @@ function unify(state, t1, t2, node) {
   }
   // Case 3: Both are array types
   else if (t1.kind === "ArrayType" && t2.kind === "ArrayType") {
-    emitTypecheckEvent(state, "unifyArray", {
-      array1: typeToString(t1),
-      array2: typeToString(t2),
-    });
+
 
     // Recursively unify element types
     unify(state, t1.elementType, t2.elementType, node);
@@ -374,15 +350,7 @@ function unify(state, t1, t2, node) {
         node,
       );
 
-      emitTypecheckEvent(state, "unifyError", {
-        type1: typeToString(t1),
-        type2: typeToString(t2),
-        error: "Type mismatch",
-      });
-    } else {
-      emitTypecheckEvent(state, "unifySuccess", {
-        type: typeToString(t1),
-      });
+
     }
   }
   // Case 5: Second type is a variable (swap and try again)
@@ -397,11 +365,7 @@ function unify(state, t1, t2, node) {
       node,
     );
 
-    emitTypecheckEvent(state, "unifyError", {
-      type1: typeToString(t1),
-      type2: typeToString(t2),
-      error: "Incompatible types",
-    });
+
   }
 }
 
@@ -414,17 +378,12 @@ function unify(state, t1, t2, node) {
  *
  * @param {object} state - Current type inference state
  */
-function enterScope(state) {
+function pushScope(state) {
   const outerScope = state.currentScope;
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
 
-  // Only emit enterScope event if this is not the first scope (top-level)
-  if (state.previousScope !== null) {
-    emitTypecheckEvent(state, "enterScope", {
-      parentScope: outerScope ? Object.keys(outerScope) : [],
-    });
-  }
+
 
   state.previousScope = outerScope;
   state.currentScope = newScope;
@@ -435,18 +394,8 @@ function enterScope(state) {
  *
  * @param {object} state - Current type inference state
  */
-function exitScope(state) {
-  const scopeVars = Object.keys(state.currentScope);
-
-  emitTypecheckEvent(state, "exitScope", {
-    variables: scopeVars,
-    types: scopeVars.map((variable) => {
-      return {
-        name: variable,
-        type: typeToString(state.currentScope[variable]),
-      };
-    }),
-  });
+function popScope(state) {
+  // const scopeVars = Object.keys(state.currentScope);
 
   state.currentScope = state.previousScope;
 }
@@ -527,7 +476,7 @@ function infer(state, node) {
       return inferTernary(state, node);
 
     case "ArrowFunctionExpression":
-      return inferTypeArrowFunction(state, node);
+      return inferTypeFunction(state, node);
 
     case "CallExpression":
       return inferTypeCallExpression(state, node);
@@ -774,14 +723,14 @@ function inferTernary(state, node) {
 }
 
 /**
- * Infer type for an arrow function
+ * Infer type for a function
  *
  * @param {object} state - Current type inference state
- * @param {object} node - Arrow function node
+ * @param {object} node - Function node
  * @returns {object} - Inferred type
  */
-function inferTypeArrowFunction(state, node) {
-  enterScope(state);
+function inferTypeFunction(state, node) {
+  pushScope(state);
   const outerNonGeneric = state.nonGeneric;
   state.nonGeneric = new Set(outerNonGeneric);
 
@@ -840,8 +789,9 @@ function inferTypeArrowFunction(state, node) {
       inferredReturnType = primitive(Types.Void);
     }
   } else {
-    // For expression bodies, the return type is the type of the expression
-    inferredReturnType = infer(state, node.body);
+    // Expression bodies should not exist - they've been disallowed in the parser
+    reportError(state.errors, "Functions require a block body with explicit return statements", node);
+    inferredReturnType = primitive(Types.Void);
   }
 
   // If there's a return type annotation, use it and unify with inferred type
@@ -865,7 +815,7 @@ function inferTypeArrowFunction(state, node) {
     );
   }
 
-  exitScope(state);
+  popScope(state);
   state.nonGeneric = outerNonGeneric;
 
   return functionType;
@@ -1055,21 +1005,7 @@ function inferTypeReturnStatement(state, node) {
   return infer(state, node.argument);
 }
 
-/**
- * Emit a typecheck event via the callback if provided
- *
- * @param {object} state - The current state
- * @param {string} eventType - The type of event (e.g., 'newTypeVar', 'unify')
- * @param {object} details - Details about the event
- */
-function emitTypecheckEvent(state, eventType, details) {
-  if (state.options && state.options.onTypecheck) {
-    state.options.onTypecheck({
-      type: eventType,
-      ...details,
-    });
-  }
-}
+
 
 /**
  * Analyze the AST and infer types
@@ -1087,8 +1023,8 @@ function inferAst(ast, options = {}) {
     previousScope: null,
     nonGeneric: new Set(),
     // Counter for generating unique IDs for type variables
-    nextTypeVarId: 0,
-    options,
+    nextTypeVarId: 0
+    // options removed
   };
 
   infer(state, ast);
@@ -1107,7 +1043,7 @@ function inferAst(ast, options = {}) {
  */
 function typecheck(ast, nameErrors = [], options = {}) {
   // Perform type inference
-  const { errors: typeErrors } = inferAst(ast, options);
+  const { errors: typeErrors } = inferAst(ast);
 
   // Combine errors from name resolution and type inference
   return {

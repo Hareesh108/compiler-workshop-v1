@@ -564,22 +564,19 @@ function parse(tokens, options = {}) {
   }
 
   /**
-   * Parse an arrow function expression
+   * Parse a function expression
    *
-   * Handles both formats:
-   * 1. Parameter => expression
-   * 2. (param1, param2) => { statements }
+   * Only supports block statement bodies with return statements:
+   * (param1, param2) => { statements }
    *
    * Also handles TypeScript-style type annotations:
-   * 1. (param: Type) => expression
-   * 2. (param): ReturnType => expression
-   * 3. (param: Type): ReturnType => { statements }
+   * (param: Type): ReturnType => { statements }
    */
-  function parseArrowFunction() {
-    // Emit event for arrow function start
+  function parseFunction() {
+    // Emit event for function start
     const startPosition = peek().position;
     onNode({
-      type: "ArrowFunctionStart",
+      type: "FunctionStart",
       position: startPosition,
     });
 
@@ -679,13 +676,12 @@ function parse(tokens, options = {}) {
         position: tokens[current - 1].position,
       });
     } else {
-      // Expression body without braces - parse as expression
-      body = parseExpression();
-      expression = true;
+      // Always require block statement with return
+      throw new Error(`Functions require a block body with explicit return statements`);
     }
 
-    // Create the arrow function node
-    const arrowFunction = {
+    // Create the function node
+    const functionNode = {
       type: "ArrowFunctionExpression",
       params,
       body,
@@ -693,14 +689,14 @@ function parse(tokens, options = {}) {
       returnType,
     };
 
-    // Emit event for arrow function complete
+    // Emit event for function complete
     onNode({
-      type: "ArrowFunctionComplete",
-      node: arrowFunction,
+      type: "FunctionComplete",
+      node: functionNode,
       position: peek() ? peek().position : tokens[current - 1].position,
     });
 
-    return arrowFunction;
+    return functionNode;
   }
 
   /**
@@ -1111,8 +1107,8 @@ function parse(tokens, options = {}) {
       current = savedPosition;
 
       if (isArrowFunction) {
-        // Parse as an arrow function
-        node = parseArrowFunction();
+        // Parse as a function
+        node = parseFunction();
       } else {
         // Parse as a parenthesized expression
         next(); // Skip the '('

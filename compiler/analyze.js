@@ -327,9 +327,9 @@ function visitConstDeclaration(state, node) {
 }
 
 /**
- * Visit an arrow function
+ * Visit a function
  *
- * Arrow functions create a new lexical scope. We need to:
+ * Functions create a new lexical scope. We need to:
  * 1. Create a new scope for the function body
  * 2. Declare parameters in the function scope
  * 3. Process the function body
@@ -338,7 +338,7 @@ function visitConstDeclaration(state, node) {
  * @param {object} state - Current analyzer state
  * @param {object} node - ArrowFunctionExpression node to visit
  */
-function visitArrowFunction(state, node) {
+function visitFunction(state, node) {
   // Process the function using the general function handling
   visitFunction(state, node);
 }
@@ -612,7 +612,7 @@ function processNode(state, node) {
 
     // Functions
     case "ArrowFunctionExpression":
-      visitArrowFunction(state, node);
+      visitFunction(state, node);
       break;
 
     // Variable references
