@@ -88,7 +88,7 @@ function visitNode(node) {
  * @param {object} node - Identifier node to visit
  */
 function visitIdentifier(node) {
-  if (!scopes.some(scope => scope.has(node.name))) {
+  if (!scopes.some((scope) => scope.has(node.name))) {
     reportError(`Reference to undeclared variable: ${node.name}`, node);
   }
 }
@@ -150,10 +150,9 @@ function visitCallExpression(node) {
   visitNode(node.callee);
 
   for (const arg of node.arguments) {
-      visitNode(arg);
+    visitNode(arg);
   }
 }
-
 
 /**
  * Visit a const declaration

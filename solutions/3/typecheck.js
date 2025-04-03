@@ -94,6 +94,25 @@ function getConcreteTypeName(typeId) {
 }
 
 /**
+ * Report a type mismatch error
+ *
+ * @param {number} typeId1 - First type id involved in the mismatch
+ * @param {number} typeId2 - Second type id involved in the mismatch
+ * @param {object} [node] - Optional node where the error occurred
+ * @returns {boolean} - Always returns false to indicate unification failed
+ */
+function reportTypeMismatch(typeId1, typeId2, node) {
+  const type1Name = getConcreteTypeName(typeId1) || "unknown";
+  const type2Name = getConcreteTypeName(typeId2) || "unknown";
+
+  reportError(
+    `Type mismatch: cannot unify ${type1Name} with ${type2Name}`,
+    node,
+  );
+  return false;
+}
+
+/**
  * Unify two types, ensuring they are compatible
  * This is the core of the Hindley-Milner type system
  *
@@ -101,40 +120,44 @@ function getConcreteTypeName(typeId) {
  * @param {number} typeId2 - Second type id to unify
  * @returns {boolean} - True if unification succeeded, false if failed
  */
-function unify(typeId1, typeId2) {
-  // Find the ultimate type ids for both types
-  const a = resolveSymlinksAndCompress(typeId1);
-  const b = resolveSymlinksAndCompress(typeId2);
+const unify = (aTypeId, bTypeId) => {
+  const aType = resolveSymlinksAndCompress(aTypeId);
+  const bType = resolveSymlinksAndCompress(bTypeId);
 
   // If they're already the same, we're done
-  if (a === b) return true;
+  if (aType === bType) return true;
 
-  const aEntry = db[a];
-  const bEntry = db[b];
+  const aEntry = db[aType];
+  const bEntry = db[bType];
 
-  // Case 1: Both are concrete types
-  if (aEntry && bEntry && aEntry.concrete !== undefined && bEntry.concrete !== undefined) {
-    // Different concrete types is a type mismatch!
-    return aEntry.concrete === bEntry.concrete;
-  }
-
-  // Case 2: a is a concrete type, b is null or a variable
-  if (aEntry && aEntry.concrete !== undefined) {
-    db[b] = { symlink: a };
-  }
-  // Case 3: b is a concrete type, a is null or a variable
-  else if (bEntry && bEntry.concrete !== undefined) {
-    db[a] = { symlink: b };
-  }
-  // Case 4: Both are variables or null
-  else if (aEntry === null) {
-    db[a] = { symlink: b };
+  if (aEntry === null) {
+    // If aEntry is null (unassigned type variable)
+    db[aType] =
+      bEntry === null
+        ? { symlink: bType }
+        : bEntry.concrete !== undefined
+          ? { concrete: bEntry.concrete }
+          : { symlink: bType };
+    return true;
+  } else if (bEntry === null) {
+    return unify(bTypeId, aTypeId); // Swap the args
+  } else if (
+    aEntry.concrete !== undefined &&
+    bEntry.concrete !== undefined &&
+    aEntry.concrete !== bEntry.concrete
+  ) {
+    // Both are concrete types but different - report mismatch
+    return reportTypeMismatch(aType, bType);
+  } else if (aEntry.concrete !== undefined) {
+    // a is concrete, b is not null but must be a variable
+    db[bType] = { symlink: aType };
   } else {
-    db[b] = { symlink: a };
+    // a is not concrete and not null, so must be a variable
+    db[aType] = { symlink: bType };
   }
 
   return true;
-}
+};
 
 /**
  * Visit and type-check a parse tree node and its children
@@ -224,10 +247,13 @@ function visitBinaryExpression(node) {
     const canUnify = unify(leftType, rightType);
 
     // If concrete types don't match or unification failed, report error
-    if (!canUnify || (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)) {
+    if (
+      !canUnify ||
+      (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)
+    ) {
       reportError(
-        `Type mismatch in binary operation: cannot add ${leftConcrete || 'unknown'} to ${rightConcrete || 'unknown'}`,
-        node
+        `Type mismatch in binary operation: cannot add ${leftConcrete || "unknown"} to ${rightConcrete || "unknown"}`,
+        node,
       );
       // Return a placeholder type (Number)
       return createConcreteType("Number");
@@ -241,8 +267,8 @@ function visitBinaryExpression(node) {
     const leftIsNumber = unify(leftType, numberType);
     if (!leftIsNumber) {
       reportError(
-        `Type mismatch: expected Number for left operand of '*' operator, got ${leftConcrete || 'unknown'}`,
-        node.left
+        `Type mismatch: expected Number for left operand of '*' operator, got ${leftConcrete || "unknown"}`,
+        node.left,
       );
     }
 
@@ -250,8 +276,8 @@ function visitBinaryExpression(node) {
     const rightIsNumber = unify(rightType, numberType);
     if (!rightIsNumber) {
       reportError(
-        `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete || 'unknown'}`,
-        node.right
+        `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete || "unknown"}`,
+        node.right,
       );
     }
 
@@ -259,10 +285,13 @@ function visitBinaryExpression(node) {
   }
 
   // Default case: ensure both operands have the same type
-  if (!unify(leftType, rightType) || (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)) {
+  if (
+    !unify(leftType, rightType) ||
+    (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)
+  ) {
     reportError(
       `Type mismatch in binary operation: operands must have the same type`,
-      node
+      node,
     );
   }
 
@@ -393,8 +422,8 @@ function visitConditionalExpression(node) {
   const isBoolean = unify(testType, booleanType);
   if (!isBoolean) {
     reportError(
-      `Type mismatch: condition in ternary expression must be a Boolean, got ${testConcrete || 'unknown'}`,
-      node.test
+      `Type mismatch: condition in ternary expression must be a Boolean, got ${testConcrete || "unknown"}`,
+      node.test,
     );
   }
 
@@ -404,10 +433,15 @@ function visitConditionalExpression(node) {
 
   // Consequent and alternate must have the same type
   const branchesMatch = unify(consequentType, alternateType);
-  if (!branchesMatch || (consequentConcrete && alternateConcrete && consequentConcrete !== alternateConcrete)) {
+  if (
+    !branchesMatch ||
+    (consequentConcrete &&
+      alternateConcrete &&
+      consequentConcrete !== alternateConcrete)
+  ) {
     reportError(
-      `Type mismatch: both branches of ternary expression must have the same type, got ${consequentConcrete || 'unknown'} and ${alternateConcrete || 'unknown'}`,
-      node
+      `Type mismatch: both branches of ternary expression must have the same type, got ${consequentConcrete || "unknown"} and ${alternateConcrete || "unknown"}`,
+      node,
     );
   }
 
@@ -440,10 +474,15 @@ function visitArrayLiteral(node) {
     const typesMatch = unify(firstElementType, elementType);
 
     // Report error if types don't match or concrete types differ
-    if (!typesMatch || (firstElementConcrete && elementConcrete && firstElementConcrete !== elementConcrete)) {
+    if (
+      !typesMatch ||
+      (firstElementConcrete &&
+        elementConcrete &&
+        firstElementConcrete !== elementConcrete)
+    ) {
       reportError(
-        `Type mismatch: all elements in an array must have the same type, got ${firstElementConcrete || 'unknown'} and ${elementConcrete || 'unknown'} at index ${i}`,
-        node.elements[i]
+        `Type mismatch: all elements in an array must have the same type, got ${firstElementConcrete || "unknown"} and ${elementConcrete || "unknown"} at index ${i}`,
+        node.elements[i],
       );
     }
   }
@@ -470,8 +509,8 @@ function visitMemberExpression(node) {
   const isNumber = unify(indexType, numberType);
   if (!isNumber) {
     reportError(
-      `Type mismatch: array index must be a Number, got ${indexConcrete || 'unknown'}`,
-      node.index
+      `Type mismatch: array index must be a Number, got ${indexConcrete || "unknown"}`,
+      node.index,
     );
   }
 
