@@ -10,24 +10,8 @@
  * - Tracks variable scoping in nested environments (functions, blocks)
  */
 
-// Global state for the name resolver
-const state = {
-  currentScope: null,
-  errors: [],
-  scopes: new Map() // Map from nodes to their scopes
-};
-
-/**
- * Create a new scope
- * @param {object|null} parent - Parent scope, or null for the global scope
- * @returns {object} - A new scope object
- */
-function createScope(parent = null) {
-  return {
-    parent,
-    declarations: new Map(),
-  };
-}
+let errors = [];
+let scopes = []; // Flat array of scopes (Sets of variable names)
 
 /**
  * Declare a new variable in the current scope
@@ -35,45 +19,20 @@ function createScope(parent = null) {
  * This adds a variable to the current scope, but will fail if the variable
  * is already declared in this scope (a duplicate declaration error).
  *
- * @param {object} scope - The scope to declare the variable in
  * @param {string} name - Variable name
  * @param {object} node - Parse tree node where the variable is declared
- * @returns {boolean} - Whether the declaration was successful
  */
-function declareInScope(scope, name, node) {
-  // Check if the variable is already declared in this scope
-  if (scope.declarations.has(name)) {
-    return false; // Duplicate declaration
+function declareVariable(name) {
+  const currentScope = scopes[scopes.length - 1];
+
+  if (scopes.some(scope => scope.has(name))) {
+    reportError(
+      `Duplicate declaration of variable: ${node.id.name}`,
+      node
+    );
   }
 
-  // Add the declaration to this scope
-  scope.declarations.set(name, {
-    node,
-  });
-
-  return true;
-}
-
-/**
- * Find declaration node for a variable
- *
- * @param {object} scope - The scope to check
- * @param {string} name - Variable name to look up
- * @returns {object|null} - The declaration node or null if not found
- */
-function getDeclarationFromScope(scope, name) {
-  // Check current scope
-  if (scope.declarations.has(name)) {
-    return scope.declarations.get(name);
-  }
-
-  // Check parent scopes recursively
-  if (scope.parent) {
-    return getDeclarationFromScope(scope.parent, name);
-  }
-
-  // Not found anywhere
-  return null;
+  currentScope.add(name);
 }
 
 /**
@@ -83,7 +42,7 @@ function getDeclarationFromScope(scope, name) {
  * @param {object} node - Parse tree node where the error occurred
  */
 function reportError(message, node) {
-  state.errors.push({
+  errors.push({
     message,
     node,
   });
@@ -108,29 +67,11 @@ function isNodeWithScope(node) {
  * @param {object} node - Parse tree node to visit
  */
 function visitNode(node) {
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
-  // Create a new scope if this node introduces a new scope
   if (isNodeWithScope(node)) {
-    const previousScope = state.currentScope;
-    // Create a new scope with the current scope as parent
-    const newScope = createScope(previousScope);
-
-    // Set the current scope to the new scope
-    state.currentScope = newScope;
-
-    // Map the node to its scope for later reference
-    state.scopes.set(node, newScope);
-
-    // Process the node according to its type
+    scopes.push(new Set());
     processNode(node);
-
-    // After processing, revert to the previous scope
-    state.currentScope = previousScope;
+    scopes.pop();
   } else {
-    // Process node normally without changing scope
     processNode(node);
   }
 }
@@ -141,34 +82,23 @@ function visitNode(node) {
  * @param {object} node - The parse tree node
  */
 function processNode(node) {
-  // Skip null/undefined nodes and non-objects
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
-  // Dispatch to appropriate visitor function based on node type
   switch (node.type) {
-    // Variable declarations
     case "ConstDeclaration":
       visitConstDeclaration(node);
       break;
 
-    // Functions
     case "ArrowFunctionExpression":
       visitArrowFunction(node);
       break;
 
-    // Variable references
     case "Identifier":
       visitIdentifier(node);
       break;
 
-    // Statements
     case "ReturnStatement":
       visitReturnStatement(node);
       break;
 
-    // Expressions
     case "BinaryExpression":
       visitBinaryExpression(node);
       break;
@@ -201,37 +131,8 @@ function processNode(node) {
 
     default:
       // For unknown node types, traverse children generically
-      visitChildren(node);
+      throw new Error(`Unknown node type: ${node.type}`);
       break;
-  }
-}
-
-/**
- * Visit all children of a node
- *
- * @param {object} node - Node whose children should be visited
- */
-function visitChildren(node) {
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
-  // Iterate through all properties of the node
-  for (const key in node) {
-    if (node.hasOwnProperty(key) && key !== "type") {
-      const child = node[key];
-
-      // Handle arrays (e.g., body of a block)
-      if (Array.isArray(child)) {
-        for (const item of child) {
-          visitNode(item);
-        }
-      }
-      // Handle nested objects (other parse tree nodes)
-      else if (child && typeof child === "object") {
-        visitNode(child);
-      }
-    }
   }
 }
 
@@ -246,13 +147,7 @@ function visitConstDeclaration(node) {
     visitNode(node.init);
   }
 
-  // Check for duplicate declaration
-  if (!declareInScope(state.currentScope, node.id.name, node)) {
-    reportError(
-      `Duplicate declaration of variable: ${node.id.name}`,
-      node
-    );
-  }
+  declareVariable(node.id.name);
 }
 
 /**
@@ -265,7 +160,7 @@ function visitArrowFunction(node) {
   if (node.params) {
     for (const param of node.params) {
       // Declare the parameter in the current function scope
-      if (!declareInScope(state.currentScope, param.name, param)) {
+      if (!declareVariable(param.name)) {
         reportError(
           `Duplicate parameter name: ${param.name}`,
           param
@@ -302,10 +197,7 @@ function visitIdentifier(node) {
     return;
   }
 
-  // Look up the identifier in the current scope and parent scopes
-  const declaration = getDeclarationFromScope(state.currentScope, node.name);
-
-  if (!declaration) {
+  if (!scopes.some(scope => scope.has(node.name))) {
     reportError(
       `Reference to undeclared variable: ${node.name}`,
       node
@@ -400,17 +292,19 @@ function visitMemberExpression(node) {
  * @returns {object} - The analyzed parse tree with scope information and any errors
  */
 function nameCheck(statements) {
-  state.currentScope = createScope();
-  state.errors = [];
-  state.scopes = new Map();
+  errors = [];
+  scopes = [];
+
+  scopes.push(new Set());
 
   for (const statement of statements) {
     visitNode(statement);
   }
 
-  return {
-    errors: state.errors,
-  };
+  // Clean up global scope after analysis
+  scopes.pop();
+
+  return { errors };
 }
 
 module.exports = {
