@@ -351,11 +351,11 @@ function visitArrowFunction(node) {
   // Create a function type - in a real implementation
   // this would capture parameter and return types
   const functionTypeId = freshTypeId();
-
+  
   // Store the function's return type in our separate map
   // This doesn't interfere with the type database
   functionReturnTypes[functionTypeId] = bodyType;
-
+  
   return functionTypeId;
 }
 
@@ -366,39 +366,33 @@ function visitArrowFunction(node) {
  * @returns {number} - The type id of the call result
  */
 function visitCallExpression(node) {
-  const callee = node.callee;
-
+  const calleeType = visitNode(node.callee);
+  
   // Visit all arguments and collect their types
   const argTypes = [];
   for (const arg of node.arguments) {
     argTypes.push(visitNode(arg));
   }
-
-  // 👉 Create a fresh type variable for the call's return type,
-  // instead of hardcoding it to 0.
-  const returnTypeId = 0;
-
+  
+  // Create a return type variable
+  const returnTypeId = freshTypeId();
+  
   // Direct arrow function case - unify with its body type
-  // e.g. `(foo => return foo + 1)(arg)`
-  if (callee.type === "ArrowFunctionExpression") {
-    // 👉 Look up the type (not the type ID!) of callee.body,
-    // then make bodyType be that type instead of `null`.
-    const bodyType = null;
+  if (node.callee.type === "ArrowFunctionExpression") {
+    const bodyType = visitNode(node.callee.body);
     unify(returnTypeId, bodyType, node);
-  }
+  } 
   // Function reference case - when calling a named function
-  // e.g. `foo(arg)`
-  else if (callee.type === "Identifier" && scope[callee.name] !== undefined) {
-    // 👉 Look up `callee.name` in scope to find its type ID,
-    // then use it here instead of the hardcoded 0.
-    const functionTypeId = 0;
-
+  else if (node.callee.type === "Identifier" && scope[node.callee.name] !== undefined) {
+    // Get the function's type ID from scope
+    const functionTypeId = resolveSymlinksAndCompress(scope[node.callee.name]);
+    
     // Check if there's return type information in our function return types map
     if (functionReturnTypes[functionTypeId] !== undefined) {
       unify(returnTypeId, functionReturnTypes[functionTypeId], node);
     }
   }
-
+  
   return returnTypeId;
 }
 
