@@ -13,8 +13,8 @@ test("Type-check empty program", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "Empty program should have no type errors",
   );
 });
@@ -23,14 +23,14 @@ test("Type-check simple numeric declaration", () => {
   const statements = compile("const x = 5;");
   const result = typeCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No type errors expected");
+  assertEqual(result.errors, [], "No type errors expected");
 });
 
 test("Type-check variable reference with same type", () => {
   const statements = compile("const x = 5; const y = x;");
   const result = typeCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No type errors expected");
+  assertEqual(result.errors, [], "No type errors expected");
 });
 
 test("Type-check string declaration and concatenation", () => {
@@ -40,8 +40,8 @@ test("Type-check string declaration and concatenation", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for string concatenation",
   );
 });
@@ -51,8 +51,8 @@ test("Type-check numeric operations", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for numeric addition",
   );
 });
@@ -63,10 +63,9 @@ test("Detect type mismatch in binary operation", () => {
   );
   const result = typeCheck(statements);
 
-  assertEqual(result.errors.length, 1, "Should report type mismatch");
   assert(
-    result.errors[0].message.includes("Type mismatch"),
-    "Error message should mention type mismatch",
+    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
+    "Should report type mismatch error",
   );
 });
 
@@ -75,8 +74,8 @@ test("Type-check multiplication operation", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for numeric multiplication",
   );
 });
@@ -87,10 +86,9 @@ test("Detect type mismatch in multiplication", () => {
   );
   const result = typeCheck(statements);
 
-  assertEqual(result.errors.length, 1, "Should report type mismatch");
   assert(
-    result.errors[0].message.includes("Type mismatch"),
-    "Error message should mention type mismatch",
+    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
+    "Should report type mismatch error",
   );
 });
 
@@ -99,8 +97,8 @@ test("Type-check ternary expression with matching types", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for ternary with matching types",
   );
 });
@@ -109,13 +107,8 @@ test("Detect type mismatch in ternary condition", () => {
   const statements = compile("const x = 5; const y = x ? 1 : 2;");
   const result = typeCheck(statements);
 
-  assertEqual(
-    result.errors.length,
-    1,
-    "Should report type mismatch in ternary condition",
-  );
   assert(
-    result.errors[0].message.includes("condition"),
+    result.errors.length === 1 && result.errors[0].message.includes("condition"),
     "Error message should mention condition must be Boolean",
   );
 });
@@ -124,13 +117,8 @@ test("Detect type mismatch in ternary branches", () => {
   const statements = compile('const x = true; const y = x ? 1 : "hello";');
   const result = typeCheck(statements);
 
-  assertEqual(
-    result.errors.length,
-    1,
-    "Should report type mismatch in ternary branches",
-  );
   assert(
-    result.errors[0].message.includes("branches"),
+    result.errors.length === 1 && result.errors[0].message.includes("branches"),
     "Error message should mention branches must have same type",
   );
 });
@@ -142,8 +130,8 @@ test("Type-check array literals with consistent types", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for array with consistent types",
   );
 });
@@ -154,13 +142,8 @@ test("Detect type mismatch in array literals", () => {
   );
   const result = typeCheck(statements);
 
-  assertEqual(
-    result.errors.length,
-    1,
-    "Should report type mismatch in array elements",
-  );
   assert(
-    result.errors[0].message.includes("array"),
+    result.errors.length === 1 && result.errors[0].message.includes("array"),
     "Error message should mention array element type consistency",
   );
 });
@@ -175,8 +158,8 @@ test("Type-check function with compatible argument types", () => {
   const result = typeCheck(statements);
 
   assertEqual(
-    result.errors.length,
-    0,
+    result.errors,
+    [],
     "No type errors expected for function with compatible arg",
   );
 });
