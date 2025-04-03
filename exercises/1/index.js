@@ -365,6 +365,19 @@ test("Format array literal", () => {
   );
 });
 
+test("Format empty array literal", () => {
+  const code = "const emptyArray = [];";
+  const tree = compile(code);
+  const formatted = format(tree);
+
+  assertEqual(
+    formatted,
+    "const emptyArray = [];",
+    "Should format empty array literals correctly",
+  );
+});
+
+
 test("Format arrow function", () => {
   const code = "const add = (a, b) => { return a + b; };";
   const tree = compile(code);

@@ -5,6 +5,8 @@
  * It handles proper indentation, spacing, and line breaks to make the output look nice.
  */
 
+ const { compile } = require("./parse");
+
 /**
  * Format a parse tree into formatted source code
  *
@@ -110,34 +112,74 @@ function format(parseTree, options = {}) {
   }
 
   /**
-   * Format a binary expression
-   */
-  function formatBinaryExpression(node) {
-    const left = formatNode(node.left);
-    const right = formatNode(node.right);
+    * Format an array literal
+    */
+  function formatArrayLiteral(node) {
+    // 👉 Change this to format the given array literal node.
+    //
+    // The structure of the `node` arg will be:
+    //
+    // {
+    //    elements: // Array of parse tree nodes
+    // }
+    //
+    // Example of a correctly-formatted array:
+    //
+    // [a, b, c]
 
-    return `${left} ${node.operator} ${right}`;
+    return "TODO: Implement formatArrayLiteral()"
   }
 
   /**
-   * Format a conditional (ternary) expression
+    * Format a function call expression
+    */
+  function formatCallExpression(node) {
+    // 👉 Change this to format the given function call node.
+    //
+    // The structure of the `node` arg will be:
+    //
+    // {
+    //    callee: // parse tree node (not necessarily a name!)
+    //    arguments: // Array of parse tree nodes
+    // }
+    //
+    // Example of a correctly-formatted call:
+    //
+    // foo(arg1, arg2)
+
+    return "TODO: Implement formatCallExpression()"
+  }
+
+  /**
+   * Format a binary expression
    */
+  function formatBinaryExpression(node) {
+    // 👉 Change this to format the given binary expression node.
+    //
+    // The structure of the `node` arg will be:
+    //
+    // {
+    //    left: // the parse tree node to the left of the operator
+    //    operator: // string (e.g. "+" or "*" or "/")
+    //    right: // the parse tree node to the right of the operator
+    // }
+    //
+    // Example of a correctly-formatted call:
+    //
+    // a + b
+
+    return "TODO: Implement formatBinaryExpression()"
+  }
+
+  /**
+    * Format a conditional (ternary) expression
+    */
   function formatConditionalExpression(node) {
     const test = formatNode(node.test);
     const consequent = formatNode(node.consequent);
     const alternate = formatNode(node.alternate);
 
     return `${test} ? ${consequent} : ${alternate}`;
-  }
-
-  /**
-   * Format a function call expression
-   */
-  function formatCallExpression(node) {
-    const callee = formatNode(node.callee);
-    const args = node.arguments.map((arg) => formatNode(arg)).join(", ");
-
-    return `${callee}(${args})`;
   }
 
   /**
@@ -175,21 +217,6 @@ function format(parseTree, options = {}) {
     }
 
     return result;
-  }
-
-  /**
-   * Format an array literal
-   */
-  function formatArrayLiteral(node) {
-    if (node.elements.length === 0) {
-      return "[]";
-    }
-
-    const elements = node.elements
-      .map((elem) => formatNode(elem))
-      .join(", ");
-
-    return `[${elements}]`;
   }
 
   /**
@@ -259,8 +286,6 @@ function format(parseTree, options = {}) {
  * @returns {string} - Formatted source code
  */
 function formatSourceCode(sourceCode, options = {}) {
-  const { compile } = require("./parse");
-
   const parseTree = compile(sourceCode);
   return format(parseTree, options);
 }

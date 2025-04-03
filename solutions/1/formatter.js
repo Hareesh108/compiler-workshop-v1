@@ -110,6 +110,31 @@ function format(parseTree, options = {}) {
   }
 
   /**
+    * Format an array literal
+    */
+  function formatArrayLiteral(node) {
+    if (node.elements.length === 0) {
+      return "[]";
+    }
+
+    const elements = node.elements
+      .map((elem) => formatNode(elem))
+      .join(", ");
+
+    return `[${elements}]`;
+  }
+
+  /**
+   * Format a function call expression
+   */
+  function formatCallExpression(node) {
+    const callee = formatNode(node.callee);
+    const args = node.arguments.map((arg) => formatNode(arg)).join(", ");
+
+    return `${callee}(${args})`;
+  }
+
+  /**
    * Format a binary expression
    */
   function formatBinaryExpression(node) {
@@ -128,16 +153,6 @@ function format(parseTree, options = {}) {
     const alternate = formatNode(node.alternate);
 
     return `${test} ? ${consequent} : ${alternate}`;
-  }
-
-  /**
-   * Format a function call expression
-   */
-  function formatCallExpression(node) {
-    const callee = formatNode(node.callee);
-    const args = node.arguments.map((arg) => formatNode(arg)).join(", ");
-
-    return `${callee}(${args})`;
   }
 
   /**
@@ -175,21 +190,6 @@ function format(parseTree, options = {}) {
     }
 
     return result;
-  }
-
-  /**
-   * Format an array literal
-   */
-  function formatArrayLiteral(node) {
-    if (node.elements.length === 0) {
-      return "[]";
-    }
-
-    const elements = node.elements
-      .map((elem) => formatNode(elem))
-      .join(", ");
-
-    return `[${elements}]`;
   }
 
   /**
