@@ -59,19 +59,19 @@ test("Typecheck string operations", () => {
   assert(result.errors.length > 0, "String + number should have type errors in this implementation");
 });
 
-// test("Typecheck ternary expressions", () => {
-//   // Valid ternary with boolean condition
-//   let result = compileAndTypecheck("const x = true ? 1 : 2;");
-//   assertEqual(result.errors.length, 0, "Valid ternary should have no type errors");
+test("Typecheck ternary expressions", () => {
+  // Valid ternary with boolean condition
+  let result = compileAndTypecheck("const x = true ? 1 : 2;");
+  assertEqual(result.errors.length, 0, "Valid ternary should have no type errors");
 
-//   // Invalid condition type
-//   result = compileAndTypecheck("const x = 42 ? 1 : 2;");
-//   assert(result.errors.length > 0, "Non-boolean condition should have type errors");
+  // Invalid condition type
+  result = compileAndTypecheck("const x = 42 ? 1 : 2;");
+  assert(result.errors.length > 0, "Non-boolean condition should have type errors");
 
-//   // Inconsistent result types
-//   result = compileAndTypecheck("const x = true ? 1 : \"hello\";");
-//   assert(result.errors.length > 0, "Inconsistent branch types should have type errors");
-// });
+  // Inconsistent result types
+  result = compileAndTypecheck("const x = true ? 1 : \"hello\";");
+  assert(result.errors.length > 0, "Inconsistent branch types should have type errors");
+});
 
 test("Typecheck array literals", () => {
   // Homogeneous array

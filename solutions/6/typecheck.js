@@ -395,7 +395,6 @@ function pushScope() {
  * @returns {object} - Inferred type
  */
 function infer(node) {
-  console.log("infer", node);
   // Dispatch based on node type
   switch (node.type) {
     // Program structure
@@ -671,21 +670,21 @@ function inferTypeBinaryExpression(node) {
  * @returns {object} - Inferred type
  */
 function inferTernary(node) {
-  // condition ? thenBranch : elseBranch
+  // test ? consequent : alternate
 
   // The condition must be a boolean
-  const conditionType = infer(node.condition);
-  unify(conditionType, primitive(Types.Bool), node.condition);
+  const conditionType = infer(node.test);
+  unify(conditionType, primitive(Types.Bool), node.test);
 
   // Infer types for both branches
-  const thenBranchType = infer(node.thenBranch);
-  const elseBranchType = infer(node.elseBranch);
+  const thenBranchType = infer(node.consequent);
+  const elseBranchType = infer(node.alternate);
 
   // Both branches must have the same type
   // Create a result type and unify both branches with it
   const resultType = newTypeVar(null, "Ternary condition result");
-  unify(thenBranchType, resultType, node.thenBranch);
-  unify(elseBranchType, resultType, node.elseBranch);
+  unify(thenBranchType, resultType, node.consequent);
+  unify(elseBranchType, resultType, node.alternate);
 
   return resultType;
 }
