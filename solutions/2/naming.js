@@ -11,7 +11,9 @@
  */
 
 let errors = [];
-let scopes = []; // Flat array of scopes (Sets of variable names)
+let scopes = new Map(); // Map of scopes
+let currentScopeId = 0;
+let scopeStack = []; // Stack to track the current scope hierarchy
 
 /**
  * Declare a new variable in the current scope
@@ -21,18 +23,21 @@ let scopes = []; // Flat array of scopes (Sets of variable names)
  *
  * @param {string} name - Variable name
  * @param {object} node - Parse tree node where the variable is declared
+ * @returns {boolean} - True if declaration succeeded, false if duplicate
  */
-function declareVariable(name) {
-  const currentScope = scopes[scopes.length - 1];
-
-  if (scopes.some(scope => scope.has(name))) {
+function declareVariable(name, node) {
+  const currentScope = scopes.get(scopeStack[scopeStack.length - 1]);
+  
+  if (currentScope.declarations.has(name)) {
     reportError(
-      `Duplicate declaration of variable: ${node.id.name}`,
+      `Duplicate declaration of variable: ${name}`,
       node
     );
+    return false;
   }
-
-  currentScope.add(name);
+  
+  currentScope.declarations.add(name);
+  return true;
 }
 
 /**
@@ -49,16 +54,16 @@ function reportError(message, node) {
 }
 
 /**
- * Check if a node introduces a new scope
- *
- * @param {object} node - The parse tree node
- * @returns {boolean} - True if the node introduces a new scope
+ * Create a new scope
+ * 
+ * @returns {number} - The ID of the newly created scope
  */
-function isNodeWithScope(node) {
-  return (
-    node &&
-    (node.type === "ArrowFunctionExpression" || node.type === "BlockStatement")
-  );
+function createScope() {
+  const scopeId = currentScopeId++;
+  scopes.set(scopeId, {
+    declarations: new Set(),
+  });
+  return scopeId;
 }
 
 /**
@@ -67,13 +72,8 @@ function isNodeWithScope(node) {
  * @param {object} node - Parse tree node to visit
  */
 function visitNode(node) {
-  if (isNodeWithScope(node)) {
-    scopes.push(new Set());
-    processNode(node);
-    scopes.pop();
-  } else {
-    processNode(node);
-  }
+  if (!node) return;
+  processNode(node);
 }
 
 /**
@@ -82,6 +82,8 @@ function visitNode(node) {
  * @param {object} node - The parse tree node
  */
 function processNode(node) {
+  if (!node) return;
+  
   switch (node.type) {
     case "ConstDeclaration":
       visitConstDeclaration(node);
@@ -132,7 +134,6 @@ function processNode(node) {
     default:
       // For unknown node types, traverse children generically
       throw new Error(`Unknown node type: ${node.type}`);
-      break;
   }
 }
 
@@ -147,7 +148,7 @@ function visitConstDeclaration(node) {
     visitNode(node.init);
   }
 
-  declareVariable(node.id.name);
+  declareVariable(node.id.name, node);
 }
 
 /**
@@ -156,21 +157,34 @@ function visitConstDeclaration(node) {
  * @param {object} node - ArrowFunctionExpression node to visit
  */
 function visitArrowFunction(node) {
-  // For each parameter, declare it in the current scope
+  // Create a new scope for the function
+  const scopeId = createScope();
+  scopeStack.push(scopeId);
+  
+  // Check for duplicate parameters within function scope
   if (node.params) {
+    const paramNames = new Set();
     for (const param of node.params) {
-      // Declare the parameter in the current function scope
-      if (!declareVariable(param.name)) {
+      if (paramNames.has(param.name)) {
         reportError(
           `Duplicate parameter name: ${param.name}`,
           param
         );
+      } else {
+        paramNames.add(param.name);
+        // Declare the parameter in the current function scope
+        declareVariable(param.name, param);
       }
     }
   }
 
   // Process the function body
-  visitNode(node.body);
+  if (node.body) {
+    visitNode(node.body);
+  }
+  
+  // Exit the function scope
+  scopeStack.pop();
 }
 
 /**
@@ -179,10 +193,34 @@ function visitArrowFunction(node) {
  * @param {object} node - BlockStatement node to visit
  */
 function visitBlockStatement(node) {
-  // Visit each statement in the block
+  // Visit each statement in the block without creating a new scope
+  // (in this implementation, only functions create new scopes per the tests)
   for (const statement of node.body) {
     visitNode(statement);
   }
+}
+
+/**
+ * Check if a variable is declared in any accessible scope
+ * 
+ * @param {string} name - The variable name to look for
+ * @returns {boolean} - True if the variable is declared in any accessible scope
+ */
+function isVariableDeclared(name) {
+  // Check each scope from innermost to outermost
+  for (let i = scopeStack.length - 1; i >= 0; i--) {
+    const scopeId = scopeStack[i];
+    if (!scopes.has(scopeId)) continue;
+    
+    const scope = scopes.get(scopeId);
+    if (!scope || !scope.declarations) continue;
+    
+    if (scope.declarations.has(name)) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
@@ -197,7 +235,7 @@ function visitIdentifier(node) {
     return;
   }
 
-  if (!scopes.some(scope => scope.has(node.name))) {
+  if (!isVariableDeclared(node.name)) {
     reportError(
       `Reference to undeclared variable: ${node.name}`,
       node
@@ -251,12 +289,18 @@ function visitConditionalExpression(node) {
  * @param {object} node - CallExpression node to visit
  */
 function visitCallExpression(node) {
-  // Visit the function being called
-  visitNode(node.callee);
-
-  // Visit each argument passed to the function
-  for (const arg of node.arguments) {
-    visitNode(arg);
+  // First evaluate arguments
+  if (node.arguments && Array.isArray(node.arguments)) {
+    for (const arg of node.arguments) {
+      if (arg) {
+        visitNode(arg);
+      }
+    }
+  }
+  
+  // Then check that the function itself is in scope
+  if (node.callee) {
+    visitNode(node.callee);
   }
 }
 
@@ -282,7 +326,9 @@ function visitMemberExpression(node) {
   visitNode(node.object);
 
   // Visit the index expression
-  visitNode(node.index);
+  if (node.index) {
+    visitNode(node.index);
+  }
 }
 
 /**
@@ -293,18 +339,25 @@ function visitMemberExpression(node) {
  */
 function nameCheck(statements) {
   errors = [];
-  scopes = [];
+  scopes = new Map();
+  currentScopeId = 0;
+  scopeStack = [];
 
-  scopes.push(new Set());
+  // Create the global scope
+  const globalScopeId = createScope();
+  scopeStack.push(globalScopeId);
 
   for (const statement of statements) {
     visitNode(statement);
   }
 
   // Clean up global scope after analysis
-  scopes.pop();
+  scopeStack.pop();
 
-  return { errors };
+  return { 
+    errors,
+    scopes
+  };
 }
 
 module.exports = {
