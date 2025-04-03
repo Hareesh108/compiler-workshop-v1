@@ -127,9 +127,7 @@ function visitNode(node) {
  */
 function visitConstDeclaration(node) {
   // Process the initializer first (must be evaluated before variable is in scope)
-  if (node.init) {
-    visitNode(node.init);
-  }
+  visitNode(node.init);
 
   declareVariable(node.id.name, node);
 }
@@ -144,23 +142,19 @@ function visitArrowFunction(node) {
   createScope();
 
   // Check for duplicate parameters within function scope
-  if (node.params) {
-    const paramNames = new Set();
-    for (const param of node.params) {
-      if (paramNames.has(param.name)) {
-        reportError(`Duplicate parameter name: ${param.name}`, param);
-      } else {
-        paramNames.add(param.name);
-        // Declare the parameter in the current function scope
-        declareVariable(param.name, param);
-      }
+  const paramNames = new Set();
+  for (const param of node.params) {
+    if (paramNames.has(param.name)) {
+      reportError(`Duplicate parameter name: ${param.name}`, param);
+    } else {
+      paramNames.add(param.name);
+      // Declare the parameter in the current function scope
+      declareVariable(param.name, param);
     }
   }
 
   // Process the function body
-  if (node.body) {
-    visitNode(node.body);
-  }
+  visitNode(node.body);
 
   // Exit the function scope
   scopeStack.pop();
@@ -224,7 +218,6 @@ function visitReturnStatement(node) {
  * @param {object} node - BinaryExpression node to visit
  */
 function visitBinaryExpression(node) {
-  // Visit left and right operands
   visitNode(node.left);
   visitNode(node.right);
 }
@@ -235,13 +228,8 @@ function visitBinaryExpression(node) {
  * @param {object} node - ConditionalExpression node to visit
  */
 function visitConditionalExpression(node) {
-  // Process test condition
   visitNode(node.test);
-
-  // Process consequent (true branch)
   visitNode(node.consequent);
-
-  // Process alternate (false branch)
   visitNode(node.alternate);
 }
 
@@ -252,17 +240,11 @@ function visitConditionalExpression(node) {
  */
 function visitCallExpression(node) {
   // First visit the function being called
-  if (node.callee) {
-    visitNode(node.callee);
-  }
+  visitNode(node.callee);
 
   // Then check arguments
-  if (node.arguments && Array.isArray(node.arguments)) {
-    for (const arg of node.arguments) {
-      if (arg) {
-        visitNode(arg);
-      }
-    }
+  for (const arg of node.arguments) {
+      visitNode(arg);
   }
 }
 
@@ -288,9 +270,7 @@ function visitMemberExpression(node) {
   visitNode(node.object);
 
   // Visit the index expression
-  if (node.index) {
-    visitNode(node.index);
-  }
+  visitNode(node.index);
 }
 
 /**
@@ -304,21 +284,19 @@ function nameCheck(statements) {
   scopeStack = [];
   allScopes = []; // Reset all scopes for this analysis
 
-  // Create the global scope
   createScope();
 
   for (const statement of statements) {
     visitNode(statement);
   }
-  
-  // Clean up global scope after analysis
+
   scopeStack.pop();
 
   // Reconstruct a Map of scopes for test compatibility using all created scopes
   const scopes = new Map();
   allScopes.forEach((scope, index) => {
     scopes.set(index, {
-      declarations: scope
+      declarations: scope,
     });
   });
 
