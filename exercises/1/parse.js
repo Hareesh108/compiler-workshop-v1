@@ -1,8 +1,9 @@
 /**
  * Parsing (aka Syntax Analysis)
  *
- * This module takes a stream of tokens (from the Tokenize step) and builds a Parse Tree.
- * The Parse Tree represents the structure of the code with nodes for different syntax constructs.
+ * This module takes a stream of tokens (from the Tokenize step) and builds a parse tree
+ * (aka Abstract Syntax Tree, or AST for short). The parse tree represents the structure
+ *  of the code.
  */
 
 /**
@@ -218,13 +219,9 @@ function parse(tokens) {
 
     // If we see a plus sign, this is a binary expression
     while (check("PLUS")) {
-      // Get the operator
       const operator = next().value;
-
-      // Parse the right-hand side
       const right = parsePrimary();
 
-      // Create the binary expression node
       left = {
         type: "BinaryExpression",
         left,
@@ -240,7 +237,6 @@ function parse(tokens) {
    * Parse a function expression
    */
   function parseFunction() {
-    // Start with a left parenthesis
     expect("LEFT_PAREN", "Expected '(' at start of arrow function");
 
     const params = [];
@@ -248,7 +244,6 @@ function parse(tokens) {
     // If there are parameters, parse them
     if (!check("RIGHT_PAREN")) {
       do {
-        // Parse the parameter name
         const paramToken = expect("IDENTIFIER", "Expected parameter name");
 
         // Start with a parameter without a type annotation
@@ -260,12 +255,7 @@ function parse(tokens) {
         // Check for type annotation (with colon)
         if (check("COLON")) {
           next(); // Consume the colon
-
-          // Parse the type annotation
-          const typeAnnotation = parseTypeAnnotation();
-
-          // Add the type annotation to the parameter
-          param.typeAnnotation = typeAnnotation;
+          param.typeAnnotation = parseTypeAnnotation();
         }
 
         // Add this parameter to the list
@@ -275,23 +265,21 @@ function parse(tokens) {
       } while (check("COMMA") && next());
     }
 
-    // End with a right parenthesis
-    expect("RIGHT_PAREN", "Expected ')' after parameters");
+    expect("RIGHT_PAREN", "Expected ')' after function parameters");
 
-    // Parse the return type annotation if present
+    // Parse the return type annotation, if present
     let returnType = null;
     if (check("COLON")) {
       next(); // Consume the colon
       returnType = parseTypeAnnotation();
     }
 
-    // Expect the arrow token
     expect("ARROW", "Expected '=>' after parameters");
 
-    // Parse the function body, which can be an expression or a block
+    // Parse the function body - only block bodies are supported
     let body;
-    let expression = false;
 
+    // Require a block body with curly braces
     if (check("LEFT_CURLY")) {
       // Block body with curly braces - parse as block statement
       next(); // Consume the {
@@ -321,22 +309,19 @@ function parse(tokens) {
         body: blockStatements,
       };
     } else {
-      // Always require block statement with return
+      // Expression bodies are not allowed, only block bodies with curly braces
       throw new Error(
-        `Functions require a block body with explicit return statements`,
+        `Arrow functions only support block bodies with curly braces in this language`
       );
     }
 
-    // Create the function node
-    const functionNode = {
+    return {
       type: "ArrowFunctionExpression",
       params,
       body,
-      expression, // true if body is an expression, false if it's a block
+      expression: false, // Always false as expression bodies are not supported
       returnType,
     };
-
-    return functionNode;
   }
 
   /**
@@ -626,7 +611,7 @@ function parse(tokens) {
       // This could be a parenthesized expression or an arrow function
 
       // Look ahead to see if this is an arrow function
-      // We check by looking for ')' followed by '=>'
+      // We check by looking for ')' followed by '=>' and then '{'
       let isArrowFunction = false;
 
       // Save the current position so we can rewind
@@ -791,7 +776,7 @@ function parse(tokens) {
 
     const args = [];
 
-    // Parse arguments if there are any
+    // Parse arguments (if there are any)
     if (!check("RIGHT_PAREN")) {
       do {
         args.push(parseExpression());
@@ -809,26 +794,22 @@ function parse(tokens) {
     };
   }
 
-  // Reset the token index
+  // Reset token index
   current = 0;
 
-  // Run the parser
   return parseProgram();
 }
 
 /**
- * Main compilation function that combines tokenizing and parsing
+ * Tokenize and then parse.
  *
  * @param {string} sourceCode - The source code to compile
- * @returns {Array} - An array of statement nodes
+ * @returns {Array} - Statement parse tree nodes
  */
 function compile(sourceCode) {
   const { tokenize } = require("./tokenize");
 
-  // Step 1: Tokenize the source code
   const tokens = tokenize(sourceCode);
-
-  // Step 2: Parse the tokens into an array of statements
   const statements = parse(tokens);
 
   return statements;
