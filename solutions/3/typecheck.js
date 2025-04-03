@@ -12,6 +12,7 @@
 let db = [];
 let errors = [];
 let nextTypeId = 0;
+let scope = {}; // Variable scope to track types
 
 /**
  * Create a new type variable (type id)
@@ -120,7 +121,7 @@ function reportTypeMismatch(typeId1, typeId2, node) {
  * @param {number} typeId2 - Second type id to unify
  * @returns {boolean} - True if unification succeeded, false if failed
  */
-const unify = (aTypeId, bTypeId) => {
+const unify = (aTypeId, bTypeId, node) => {
   const aType = resolveSymlinksAndCompress(aTypeId);
   const bType = resolveSymlinksAndCompress(bTypeId);
 
@@ -140,14 +141,14 @@ const unify = (aTypeId, bTypeId) => {
           : { symlink: bType };
     return true;
   } else if (bEntry === null) {
-    return unify(bTypeId, aTypeId); // Swap the args
+    return unify(bTypeId, aTypeId, node); // Swap the args
   } else if (
     aEntry.concrete !== undefined &&
     bEntry.concrete !== undefined &&
     aEntry.concrete !== bEntry.concrete
   ) {
     // Both are concrete types but different - report mismatch
-    return reportTypeMismatch(aType, bType);
+    return reportTypeMismatch(aType, bType, node);
   } else if (aEntry.concrete !== undefined) {
     // a is concrete, b is not null but must be a variable
     db[bType] = { symlink: aType };
@@ -216,8 +217,13 @@ function visitNode(node) {
  * @returns {number} - The type id of the identifier
  */
 function visitIdentifier(node) {
-  // For now, just create a fresh type variable
-  // A complete implementation would look up the variable in a context
+  // Look up the variable in the scope
+  if (scope[node.name] !== undefined) {
+    node.typeId = scope[node.name];
+    return node.typeId;
+  }
+  
+  // If not found in scope, create a fresh type variable
   if (node.typeId === undefined) {
     node.typeId = freshTypeId();
   }
@@ -239,53 +245,64 @@ function visitBinaryExpression(node) {
   const rightConcrete = getConcreteTypeName(rightType);
 
   if (node.operator === "+") {
-    // Could be number addition or string concatenation
-    // Ensure both sides have the same type
-    const canUnify = unify(leftType, rightType);
-
-    // If concrete types don't match or unification failed, report error
-    if (
-      !canUnify ||
-      (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)
-    ) {
+    // Check if we have concrete types and they don't match
+    if (leftConcrete && rightConcrete && leftConcrete !== rightConcrete) {
+      reportError(
+        `Type mismatch in binary operation: cannot add ${leftConcrete} to ${rightConcrete}`,
+        node,
+      );
+      return createConcreteType("Number"); // Return a placeholder type
+    }
+    
+    // If not both concrete, try to unify
+    const canUnify = unify(leftType, rightType, node);
+    if (!canUnify) {
       reportError(
         `Type mismatch in binary operation: cannot add ${leftConcrete || "unknown"} to ${rightConcrete || "unknown"}`,
         node,
       );
-      // Return a placeholder type (Number)
-      return createConcreteType("Number");
+      return createConcreteType("Number"); // Return a placeholder type
     }
+    
     return leftType;
   } else if (node.operator === "*") {
     // Multiplication: both operands must be numbers
     const numberType = createConcreteType("Number");
-
-    // Check left operand
-    const leftIsNumber = unify(leftType, numberType);
-    if (!leftIsNumber) {
+    
+    // Check if we have concrete types that aren't numbers
+    if (leftConcrete && leftConcrete !== "Number") {
       reportError(
-        `Type mismatch: expected Number for left operand of '*' operator, got ${leftConcrete || "unknown"}`,
+        `Type mismatch: expected Number for left operand of '*' operator, got ${leftConcrete}`,
         node.left,
       );
     }
-
-    // Check right operand
-    const rightIsNumber = unify(rightType, numberType);
-    if (!rightIsNumber) {
+    
+    if (rightConcrete && rightConcrete !== "Number") {
       reportError(
-        `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete || "unknown"}`,
+        `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete}`,
         node.right,
       );
+    }
+    
+    // If we don't have concrete types, try to unify with Number
+    if (!leftConcrete) {
+      unify(leftType, numberType, node.left);
+    }
+    
+    if (!rightConcrete) {
+      unify(rightType, numberType, node.right);
     }
 
     return numberType;
   }
 
   // Default case: ensure both operands have the same type
-  if (
-    !unify(leftType, rightType) ||
-    (leftConcrete && rightConcrete && leftConcrete !== rightConcrete)
-  ) {
+  if (leftConcrete && rightConcrete && leftConcrete !== rightConcrete) {
+    reportError(
+      `Type mismatch in binary operation: operands must have the same type, got ${leftConcrete} and ${rightConcrete}`,
+      node,
+    );
+  } else if (!unify(leftType, rightType, node)) {
     reportError(
       `Type mismatch in binary operation: operands must have the same type`,
       node,
@@ -358,6 +375,9 @@ function visitConstDeclaration(node) {
 
   // Assign type to the declared identifier
   node.id.typeId = initType;
+  
+  // Add the variable to scope
+  scope[node.id.name] = initType;
 
   // If there's a type annotation, check it matches the initialization
   if (node.typeAnnotation) {
@@ -416,7 +436,7 @@ function visitConditionalExpression(node) {
   const testConcrete = getConcreteTypeName(testType);
 
   // Ensure test expression is boolean
-  const isBoolean = unify(testType, booleanType);
+  const isBoolean = unify(testType, booleanType, node.test);
   if (!isBoolean) {
     reportError(
       `Type mismatch: condition in ternary expression must be a Boolean, got ${testConcrete || "unknown"}`,
@@ -429,7 +449,7 @@ function visitConditionalExpression(node) {
   const alternateConcrete = getConcreteTypeName(alternateType);
 
   // Consequent and alternate must have the same type
-  const branchesMatch = unify(consequentType, alternateType);
+  const branchesMatch = unify(consequentType, alternateType, node);
   if (
     !branchesMatch ||
     (consequentConcrete &&
@@ -468,7 +488,7 @@ function visitArrayLiteral(node) {
     const elementConcrete = getConcreteTypeName(elementType);
 
     // Check if types are compatible
-    const typesMatch = unify(firstElementType, elementType);
+    const typesMatch = unify(firstElementType, elementType, node.elements[i]);
 
     // Report error if types don't match or concrete types differ
     if (
@@ -501,6 +521,7 @@ function typeCheck(statements) {
   db = [];
   errors = [];
   nextTypeId = 0;
+  scope = {}; // Reset the scope
 
   // Visit each statement in the program
   for (const statement of statements) {
