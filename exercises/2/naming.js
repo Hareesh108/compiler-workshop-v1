@@ -146,8 +146,6 @@ function visitBinaryExpression(node) {
   //    operator: // string (e.g. "+" or "*" or "/")
   //    right: // the parse tree node to the right of the operator
   // }
-  visitNode(node.left);
-  visitNode(node.right);
 }
 
 /**
