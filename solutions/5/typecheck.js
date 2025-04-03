@@ -356,30 +356,14 @@ function visitArrowFunction(node) {
 function visitCallExpression(node) {
   const calleeType = visitNode(node.callee);
 
-  // Create a return type for the function
-  const returnType = freshTypeId();
-  
-  // If we have arguments, process them and establish the connection
-  // between argument types and return type for polymorphic functions
-  if (node.arguments.length > 0) {
-    // Visit each argument to get its type
-    const argTypes = node.arguments.map(arg => visitNode(arg));
-    
-    // Store argument types on the node for use with polymorphic functions
-    node.argumentTypes = argTypes;
-    
-    // For polymorphic functions, the return type is determined by the argument types
-    // Here we're establishing that relationship in our type system
-    if (node.callee.type === "Identifier" && scope[node.callee.name]) {
-      // For known functions in scope, the return type should match the body's type
-      // For simple polymorphic functions like (x) => x + x, the return type matches the input type
-      if (node.arguments.length === 1) {
-        unify(returnType, argTypes[0], node);
-      }
-    }
+  // Visit all arguments
+  for (const arg of node.arguments) {
+    visitNode(arg);
   }
-  
-  return returnType;
+
+  // The return type is a fresh type variable
+  // In a full implementation, this would unify with the callee's return type
+  return freshTypeId();
 }
 
 /**
