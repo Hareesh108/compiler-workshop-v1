@@ -1,3 +1,8 @@
+// 👉 Run `node index.js` from the parent directory to see which tests are failing.
+//
+// Fix the failing tests by resolving the "👉"
+// comments in this file!
+
 /**
  * Naming (aka Name Resolution, aka Canonicalization)
  *
@@ -88,7 +93,14 @@ function visitNode(node) {
  * @param {object} node - Identifier node to visit
  */
 function visitIdentifier(node) {
-  if (!scopes.some(scope => scope.has(node.name))) {
+  // Check if the identifier is in scope.
+  const variableName = node.name;
+
+  // Check if the variable exists in any scope
+  const isDeclared = scopes.some(scope => scope.has(variableName));
+
+  // Only report an error if the variable is not declared in any scope
+  if (!isDeclared) {
     reportError(`Reference to undeclared variable: ${node.name}`, node);
   }
 }
@@ -104,14 +116,19 @@ function visitIdentifier(node) {
  * @returns {boolean} - True if declaration succeeded, false if duplicate
  */
 function declareVariable(name, node) {
-  const currentScope = scopes[scopes.length - 1];
-
-  if (currentScope.has(name)) {
+  // 👉 Change this to only report the error if the name has been declared.
+  //
+  // Hint: There are two viable ways to implement this. One way supports shadowing
+  //       and the other doesn't. The tests assume shadowing is supported.
+  if (false) {
     reportError(`Duplicate declaration of variable: ${name}`, node);
     return false;
   }
 
-  currentScope.add(name);
+  // 👉 Right here, actually add the variable to scope.
+  //
+  // Hint: You'll need to add it to one of the existing Sets in `scopes`.
+
   return true;
 }
 
@@ -121,6 +138,15 @@ function declareVariable(name, node) {
  * @param {object} node - BinaryExpression node to visit
  */
 function visitBinaryExpression(node) {
+  // 👉 Change this to visit both parse tree nodes in the binary expression.
+  //
+  // The structure of the `node` arg will be:
+  //
+  // {
+  //    left: // the parse tree node to the left of the operator
+  //    operator: // string (e.g. "+" or "*" or "/")
+  //    right: // the parse tree node to the right of the operator
+  // }
   visitNode(node.left);
   visitNode(node.right);
 }
@@ -131,29 +157,16 @@ function visitBinaryExpression(node) {
  * @param {object} node - ArrowFunctionExpression node to visit
  */
 function visitArrowFunction(node) {
-  scopes.push(new Set());
-
-  for (const param of node.params) {
-    declareVariable(param.name, param);
-  }
-
-  visitNode(node.body);
-  scopes.pop();
+  // 👉 Create a new scope for the function's body, then declare the
+  // function's params in that scope.
+  //
+  // The structure of the `node` arg will be:
+  //
+  // {
+  //    params: // array of Identifier parse tree nodes (with `name` fields on them).
+  //    body: // parse tree node for the body of the function.
+  // }
 }
-
-/**
- * Visit a function call expression
- *
- * @param {object} node - CallExpression node to visit
- */
-function visitCallExpression(node) {
-  visitNode(node.callee);
-
-  for (const arg of node.arguments) {
-      visitNode(arg);
-  }
-}
-
 
 /**
  * Visit a const declaration

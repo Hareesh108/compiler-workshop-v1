@@ -1,4 +1,4 @@
-// 👉 Run `node index.js` to see which tests are failing.
+// 👉 Run `node index.js` from the parent directory to see which tests are failing.
 //
 // Fix the failing tests by resolving the "👉"
 // comments in this file!

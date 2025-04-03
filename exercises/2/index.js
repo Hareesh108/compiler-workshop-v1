@@ -130,11 +130,11 @@ test("Name-check array literals", () => {
   assertEqual(result.errors.length, 0, "No errors expected");
 });
 
-test("Shadowing works", () => {
+test("Declaration in block scope", () => {
   const statements = compile(`
     const x = 1;
     const foo = () => {
-      const x = 2; // This const shadows the outer x
+      const x = 2; // This shadows the outer x
       return x;
     };
     const y = x;
@@ -144,15 +144,90 @@ test("Shadowing works", () => {
   assertEqual(result.errors.length, 0, "No errors expected");
 });
 
-test("Function parameters can shadow", () => {
+test("Function parameters create local declarations", () => {
   const statements = compile(`
     const x = 1;
-    const foo = (x) => { return x * 2; }; // This arg shadows the outer x
+    const foo = (x) => { return x * 2; };
     const y = foo(x);
   `);
   const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
+});
+
+// Additional tests that verify no naming errors in valid situations
+test("Variables in different scopes with same name", () => {
+  const statements = compile(`
+    const x = 1;
+    const foo = () => {
+      const x = 2;
+      return x;
+    };
+    const bar = () => {
+      const x = 3;
+      return x;
+    };
+  `);
+  const result = nameCheck(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected when variables with same name are in different scopes");
+});
+
+test("Nested function accessing variables from multiple outer scopes", () => {
+  const statements = compile(`
+    const a = 1;
+    const outer = () => {
+      const b = 2;
+      const middle = () => {
+        const c = 3;
+        const inner = () => {
+          return a + b + c;
+        };
+        return inner();
+      };
+      return middle();
+    };
+  `);
+  const result = nameCheck(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected when accessing variables from multiple outer scopes");
+});
+
+test("Function parameters should not conflict with outer scope", () => {
+  const statements = compile(`
+    const calculate = (x, y) => {
+      return x + y;
+    };
+    const x = 10;
+    const y = 20;
+    const result = calculate(x, y);
+  `);
+  const result = nameCheck(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected when function parameters have same names as outer variables");
+});
+
+test("Array access with valid variable names", () => {
+  const statements = compile(`
+    const arr = [1, 2, 3];
+    const i = 1;
+    const value = arr;
+  `);
+  const result = nameCheck(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected when using valid variable names in array access");
+});
+
+test("Complex nested expressions with valid variables", () => {
+  const statements = compile(`
+    const a = 1;
+    const b = 2;
+    const c = 3;
+    const result = a + b * c;
+  `);
+  const result = nameCheck(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected with complex nested expressions using valid variables");
 });
 
 reportTestFailures();
