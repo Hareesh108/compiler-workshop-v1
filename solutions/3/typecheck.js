@@ -191,9 +191,6 @@ function visitNode(node) {
     case "ArrayLiteral":
       return visitArrayLiteral(node);
 
-    case "MemberExpression":
-      return visitMemberExpression(node);
-
     case "BlockStatement":
       return visitBlockStatement(node);
 
@@ -491,33 +488,7 @@ function visitArrayLiteral(node) {
   return createConcreteType("Array");
 }
 
-/**
- * Visit a member expression (array access)
- *
- * @param {object} node - MemberExpression node to visit
- * @returns {number} - The type id of the accessed element
- */
-function visitMemberExpression(node) {
-  const objectType = visitNode(node.object);
-  const indexType = visitNode(node.index);
-
-  // Index must be a number
-  const numberType = createConcreteType("Number");
-  const indexConcrete = getConcreteTypeName(indexType);
-
-  // Check if index is a number
-  const isNumber = unify(indexType, numberType);
-  if (!isNumber) {
-    reportError(
-      `Type mismatch: array index must be a Number, got ${indexConcrete || "unknown"}`,
-      node.index,
-    );
-  }
-
-  // Element type is a fresh type variable
-  // In a full implementation, this would unify with the array's element type
-  return freshTypeId();
-}
+// Array access functionality has been removed
 
 /**
  * Perform type checking on a parse tree

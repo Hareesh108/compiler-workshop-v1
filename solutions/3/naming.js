@@ -63,10 +63,6 @@ function visitNode(node) {
       visitArrayLiteral(node);
       break;
 
-    case "MemberExpression":
-      visitMemberExpression(node);
-      break;
-
     case "BlockStatement":
       visitBlockStatement(node);
       break;
@@ -209,15 +205,7 @@ function visitArrayLiteral(node) {
   }
 }
 
-/**
- * Visit a member expression (array access)
- *
- * @param {object} node - MemberExpression node to visit
- */
-function visitMemberExpression(node) {
-  visitNode(node.object);
-  visitNode(node.index);
-}
+// Array access functionality has been removed
 
 /**
  * Analyze a parse tree to check for scope-based errors

@@ -165,29 +165,7 @@ test("Detect type mismatch in array literals", () => {
   );
 });
 
-test("Type-check array access with numeric index", () => {
-  const statements = compile("const arr = [1, 2, 3]; const x = arr[0];");
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors.length,
-    0,
-    "No type errors expected for array access with numeric index",
-  );
-});
-
-test("Detect non-numeric array index", () => {
-  const statements = compile(
-    'const arr = [1, 2, 3]; const i = "hello"; const x = arr[i];',
-  );
-  const result = typeCheck(statements);
-
-  assertEqual(result.errors.length, 1, "Should report non-numeric array index");
-  assert(
-    result.errors[0].message.includes("index"),
-    "Error message should mention array index must be a Number",
-  );
-});
+// Array access tests have been removed
 
 test("Type-check function with compatible argument types", () => {
   const statements = compile(`
