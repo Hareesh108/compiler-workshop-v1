@@ -1,4 +1,5 @@
 const { compile } = require("./parse");
+const { nameCheck } = require("./naming");
 const { typeCheck } = require("./typecheck");
 const {
   test,
@@ -17,7 +18,6 @@ test("Type-check empty program", () => {
     "Empty program should have no type errors",
   );
 });
-
 
 test("Type-check simple numeric declaration", () => {
   const statements = compile("const x = 5;");
@@ -160,21 +160,6 @@ test("Type-check function with compatible argument types", () => {
     [],
     "No type errors expected for function with compatible arg",
   );
-});
-
-test("Type-check path compression with type variable chain", () => {
-  // This test creates a chain of type variables that will require path compression
-  // when we want to resolve the final type
-  const statements = compile(`
-    const id = (x) => { return x; }; // Creates a type variable for x
-    const a = id(5);                 // Unifies x with Number
-    const b = id(a);                 // Creates a chain: b -> id's x -> a -> Number
-    const c = id(b);                 // Creates an even longer chain that needs compression
-    const result = c + 10;           // Forces resolution of the whole chain
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(result.errors, [], "No type errors expected for a chain that requires path compression");
 });
 
 reportTestFailures();

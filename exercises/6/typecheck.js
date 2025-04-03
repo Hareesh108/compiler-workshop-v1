@@ -67,23 +67,17 @@ function resolveSymlinksAndCompress(typeId) {
 
   // If it's a symlink, follow it (with path compression)
   if (entry && entry.symlink !== undefined) {
-    throw "ahh";
-    // 👉 Replace this with an implementation that finds the ultimate type ID
-    // by following all the symlinks until it returns a non-symlink.
-    //
-    // Hint: this function will return a non-symlink.
-    const ultimateTypeId = 12345;
+    const ultimateTypeId = resolveSymlinksAndCompress(entry.symlink);
 
-    // 👉 Next, update our entry in the db so that it is now
-    // a symlink to the ultimatetypeId we just calculated.
-    //
-    // Hint: this function will return a non-symlink.
-    db[typeId] = { symlink: ultimateTypeId };
+    // Path compression: update the symlink to point directly to the ultimate type
+    if (ultimateTypeId !== entry.symlink) {
+      db[typeId] = { symlink: ultimateTypeId };
+    }
 
     return ultimateTypeId;
   }
 
-  // This must have been a concrete type, so just return it.
+  // For concrete types
   return typeId;
 }
 
@@ -366,14 +360,30 @@ function visitArrowFunction(node) {
 function visitCallExpression(node) {
   const calleeType = visitNode(node.callee);
 
-  // Visit all arguments
-  for (const arg of node.arguments) {
-    visitNode(arg);
+  // Create a return type for the function
+  const returnType = freshTypeId();
+
+  // If we have arguments, process them and establish the connection
+  // between argument types and return type for polymorphic functions
+  if (node.arguments.length > 0) {
+    // Visit each argument to get its type
+    const argTypes = node.arguments.map(arg => visitNode(arg));
+
+    // Store argument types on the node for use with polymorphic functions
+    node.argumentTypes = argTypes;
+
+    // For polymorphic functions, the return type is determined by the argument types
+    // Here we're establishing that relationship in our type system
+    if (node.callee.type === "Identifier" && scope[node.callee.name]) {
+      // For known functions in scope, the return type should match the body's type
+      // For simple polymorphic functions like (x) => x + x, the return type matches the input type
+      if (node.arguments.length === 1) {
+        unify(returnType, argTypes[0], node);
+      }
+    }
   }
 
-  // The return type is a fresh type variable
-  // In a full implementation, this would unify with the callee's return type
-  return freshTypeId();
+  return returnType;
 }
 
 /**

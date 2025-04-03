@@ -67,23 +67,17 @@ function resolveSymlinksAndCompress(typeId) {
 
   // If it's a symlink, follow it (with path compression)
   if (entry && entry.symlink !== undefined) {
-    throw "ahh";
-    // 👉 Replace this with an implementation that finds the ultimate type ID
-    // by following all the symlinks until it returns a non-symlink.
-    //
-    // Hint: this function will return a non-symlink.
-    const ultimateTypeId = 12345;
+    const ultimateTypeId = resolveSymlinksAndCompress(entry.symlink);
 
-    // 👉 Next, update our entry in the db so that it is now
-    // a symlink to the ultimatetypeId we just calculated.
-    //
-    // Hint: this function will return a non-symlink.
-    db[typeId] = { symlink: ultimateTypeId };
+    // Path compression: update the symlink to point directly to the ultimate type
+    if (ultimateTypeId !== entry.symlink) {
+      db[typeId] = { symlink: ultimateTypeId };
+    }
 
     return ultimateTypeId;
   }
 
-  // This must have been a concrete type, so just return it.
+  // For concrete types
   return typeId;
 }
 
