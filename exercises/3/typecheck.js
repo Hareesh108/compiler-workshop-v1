@@ -395,7 +395,6 @@ function visitConstDeclaration(node) {
   // Hint: In `const x = 5`, `node.id.name` will be "x"
 
   // 👉 Record the type id we just added to scope inside the node's `node.id.typeId` for later.
-  node.id.typeId = initType;
 
   return initType;
 }
