@@ -379,7 +379,10 @@ function visitCallExpression(node) {
     unify(returnTypeId, bodyType, node);
   }
   // Function reference case - when calling a named function
-  else if (node.callee.type === "Identifier" && scope[node.callee.name] !== undefined) {
+  else if (
+    node.callee.type === "Identifier" &&
+    scope[node.callee.name] !== undefined
+  ) {
     // Get the function's type ID from scope
     const functionTypeId = resolveSymlinksAndCompress(scope[node.callee.name]);
 
