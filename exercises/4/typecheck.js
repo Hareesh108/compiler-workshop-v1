@@ -255,21 +255,15 @@ function visitBinaryExpression(node) {
   if (node.operator === "+") {
     // Check if we have concrete types and they don't match
     if (leftConcrete && rightConcrete && leftConcrete !== rightConcrete) {
-      reportError(
-        `Type mismatch in binary operation: cannot add ${leftConcrete} to ${rightConcrete}`,
-        node,
-      );
-      return createConcreteType("Number"); // Return a placeholder type
+      reportTypeMismatch(node.left, node.right);
+      return createConcreteType("Number");
     }
 
     // If not both concrete, try to unify
     const canUnify = unify(leftType, rightType, node);
     if (!canUnify) {
-      reportError(
-        `Type mismatch in binary operation: cannot add ${leftConcrete || "unknown"} to ${rightConcrete || "unknown"}`,
-        node,
-      );
-      return createConcreteType("Number"); // Return a placeholder type
+      reportTypeMismatch(node.left, node.right);
+      return createConcreteType("Number");
     }
 
     return leftType;
@@ -277,29 +271,10 @@ function visitBinaryExpression(node) {
     // Multiplication: both operands must be numbers
     const numberType = createConcreteType("Number");
 
-    // Check if we have concrete types that aren't numbers
-    if (leftConcrete && leftConcrete !== "Number") {
-      reportError(
-        `Type mismatch: expected Number for left operand of '*' operator, got ${leftConcrete}`,
-        node.left,
-      );
-    }
+    // 👉 If either the left or the right type is concrete,
+    // it must be a Number. Otherwise, call reportTypeMismatch().
 
-    if (rightConcrete && rightConcrete !== "Number") {
-      reportError(
-        `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete}`,
-        node.right,
-      );
-    }
-
-    // If we don't have concrete types, try to unify with Number
-    if (!leftConcrete) {
-      unify(leftType, numberType, node.left);
-    }
-
-    if (!rightConcrete) {
-      unify(rightType, numberType, node.right);
-    }
+    // 👉 Otherwise, unify the non-concrete type with Number.
 
     return numberType;
   }
