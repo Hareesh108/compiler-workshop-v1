@@ -181,8 +181,6 @@ function encodeF64(value) {
  * Convert our language types to WebAssembly types
  */
 function convertType(type) {
-  if (!type) return TYPES.I32; // Default to i32 if type is missing
-  
   type = compress(type);
   
   if (type.kind === "PrimitiveType") {
@@ -449,8 +447,6 @@ function generateBlockStatement(state, node) {
  * Generate code for a general expression
  */
 function generateExpressionCode(state, node) {
-  if (!node) return new Uint8Array([]);
-  
   switch (node.type) {
     case "BlockStatement":
       return generateBlockStatement(state, node);

@@ -359,12 +359,7 @@ function parse(tokens, options = {}) {
     // Consume the 'return' keyword
     expect("RETURN", "Expected 'return' keyword");
 
-    let argument = null;
-
-    // If there's an expression after return, parse it
-    if (!check("SEMICOLON") && !check("RIGHT_CURLY")) {
-      argument = parseExpression();
-    }
+    let argument = parseExpression();
 
     const returnStatement = {
       type: "ReturnStatement",
@@ -585,42 +580,39 @@ function parse(tokens, options = {}) {
 
     const params = [];
 
-    // If there are parameters, parse them
-    if (!check("RIGHT_PAREN")) {
-      do {
-        // Parse the parameter name
-        const paramToken = expect("IDENTIFIER", "Expected parameter name");
+    do {
+      // Parse the parameter name
+      const paramToken = expect("IDENTIFIER", "Expected parameter name");
 
-        // Start with a parameter without a type annotation
-        let param = {
-          type: "Identifier",
-          name: paramToken.value,
-        };
+      // Start with a parameter without a type annotation
+      let param = {
+        type: "Identifier",
+        name: paramToken.value,
+      };
 
-        // Emit event for parameter identifier
-        onNode({
-          type: "Identifier",
-          node: param,
-          position: tokens[current - 1].position,
-        });
+      // Emit event for parameter identifier
+      onNode({
+        type: "Identifier",
+        node: param,
+        position: tokens[current - 1].position,
+      });
 
-        // Check for type annotation (with colon)
-        if (check("COLON")) {
-          next(); // Consume the colon
+      // Check for type annotation (with colon)
+      if (check("COLON")) {
+        next(); // Consume the colon
 
-          // Parse the type annotation
-          const typeAnnotation = parseTypeAnnotation();
+        // Parse the type annotation
+        const typeAnnotation = parseTypeAnnotation();
 
-          // Add the type annotation to the parameter
-          param.typeAnnotation = typeAnnotation;
-        }
+        // Add the type annotation to the parameter
+        param.typeAnnotation = typeAnnotation;
+      }
 
-        // Add this parameter to the list
-        params.push(param);
+      // Add this parameter to the list
+      params.push(param);
 
-        // Continue if we see a comma
-      } while (check("COMMA") && next());
-    }
+      // Continue if we see a comma
+    } while (check("COMMA") && next());
 
     // End with a right parenthesis
     expect("RIGHT_PAREN", "Expected ')' after parameters");
@@ -1213,14 +1205,12 @@ function parse(tokens, options = {}) {
 
     const args = [];
 
-    // Parse arguments if there are any
-    if (!check("RIGHT_PAREN")) {
-      do {
-        args.push(parseExpression());
+    // Parse arguments
+    do {
+      args.push(parseExpression());
 
-        // If we see a comma, continue to the next argument
-      } while (check("COMMA") && next());
-    }
+      // If we see a comma, continue to the next argument
+    } while (check("COMMA") && next());
 
     expect("RIGHT_PAREN", "Expected ')' after function arguments");
 

@@ -38,9 +38,6 @@ function reportError(errors, message, node) {
  * @returns {boolean} - Whether the return is in a valid position
  */
 function checkReturnPosition(node, body, errors) {
-  if (!body || !Array.isArray(body)) {
-    return true; // Nothing to check
-  }
 
   const returnIndex = body.findIndex((stmt) => stmt.type === "ReturnStatement");
   if (returnIndex === -1) {
@@ -67,10 +64,6 @@ function checkReturnPosition(node, body, errors) {
  * @param {Array} errors - Array to add errors to
  */
 function validateNode(node, errors) {
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
   // Check specific node types
   if (node.type === "ArrowFunctionExpression" && Array.isArray(node.body)) {
     checkReturnPosition(node, node.body, errors);
@@ -88,7 +81,7 @@ function validateNode(node, errors) {
         }
       } 
       // Recursively validate nested objects that are AST nodes
-      else if (value && typeof value === "object" && value.type) {
+      else if (value.type) {
         validateNode(value, errors);
       }
     }

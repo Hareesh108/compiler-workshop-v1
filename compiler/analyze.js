@@ -178,8 +178,6 @@ function exitScope(state) {
  * @param {object} node - AST node to visit
  */
 function visitNode(state, node) {
-  if (!node) return;
-
   // Create a new scope if this node introduces a new scope
   if (isNodeWithScope(node)) {
     // Emit event for entering a scope
@@ -227,10 +225,6 @@ function visitNode(state, node) {
  * @param {object} node - Node whose children should be visited
  */
 function visitChildren(state, node) {
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
   // Iterate through all properties of the node
   for (const key in node) {
     if (node.hasOwnProperty(key) && key !== "type") {
@@ -243,7 +237,7 @@ function visitChildren(state, node) {
         }
       }
       // Handle nested objects (other AST nodes)
-      else if (child && typeof child === "object") {
+      else if (typeof child === "object") {
         visitNode(state, child);
       }
     }
@@ -588,11 +582,6 @@ function isNodeWithScope(node) {
  * @param {object} node - The AST node
  */
 function processNode(state, node) {
-  // Skip null/undefined nodes and non-objects
-  if (!node || typeof node !== "object") {
-    return;
-  }
-
   // Dispatch to appropriate visitor function based on node type
   switch (node.type) {
     // Program is the root of the AST

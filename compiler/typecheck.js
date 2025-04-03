@@ -235,10 +235,7 @@ function freshInstance(state, type, mappings = new Map()) {
   type = compress(type);
 
   if (type.kind === "TypeVariable") {
-    // If we haven't seen this type variable before, create a fresh copy
-    if (!mappings.has(type)) {
-      mappings.set(type, newTypeVar(state, null, `Fresh instance of ${type.name}`));
-    }
+    mappings.set(type, newTypeVar(state, null, `Fresh instance of ${type.name}`));
     return mappings.get(type);
   } else if (type.kind === "FunctionType") {
     // For function types, recursively freshen parameter and return types
@@ -271,13 +268,6 @@ function freshInstance(state, type, mappings = new Map()) {
 function getType(state, name) {
   // Look up the variable in the current scope
   const type = state.currentScope[name];
-
-  // If not found, create a fresh type variable
-  if (!type) {
-    const typeVar = newTypeVar(state, null, `Variable lookup: ${name}`);
-    state.currentScope[name] = typeVar;
-    return typeVar;
-  }
 
   // If the type is in the non-generic set, return it as is
   // (this prevents overgeneralization in certain contexts)
@@ -424,11 +414,6 @@ function popScope(state) {
  * @returns {object} - Inferred type
  */
 function infer(state, node) {
-  // Handle null/undefined or non-object nodes
-  if (!node || typeof node !== "object") {
-    return newTypeVar(state, null, "Missing or invalid node");
-  }
-
   // Dispatch based on node type
   switch (node.type) {
     // Program structure
@@ -843,9 +828,6 @@ function inferTypeMemberExpression(state, node) {
  * @returns {object} - Internal type representation
  */
 function createTypeFromAnnotation(state, annotation) {
-  if (!annotation) {
-    return newTypeVar(state);
-  }
 
   switch (annotation.type) {
     case "TypeAnnotation": {
@@ -940,10 +922,6 @@ function inferTypeConstDeclaration(state, node) {
  * @returns {object} - Inferred type
  */
 function inferTypeReturnStatement(state, node) {
-  if (!node.argument) {
-    return primitive(Types.Void);
-  }
-
   return infer(state, node.argument);
 }
 
