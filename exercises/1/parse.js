@@ -69,10 +69,7 @@ function parse(tokens) {
       } catch (error) {
         // Skip to the next statement on error
         console.error("Parse error:", error);
-        while (
-          current < tokens.length &&
-          !check("SEMICOLON")
-        ) {
+        while (current < tokens.length && !check("SEMICOLON")) {
           next();
         }
         if (check("SEMICOLON")) next();
@@ -124,7 +121,11 @@ function parse(tokens) {
     let argument = null;
 
     // If there's an expression after return, parse it
-    if (current < tokens.length && !check("SEMICOLON") && !check("RIGHT_CURLY")) {
+    if (
+      current < tokens.length &&
+      !check("SEMICOLON") &&
+      !check("RIGHT_CURLY")
+    ) {
       argument = parseExpression();
     }
 
@@ -618,7 +619,6 @@ function parse(tokens) {
    * Parse primary expressions - the most basic building blocks
    */
   function parsePrimary() {
-
     let node;
 
     // Check what kind of primary expression this is
@@ -738,7 +738,6 @@ function parse(tokens) {
         type: "StringLiteral",
         value: token.value.slice(1, -1), // Remove the quotes
       };
-
     } else if (check("NUMBER")) {
       // Number literal
       const token = next();
@@ -748,7 +747,6 @@ function parse(tokens) {
         type: "NumericLiteral",
         value,
       };
-
     } else if (check("BOOLEAN")) {
       // Boolean literal
       const token = next();
@@ -756,8 +754,6 @@ function parse(tokens) {
         type: "BooleanLiteral",
         value: token.value === "true",
       };
-
-
     } else if (check("IDENTIFIER")) {
       // Variable reference or function call
       const token = next();
@@ -765,8 +761,6 @@ function parse(tokens) {
         type: "Identifier",
         name: token.value,
       };
-
-
 
       // If the next token is a '(', this is a function call
       if (check("LEFT_PAREN")) {

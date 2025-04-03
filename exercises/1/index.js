@@ -1,6 +1,11 @@
 const { tokenize } = require("./tokenize");
 const { parse, compile } = require("./parse");
-const { test, assert, assertEqual, summarize: reportTestFailures } = require("../test");
+const {
+  test,
+  assert,
+  assertEqual,
+  summarize: reportTestFailures,
+} = require("../test");
 
 // Tokenizer tests
 test("Tokenize empty string", () => {
@@ -20,10 +25,7 @@ test("Tokenize simple expression", () => {
   // Should have 5 tokens: CONST, IDENTIFIER, EQUAL, NUMBER, SEMICOLON, plus EOF
   assert(tokens.length === 6, `Expected 6 tokens, got ${tokens.length}`);
   assert(tokens[0].type === "CONST", "First token should be CONST");
-  assert(
-    tokens[1].type === "IDENTIFIER",
-    "Second token should be IDENTIFIER",
-  );
+  assert(tokens[1].type === "IDENTIFIER", "Second token should be IDENTIFIER");
   assert(tokens[1].value === "x", 'Identifier value should be "x"');
   assert(tokens[2].type === "EQUAL", "Third token should be EQUAL");
   assert(tokens[3].type === "NUMBER", "Fourth token should be NUMBER");
@@ -36,10 +38,7 @@ test("Tokenize string literals", () => {
   const tokens = tokenize('const greeting = "hello";');
   const stringToken = tokens[3];
   assert(stringToken.type === "STRING", "Should recognize string literals");
-  assert(
-    stringToken.value === '"hello"',
-    "String value should include quotes",
-  );
+  assert(stringToken.value === '"hello"', "String value should include quotes");
 });
 
 test("Tokenize arrow function", () => {
