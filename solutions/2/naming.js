@@ -11,9 +11,7 @@
  */
 
 let errors = [];
-let scopes = new Map(); // Map of scopes
-let currentScopeId = 0;
-let scopeStack = []; // Stack to track the current scope hierarchy
+let scopeStack = []; // Stack of Sets, each Set contains variable names declared in that scope
 
 /**
  * Declare a new variable in the current scope
@@ -26,14 +24,14 @@ let scopeStack = []; // Stack to track the current scope hierarchy
  * @returns {boolean} - True if declaration succeeded, false if duplicate
  */
 function declareVariable(name, node) {
-  const currentScope = scopes.get(scopeStack[scopeStack.length - 1]);
+  const currentScope = scopeStack[scopeStack.length - 1];
 
-  if (currentScope.declarations.has(name)) {
+  if (currentScope.has(name)) {
     reportError(`Duplicate declaration of variable: ${name}`, node);
     return false;
   }
 
-  currentScope.declarations.add(name);
+  currentScope.add(name);
   return true;
 }
 
@@ -53,14 +51,11 @@ function reportError(message, node) {
 /**
  * Create a new scope
  *
- * @returns {number} - The ID of the newly created scope
+ * Pushes a new Set onto the scopeStack to represent a new scope
  */
 function createScope() {
-  const scopeId = currentScopeId++;
-  scopes.set(scopeId, {
-    declarations: new Set(),
-  });
-  return scopeId;
+  const newScope = new Set();
+  scopeStack.push(newScope);
 }
 
 /**
@@ -143,8 +138,7 @@ function visitConstDeclaration(node) {
  */
 function visitArrowFunction(node) {
   // Create a new scope for the function
-  const scopeId = createScope();
-  scopeStack.push(scopeId);
+  createScope();
 
   // Check for duplicate parameters within function scope
   if (node.params) {
@@ -191,13 +185,8 @@ function visitBlockStatement(node) {
 function isVariableDeclared(name) {
   // Check each scope from innermost to outermost
   for (let i = scopeStack.length - 1; i >= 0; i--) {
-    const scopeId = scopeStack[i];
-    if (!scopes.has(scopeId)) continue;
-
-    const scope = scopes.get(scopeId);
-    if (!scope || !scope.declarations) continue;
-
-    if (scope.declarations.has(name)) {
+    const scope = scopeStack[i];
+    if (scope.has(name)) {
       return true;
     }
   }
@@ -318,13 +307,10 @@ function visitMemberExpression(node) {
  */
 function nameCheck(statements) {
   errors = [];
-  scopes = new Map();
-  currentScopeId = 0;
   scopeStack = [];
 
   // Create the global scope
-  const globalScopeId = createScope();
-  scopeStack.push(globalScopeId);
+  createScope();
 
   for (const statement of statements) {
     visitNode(statement);
@@ -335,7 +321,6 @@ function nameCheck(statements) {
 
   return {
     errors,
-    scopes,
   };
 }
 
