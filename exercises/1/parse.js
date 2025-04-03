@@ -451,7 +451,9 @@ function parse(tokens, options = {}) {
       });
     } else {
       // Always require block statement with return
-      throw new Error(`Functions require a block body with explicit return statements`);
+      throw new Error(
+        `Functions require a block body with explicit return statements`,
+      );
     }
 
     // Create the function node
@@ -550,7 +552,7 @@ function parse(tokens, options = {}) {
    */
   function parseTypeAnnotation() {
     // The colon should have already been consumed by the caller
-    
+
     // Parse the type
     if (check("TYPE_NUMBER") || check("TYPE_FLOAT")) {
       const token = next().type;
@@ -999,8 +1001,8 @@ function parse(tokens, options = {}) {
  * @returns {Object} - The AST representing the program
  */
 function compile(sourceCode) {
-  const { tokenize } = require('./tokenize');
-  
+  const { tokenize } = require("./tokenize");
+
   // Step 1: Tokenize the source code
   const tokens = tokenize(sourceCode);
 
@@ -1012,5 +1014,5 @@ function compile(sourceCode) {
 
 module.exports = {
   parse,
-  compile
+  compile,
 };

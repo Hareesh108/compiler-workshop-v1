@@ -187,5 +187,5 @@ module.exports = {
   getTokenPatterns,
   getWhitespaceRegex,
   TOKEN_PATTERNS,
-  WHITESPACE_REGEX
+  WHITESPACE_REGEX,
 };
