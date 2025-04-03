@@ -161,4 +161,19 @@ test("Type-check function with compatible argument types", () => {
   );
 });
 
+test("Type-check named function call stored in scope", () => {
+  const statements = compile(`
+    const processNumber = (x) => { return x * 2; };
+    const storeFunction = processNumber;
+    const result = storeFunction(10);
+  `);
+  const result = typeCheck(statements);
+
+  assertEqual(
+    result.errors, 
+    [],
+    "No type errors expected when calling a named function from scope"
+  );
+});
+
 reportTestFailures();
