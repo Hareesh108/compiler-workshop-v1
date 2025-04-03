@@ -100,7 +100,7 @@ test("Detect type mismatch in multiplication with string first", () => {
       result.errors[0].message.includes("Type mismatch") &&
       result.errors[0].message.includes("String") &&
       result.errors[0].message.includes("Number"),
-    "Should report specific type mismatch error between String and Number"
+    "Should report specific type mismatch error between String and Number",
   );
 });
 
@@ -108,18 +108,18 @@ test("Detect type mismatch in multiplication with string first", () => {
 test("Unify function reports type mismatch between different concrete types", () => {
   // This test uses the "cannot unify" error message format to check if the TODO is implemented
   // It's designed to pass BEFORE implementation and fail AFTER implementation
-  
+
   const statements = compile(
     'const x = "hello"; const y = 5; const z = x * y;',
   );
   const result = typeCheck(statements);
 
   // Before the TODO is implemented: multiplication will have specific error messages
-  // After implementation: should have a message with "cannot unify String with Number" 
+  // After implementation: should have a message with "cannot unify String with Number"
   assert(
     result.errors.length === 1 &&
-    !result.errors[0].message.includes("cannot unify"),
-    "This test will start failing when you implement the TODO in unify()"
+      !result.errors[0].message.includes("cannot unify"),
+    "This test will start failing when you implement the TODO in unify()",
   );
 });
 

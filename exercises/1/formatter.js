@@ -9,7 +9,7 @@
  * It handles proper indentation, spacing, and line breaks to make the output look nice.
  */
 
- const { compile } = require("./parse");
+const { compile } = require("./parse");
 
 /**
  * Format a parse tree into formatted source code
@@ -116,8 +116,8 @@ function format(parseTree, options = {}) {
   }
 
   /**
-    * Format an array literal
-    */
+   * Format an array literal
+   */
   function formatArrayLiteral(node) {
     // 👉 Change this to format the given array literal node.
     //
@@ -131,12 +131,12 @@ function format(parseTree, options = {}) {
     //
     // [a, b, c]
 
-    return "TODO: Implement formatArrayLiteral()"
+    return "TODO: Implement formatArrayLiteral()";
   }
 
   /**
-    * Format a function call expression
-    */
+   * Format a function call expression
+   */
   function formatCallExpression(node) {
     // 👉 Change this to format the given function call node.
     //
@@ -151,7 +151,7 @@ function format(parseTree, options = {}) {
     //
     // foo(arg1, arg2)
 
-    return "TODO: Implement formatCallExpression()"
+    return "TODO: Implement formatCallExpression()";
   }
 
   /**
@@ -172,12 +172,12 @@ function format(parseTree, options = {}) {
     //
     // a + b
 
-    return "TODO: Implement formatBinaryExpression()"
+    return "TODO: Implement formatBinaryExpression()";
   }
 
   /**
-    * Format a conditional (ternary) expression
-    */
+   * Format a conditional (ternary) expression
+   */
   function formatConditionalExpression(node) {
     const test = formatNode(node.test);
     const consequent = formatNode(node.consequent);

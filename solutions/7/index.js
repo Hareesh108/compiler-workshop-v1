@@ -1,12 +1,12 @@
-const { compileToWasm } = require('./wasm');
-const { assert, assertEqual } = require('../test');
+const { compileToWasm } = require("./wasm");
+const { assert, assertEqual } = require("../test");
 
 // WebAssembly testing utilities
 async function instantiateWasm(wasmBinary) {
   const importObject = {
     console: {
-      log: (value) => console.log(value)
-    }
+      log: (value) => console.log(value),
+    },
   };
 
   try {
@@ -14,7 +14,9 @@ async function instantiateWasm(wasmBinary) {
     const instance = await WebAssembly.instantiate(module, importObject);
     return { module, instance, exports: instance.exports };
   } catch (error) {
-    throw new Error(`Failed to instantiate WebAssembly module: ${error.message}`);
+    throw new Error(
+      `Failed to instantiate WebAssembly module: ${error.message}`,
+    );
   }
 }
 
@@ -48,14 +50,16 @@ function createTimedPromise(callback, timeout) {
       const result = callback();
 
       // If the callback returns a promise, handle it properly
-      if (result && typeof result.then === 'function') {
-        result.then(value => {
-          clearTimeout(timer);
-          resolve(value);
-        }).catch(error => {
-          clearTimeout(timer);
-          reject(error);
-        });
+      if (result && typeof result.then === "function") {
+        result
+          .then((value) => {
+            clearTimeout(timer);
+            resolve(value);
+          })
+          .catch((error) => {
+            clearTimeout(timer);
+            reject(error);
+          });
       } else {
         // If it's not a promise, resolve immediately
         clearTimeout(timer);
@@ -115,7 +119,9 @@ async function runAsyncTestsAndSummarize() {
   }
 
   console.log("\n=== Summary ===\n");
-  console.log(`${testResults.filter(r => r.passed).length} passing, ${testResults.filter(r => !r.passed).length} failing`);
+  console.log(
+    `${testResults.filter((r) => r.passed).length} passing, ${testResults.filter((r) => !r.passed).length} failing`,
+  );
 
   if (allTestsPassed) {
     console.log("All tests passed!");
@@ -135,7 +141,10 @@ runAsyncTest("Simple numeric constant", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
@@ -147,7 +156,10 @@ runAsyncTest("Simple numeric addition", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
@@ -163,7 +175,10 @@ runAsyncTest("Function with parameters", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
@@ -186,8 +201,15 @@ runAsyncTest("Boolean constants", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
-  assertEqual(exports.main(), 1, "Function should return 1 (true + false = 1 + 0)");
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
+  assertEqual(
+    exports.main(),
+    1,
+    "Function should return 1 (true + false = 1 + 0)",
+  );
 });
 
 runAsyncTest("Conditional expressions", async () => {
@@ -198,7 +220,10 @@ runAsyncTest("Conditional expressions", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
@@ -212,7 +237,10 @@ runAsyncTest("Local variables", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
@@ -224,7 +252,10 @@ runAsyncTest("Multiplication", async () => {
   `;
 
   const { success, exports, error } = await compileAndRunWasm(sourceCode);
-  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assert(
+    success,
+    `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`,
+  );
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 

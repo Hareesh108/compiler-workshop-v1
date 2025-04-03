@@ -12,11 +12,7 @@ test("Type-check empty program", () => {
   const statements = compile("");
   const result = typeCheck(statements);
 
-  assertEqual(
-    result.errors,
-    [],
-    "Empty program should have no type errors",
-  );
+  assertEqual(result.errors, [], "Empty program should have no type errors");
 });
 
 test("Type-check simple numeric declaration", () => {
@@ -64,7 +60,8 @@ test("Detect type mismatch in binary operation", () => {
   const result = typeCheck(statements);
 
   assert(
-    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
+    result.errors.length === 1 &&
+      result.errors[0].message.includes("Type mismatch"),
     "Should report type mismatch error",
   );
 });
@@ -87,7 +84,8 @@ test("Detect type mismatch in multiplication", () => {
   const result = typeCheck(statements);
 
   assert(
-    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
+    result.errors.length === 1 &&
+      result.errors[0].message.includes("Type mismatch"),
     "Should report type mismatch error",
   );
 });
@@ -108,7 +106,8 @@ test("Detect type mismatch in ternary condition", () => {
   const result = typeCheck(statements);
 
   assert(
-    result.errors.length === 1 && result.errors[0].message.includes("condition"),
+    result.errors.length === 1 &&
+      result.errors[0].message.includes("condition"),
     "Error message should mention condition must be Boolean",
   );
 });

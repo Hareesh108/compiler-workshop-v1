@@ -16,16 +16,16 @@ const SECTION = {
   MEMORY: 5,
   EXPORT: 7,
   CODE: 10,
-  DATA: 11
+  DATA: 11,
 };
 
 // WebAssembly types
 const TYPES = {
-  I32: 0x7f,      // i32 - used for booleans
-  F64: 0x7c,      // f64 - aka Number
-  ANYFUNC: 0x70,  // funcref
-  FUNC: 0x60,     // func
-  VOID: 0x40      // void (empty block type)
+  I32: 0x7f, // i32 - used for booleans
+  F64: 0x7c, // f64 - aka Number
+  ANYFUNC: 0x70, // funcref
+  FUNC: 0x60, // func
+  VOID: 0x40, // void (empty block type)
 };
 
 // WebAssembly opcodes
@@ -53,7 +53,7 @@ const OP = {
   F64_GT: 0x64,
   F64_LE: 0x65,
   F64_GE: 0x66,
-  F64_CONVERT_I32_U: 0xb8
+  F64_CONVERT_I32_U: 0xb8,
 };
 
 // Keep track of string literals for data section
@@ -67,7 +67,7 @@ let currentFunctionLocals = [];
 let errors = [];
 
 // Memory constants
-const MEMORY_PAGE_SIZE = 1;       // Initial memory size (64KB pages)
+const MEMORY_PAGE_SIZE = 1; // Initial memory size (64KB pages)
 
 /**
  * Encodes a number in WebAssembly LEB128 format (unsigned)
@@ -243,13 +243,13 @@ function buildImportSection() {
     encodeULEB128(fieldName.length),
     fieldName,
     new Uint8Array([0x00]), // Import kind: function
-    encodeULEB128(0) // Type index 0 (i32) -> void
+    encodeULEB128(0), // Type index 0 (i32) -> void
   ]);
 
   return concatBytes([
     new Uint8Array([0x02]), // Import section code
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -260,12 +260,14 @@ function buildTypeSection() {
   const entries = [];
 
   // Type for console.log (i32) -> void
-  entries.push(concatBytes([
-    new Uint8Array([TYPES.FUNC]),
-    encodeULEB128(1), // 1 parameter
-    new Uint8Array([TYPES.I32]),
-    encodeULEB128(0)  // 0 results
-  ]));
+  entries.push(
+    concatBytes([
+      new Uint8Array([TYPES.FUNC]),
+      encodeULEB128(1), // 1 parameter
+      new Uint8Array([TYPES.I32]),
+      encodeULEB128(0), // 0 results
+    ]),
+  );
 
   // Types for user functions
   const functionNames = Object.keys(functionTable);
@@ -276,24 +278,23 @@ function buildTypeSection() {
     // Build function type (all params are f64, result is f64)
     const params = new Array(func.params.length).fill(TYPES.F64);
 
-    entries.push(concatBytes([
-      new Uint8Array([TYPES.FUNC]),
-      encodeULEB128(params.length),
-      ...params.map(type => new Uint8Array([type])),
-      encodeULEB128(1), // 1 result
-      new Uint8Array([TYPES.F64])
-    ]));
+    entries.push(
+      concatBytes([
+        new Uint8Array([TYPES.FUNC]),
+        encodeULEB128(params.length),
+        ...params.map((type) => new Uint8Array([type])),
+        encodeULEB128(1), // 1 result
+        new Uint8Array([TYPES.F64]),
+      ]),
+    );
   }
 
-  const content = concatBytes([
-    encodeULEB128(entries.length),
-    ...entries
-  ]);
+  const content = concatBytes([encodeULEB128(entries.length), ...entries]);
 
   return concatBytes([
     new Uint8Array([SECTION.TYPE]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -312,13 +313,13 @@ function buildFunctionSection() {
 
   const content = concatBytes([
     encodeULEB128(functionNames.length),
-    ...functionTypeIndices
+    ...functionTypeIndices,
   ]);
 
   return concatBytes([
     new Uint8Array([SECTION.FUNCTION]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -329,13 +330,13 @@ function buildMemorySection() {
   const content = concatBytes([
     encodeULEB128(1), // 1 memory definition
     new Uint8Array([0x00]), // No maximum (flags = 0)
-    encodeULEB128(MEMORY_PAGE_SIZE)
+    encodeULEB128(MEMORY_PAGE_SIZE),
   ]);
 
   return concatBytes([
     new Uint8Array([SECTION.MEMORY]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -347,33 +348,34 @@ function buildExportSection() {
 
   // Export memory
   const memoryName = encoder.encode("memory");
-  exports.push(concatBytes([
-    encodeULEB128(memoryName.length),
-    memoryName,
-    new Uint8Array([0x02]), // Export kind: memory
-    encodeULEB128(0) // Memory index
-  ]));
+  exports.push(
+    concatBytes([
+      encodeULEB128(memoryName.length),
+      memoryName,
+      new Uint8Array([0x02]), // Export kind: memory
+      encodeULEB128(0), // Memory index
+    ]),
+  );
 
   // Export main function if it exists
   if (functionIndices.main !== undefined) {
     const mainName = encoder.encode("main");
-    exports.push(concatBytes([
-      encodeULEB128(mainName.length),
-      mainName,
-      new Uint8Array([0x00]), // Export kind: function
-      encodeULEB128(functionIndices.main)
-    ]));
+    exports.push(
+      concatBytes([
+        encodeULEB128(mainName.length),
+        mainName,
+        new Uint8Array([0x00]), // Export kind: function
+        encodeULEB128(functionIndices.main),
+      ]),
+    );
   }
 
-  const content = concatBytes([
-    encodeULEB128(exports.length),
-    ...exports
-  ]);
+  const content = concatBytes([encodeULEB128(exports.length), ...exports]);
 
   return concatBytes([
     new Uint8Array([SECTION.EXPORT]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -385,19 +387,22 @@ function buildCodeSection() {
   const functionNames = Object.keys(functionTable);
 
   for (let i = 0; i < functionNames.length; i++) {
-    const funcBody = generateFunctionBody(functionNames[i], functionTable[functionNames[i]]);
+    const funcBody = generateFunctionBody(
+      functionNames[i],
+      functionTable[functionNames[i]],
+    );
     functionBodies.push(funcBody);
   }
 
   const content = concatBytes([
     encodeULEB128(functionBodies.length),
-    ...functionBodies
+    ...functionBodies,
   ]);
 
   return concatBytes([
     new Uint8Array([SECTION.CODE]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -412,12 +417,14 @@ function buildDataSection() {
 
     // Add length prefix (4 bytes)
     const length = value.length;
-    bytes.push(...[
-      length & 0xFF,
-      (length >> 8) & 0xFF,
-      (length >> 16) & 0xFF,
-      (length >> 24) & 0xFF
-    ]);
+    bytes.push(
+      ...[
+        length & 0xff,
+        (length >> 8) & 0xff,
+        (length >> 16) & 0xff,
+        (length >> 24) & 0xff,
+      ],
+    );
 
     // Add the string bytes
     for (let i = 0; i < value.length; i++) {
@@ -426,25 +433,27 @@ function buildDataSection() {
 
     const dataBytes = new Uint8Array(bytes);
 
-    dataEntries.push(concatBytes([
-      new Uint8Array([0x00]), // Memory index 0
-      new Uint8Array([OP.I32_CONST]),
-      encodeSLEB128(ptr),
-      new Uint8Array([OP.END]),
-      encodeULEB128(dataBytes.length),
-      dataBytes
-    ]));
+    dataEntries.push(
+      concatBytes([
+        new Uint8Array([0x00]), // Memory index 0
+        new Uint8Array([OP.I32_CONST]),
+        encodeSLEB128(ptr),
+        new Uint8Array([OP.END]),
+        encodeULEB128(dataBytes.length),
+        dataBytes,
+      ]),
+    );
   }
 
   const content = concatBytes([
     encodeULEB128(dataEntries.length),
-    ...dataEntries
+    ...dataEntries,
   ]);
 
   return concatBytes([
     new Uint8Array([SECTION.DATA]),
     encodeULEB128(content.length),
-    content
+    content,
   ]);
 }
 
@@ -455,7 +464,10 @@ function buildDataSection() {
  */
 function collectFunctions(statements) {
   for (const node of statements) {
-    if (node.type === 'ConstDeclaration' && node.init.type === 'ArrowFunctionExpression') {
+    if (
+      node.type === "ConstDeclaration" &&
+      node.init.type === "ArrowFunctionExpression"
+    ) {
       functionTable[node.id.name] = node.init;
     }
   }
@@ -474,10 +486,10 @@ function collectStringLiterals(node) {
     return;
   }
 
-  if (!node || typeof node !== 'object') return;
+  if (!node || typeof node !== "object") return;
 
   // Check for string literals
-  if (node.type === 'StringLiteral') {
+  if (node.type === "StringLiteral") {
     // Store each string literal only once
     if (stringTable[node.value] === undefined) {
       const ptr = nextStringPtr;
@@ -493,7 +505,7 @@ function collectStringLiterals(node) {
 
   // Recursively check all properties
   for (const key in node) {
-    if (typeof node[key] === 'object' && node[key] !== null) {
+    if (typeof node[key] === "object" && node[key] !== null) {
       collectStringLiterals(node[key]);
     }
   }
@@ -530,7 +542,7 @@ function generateFunctionBody(name, node) {
   const functionBody = concatBytes([
     encodeULEB128(localDeclarations.length + bodyWithEnd.length),
     localDeclarations,
-    bodyWithEnd
+    bodyWithEnd,
   ]);
 
   return functionBody;
@@ -550,7 +562,7 @@ function encodeLocals(locals) {
   return concatBytes([
     encodeULEB128(1), // 1 group of locals
     encodeULEB128(localCount),
-    new Uint8Array([TYPES.F64])
+    new Uint8Array([TYPES.F64]),
   ]);
 }
 
@@ -562,31 +574,37 @@ function encodeLocals(locals) {
  */
 function generateNodeBinary(node) {
   switch (node.type) {
-    case 'BlockStatement':
+    case "BlockStatement":
       return generateBlockStatementBinary(node);
-    case 'ReturnStatement':
+    case "ReturnStatement":
       return generateReturnStatementBinary(node);
-    case 'ConstDeclaration':
+    case "ConstDeclaration":
       return generateConstDeclarationBinary(node);
-    case 'BinaryExpression':
+    case "BinaryExpression":
       return generateBinaryExpressionBinary(node);
-    case 'ConditionalExpression':
+    case "ConditionalExpression":
       return generateConditionalExpressionBinary(node);
-    case 'CallExpression':
+    case "CallExpression":
       return generateCallExpressionBinary(node);
-    case 'Identifier':
+    case "Identifier":
       return generateIdentifierBinary(node);
-    case 'StringLiteral':
+    case "StringLiteral":
       return generateStringLiteralBinary(node);
-    case 'NumericLiteral':
+    case "NumericLiteral":
       return generateNumericLiteralBinary(node);
-    case 'BooleanLiteral':
+    case "BooleanLiteral":
       return generateBooleanLiteralBinary(node);
-    case 'ArrowFunctionExpression':
-      reportError('Nested function declarations are not supported in this WASM generator', node);
+    case "ArrowFunctionExpression":
+      reportError(
+        "Nested function declarations are not supported in this WASM generator",
+        node,
+      );
       return new Uint8Array([]); // Empty
-    case 'ArrayLiteral':
-      reportError('Array literals are not supported in this WASM generator', node);
+    case "ArrayLiteral":
+      reportError(
+        "Array literals are not supported in this WASM generator",
+        node,
+      );
       return new Uint8Array([]); // Empty
     default:
       reportError(`Unsupported node type: ${node.type}`, node);
@@ -619,10 +637,7 @@ function generateBlockStatementBinary(node) {
 function generateReturnStatementBinary(node) {
   if (!node.argument) {
     // Return 0 for void returns
-    return concatBytes([
-      new Uint8Array([OP.F64_CONST]),
-      encodeF64(0)
-    ]);
+    return concatBytes([new Uint8Array([OP.F64_CONST]), encodeF64(0)]);
   }
 
   return generateNodeBinary(node.argument);
@@ -636,7 +651,7 @@ function generateReturnStatementBinary(node) {
  */
 function generateConstDeclarationBinary(node) {
   // Skip function declarations - they're handled separately
-  if (node.init.type === 'ArrowFunctionExpression') {
+  if (node.init.type === "ArrowFunctionExpression") {
     return new Uint8Array([]);
   }
 
@@ -655,7 +670,7 @@ function generateConstDeclarationBinary(node) {
   return concatBytes([
     valueCode,
     new Uint8Array([OP.LOCAL_SET]),
-    encodeULEB128(localVars[varName].index)
+    encodeULEB128(localVars[varName].index),
   ]);
 }
 
@@ -672,10 +687,10 @@ function generateBinaryExpressionBinary(node) {
   // Handle different operators
   let opCode;
   switch (node.operator) {
-    case '+':
+    case "+":
       opCode = OP.F64_ADD;
       break;
-    case '*':
+    case "*":
       opCode = OP.F64_MUL;
       break;
     default:
@@ -683,11 +698,7 @@ function generateBinaryExpressionBinary(node) {
       return new Uint8Array([]);
   }
 
-  return concatBytes([
-    left,
-    right,
-    new Uint8Array([opCode])
-  ]);
+  return concatBytes([left, right, new Uint8Array([opCode])]);
 }
 
 /**
@@ -706,7 +717,7 @@ function generateConditionalExpressionBinary(node) {
     test,
     new Uint8Array([OP.F64_CONST]),
     encodeF64(0),
-    new Uint8Array([OP.F64_NE])
+    new Uint8Array([OP.F64_NE]),
   ]);
 
   // if/else construct
@@ -716,7 +727,7 @@ function generateConditionalExpressionBinary(node) {
     consequent,
     new Uint8Array([OP.ELSE]),
     alternate,
-    new Uint8Array([OP.END])
+    new Uint8Array([OP.END]),
   ]);
 }
 
@@ -728,7 +739,7 @@ function generateConditionalExpressionBinary(node) {
  */
 function generateCallExpressionBinary(node) {
   // Check if the function is a user-defined one
-  if (node.callee.type === 'Identifier') {
+  if (node.callee.type === "Identifier") {
     const funcName = node.callee.name;
 
     if (functionIndices[funcName] !== undefined) {
@@ -742,12 +753,15 @@ function generateCallExpressionBinary(node) {
       return concatBytes([
         ...args,
         new Uint8Array([OP.CALL]),
-        encodeULEB128(functionIndices[funcName])
+        encodeULEB128(functionIndices[funcName]),
       ]);
     }
   }
 
-  reportError(`Call to undefined function: ${node.callee.name || 'anonymous'}`, node);
+  reportError(
+    `Call to undefined function: ${node.callee.name || "anonymous"}`,
+    node,
+  );
   return new Uint8Array([]);
 }
 
@@ -763,7 +777,7 @@ function generateIdentifierBinary(node) {
   if (localVars[varName]) {
     return concatBytes([
       new Uint8Array([OP.LOCAL_GET]),
-      encodeULEB128(localVars[varName].index)
+      encodeULEB128(localVars[varName].index),
     ]);
   }
 
@@ -784,7 +798,7 @@ function generateStringLiteralBinary(node) {
   return concatBytes([
     new Uint8Array([OP.I32_CONST]),
     encodeSLEB128(ptr),
-    new Uint8Array([OP.F64_CONVERT_I32_U])
+    new Uint8Array([OP.F64_CONVERT_I32_U]),
   ]);
 }
 
@@ -795,10 +809,7 @@ function generateStringLiteralBinary(node) {
  * @returns {Uint8Array} - WebAssembly instructions
  */
 function generateNumericLiteralBinary(node) {
-  return concatBytes([
-    new Uint8Array([OP.F64_CONST]),
-    encodeF64(node.value)
-  ]);
+  return concatBytes([new Uint8Array([OP.F64_CONST]), encodeF64(node.value)]);
 }
 
 /**
@@ -811,7 +822,7 @@ function generateBooleanLiteralBinary(node) {
   // In WebAssembly, represent boolean as 1.0 (true) or 0.0 (false)
   return concatBytes([
     new Uint8Array([OP.F64_CONST]),
-    encodeF64(node.value ? 1 : 0)
+    encodeF64(node.value ? 1 : 0),
   ]);
 }
 
@@ -822,9 +833,9 @@ function generateBooleanLiteralBinary(node) {
  * @returns {Object} - WebAssembly module info and any errors
  */
 function compileToWasm(sourceCode) {
-  const { compile } = require('./parse');
-  const { nameCheck } = require('./naming');
-  const { typeCheck } = require('./typecheck');
+  const { compile } = require("./parse");
+  const { nameCheck } = require("./naming");
+  const { typeCheck } = require("./typecheck");
 
   // Parse the source code
   const ast = compile(sourceCode);

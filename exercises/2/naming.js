@@ -96,7 +96,7 @@ function visitIdentifier(node) {
   const variableName = node.name;
 
   // Check if the variable exists in any scope
-  const isDeclared = scopes.some(scope => scope.has(variableName));
+  const isDeclared = scopes.some((scope) => scope.has(variableName));
 
   // Only report an error if the variable is not declared in any scope
   if (!isDeclared) {

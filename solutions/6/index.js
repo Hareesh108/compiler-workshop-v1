@@ -13,11 +13,7 @@ test("Type-check empty program", () => {
   const statements = compile("");
   const result = typeCheck(statements);
 
-  assertEqual(
-    result.errors,
-    [],
-    "Empty program should have no type errors",
-  );
+  assertEqual(result.errors, [], "Empty program should have no type errors");
 });
 
 // Polymorphic Functions Tests
@@ -129,7 +125,8 @@ test("Type error in polymorphic function", () => {
   const result = typeCheck(statements);
 
   assert(
-    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
+    result.errors.length === 1 &&
+      result.errors[0].message.includes("Type mismatch"),
     "Should detect type mismatch in expression using polymorphic functions",
   );
 });

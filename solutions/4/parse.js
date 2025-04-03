@@ -364,8 +364,6 @@ function parse(tokens) {
     };
   }
 
-
-
   /**
    * Parse a type annotation
    */

@@ -205,8 +205,6 @@ function visitArrayLiteral(node) {
   }
 }
 
-
-
 /**
  * Analyze a parse tree to check for scope-based errors
  *

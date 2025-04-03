@@ -169,7 +169,11 @@ test("Variables in different scopes with same name", () => {
   `);
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No errors expected when variables with same name are in different scopes");
+  assertEqual(
+    result.errors.length,
+    0,
+    "No errors expected when variables with same name are in different scopes",
+  );
 });
 
 test("Nested function accessing variables from multiple outer scopes", () => {
@@ -189,7 +193,11 @@ test("Nested function accessing variables from multiple outer scopes", () => {
   `);
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No errors expected when accessing variables from multiple outer scopes");
+  assertEqual(
+    result.errors.length,
+    0,
+    "No errors expected when accessing variables from multiple outer scopes",
+  );
 });
 
 test("Function parameters should not conflict with outer scope", () => {
@@ -203,7 +211,11 @@ test("Function parameters should not conflict with outer scope", () => {
   `);
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No errors expected when function parameters have same names as outer variables");
+  assertEqual(
+    result.errors.length,
+    0,
+    "No errors expected when function parameters have same names as outer variables",
+  );
 });
 
 test("Array access with valid variable names", () => {
@@ -214,7 +226,11 @@ test("Array access with valid variable names", () => {
   `);
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No errors expected when using valid variable names in array access");
+  assertEqual(
+    result.errors.length,
+    0,
+    "No errors expected when using valid variable names in array access",
+  );
 });
 
 test("Complex nested expressions with valid variables", () => {
@@ -226,7 +242,11 @@ test("Complex nested expressions with valid variables", () => {
   `);
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "No errors expected with complex nested expressions using valid variables");
+  assertEqual(
+    result.errors.length,
+    0,
+    "No errors expected with complex nested expressions using valid variables",
+  );
 });
 
 reportTestFailures();

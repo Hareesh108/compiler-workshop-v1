@@ -110,16 +110,14 @@ function format(parseTree, options = {}) {
   }
 
   /**
-    * Format an array literal
-    */
+   * Format an array literal
+   */
   function formatArrayLiteral(node) {
     if (node.elements.length === 0) {
       return "[]";
     }
 
-    const elements = node.elements
-      .map((elem) => formatNode(elem))
-      .join(", ");
+    const elements = node.elements.map((elem) => formatNode(elem)).join(", ");
 
     return `[${elements}]`;
   }

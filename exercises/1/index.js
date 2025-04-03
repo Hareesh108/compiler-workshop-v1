@@ -80,7 +80,6 @@ test("Format empty array literal", () => {
   );
 });
 
-
 test("Format arrow function", () => {
   const code = "const add = (a, b) => { return a + b; };";
   const tree = compile(code);
@@ -216,4 +215,4 @@ test("Formatting roundtrip for complex nested structure", () => {
   );
 });
 
-reportTestFailures()
+reportTestFailures();

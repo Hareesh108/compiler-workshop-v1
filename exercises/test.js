@@ -67,5 +67,5 @@ module.exports = {
   assertEqual,
   summarize,
   PASS,
-  FAIL
+  FAIL,
 };
