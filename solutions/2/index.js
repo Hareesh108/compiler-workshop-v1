@@ -1,6 +1,5 @@
-const { tokenize } = require("./tokenize");
-const { parse, compile } = require("./parse");
-const { format, formatSourceCode } = require("./formatter");
+const { compile } = require("./parse");
+const { naming } = require("./naming");
 const {
   test,
   assert,
@@ -8,495 +7,265 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-// Tokenizer tests
-test("Tokenize empty string", () => {
-  const tokens = tokenize("");
-  assert(tokens.length === 1, "Should have only EOF token");
-  assert(tokens[0].type === "EOF", "Last token should be EOF");
+// Analyzer tests
+test("Analyze empty program", () => {
+  const statements = compile("");
+  const result = naming(statements);
+
+  assertEqual(result.errors.length, 0, "Empty program should have no errors");
+  assert(result.scopes, "Should return scope information");
 });
 
-test("Tokenize whitespace", () => {
-  const tokens = tokenize("   \t\n  ");
-  assert(tokens.length === 1, "Should have only EOF token");
-  assert(tokens[0].type === "EOF", "Last token should be EOF");
+test("Analyze simple const declaration", () => {
+  const statements = compile("const x = 5;");
+  const result = naming(statements);
+
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // Verify global scope has declaration for x
+  const globalScope = result.scopes.values().next().value;
+  assert(globalScope.declarations.has("x"), "Should have declaration for 'x'");
 });
 
-test("Tokenize simple expression", () => {
-  const tokens = tokenize("const x = 5;");
-  // Should have 5 tokens: CONST, IDENTIFIER, EQUAL, NUMBER, SEMICOLON, plus EOF
-  assert(tokens.length === 6, `Expected 6 tokens, got ${tokens.length}`);
-  assert(tokens[0].type === "CONST", "First token should be CONST");
-  assert(tokens[1].type === "IDENTIFIER", "Second token should be IDENTIFIER");
-  assert(tokens[1].value === "x", 'Identifier value should be "x"');
-  assert(tokens[2].type === "EQUAL", "Third token should be EQUAL");
-  assert(tokens[3].type === "NUMBER", "Fourth token should be NUMBER");
-  assert(tokens[3].value === "5", 'Number value should be "5"');
-  assert(tokens[4].type === "SEMICOLON", "Fifth token should be SEMICOLON");
-  assert(tokens[5].type === "EOF", "Last token should be EOF");
-});
+test("Analyze variable reference", () => {
+  const statements = compile("const x = 5; const y = x;");
+  const result = naming(statements);
 
-test("Tokenize string literals", () => {
-  const tokens = tokenize('const greeting = "hello";');
-  const stringToken = tokens[3];
-  assert(stringToken.type === "STRING", "Should recognize string literals");
-  assert(stringToken.value === '"hello"', "String value should include quotes");
-});
+  assertEqual(result.errors.length, 0, "No errors expected");
 
-test("Tokenize arrow function", () => {
-  const tokens = tokenize("const add = (a, b) => a + b;");
-  const arrowToken = tokens.find((t) => t.type === "ARROW");
-  assert(arrowToken, "Should have an ARROW token");
-  const plusToken = tokens.find((t) => t.type === "PLUS");
-  assert(plusToken, "Should have a PLUS token");
-});
-
-test("Tokenize with comments", () => {
-  const tokens = tokenize(
-    "// This is a comment\nconst x = 5; /* Another comment */",
+  // Verify reference was recorded
+  const globalScope = result.scopes.values().next().value;
+  assertEqual(
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should have one reference"
   );
-  // Comments are skipped in the token stream
+});
+
+test("Detect undeclared variable", () => {
+  const statements = compile("const y = x;");
+  const result = naming(statements);
+
+  assertEqual(result.errors.length, 1, "Should report undeclared variable");
   assert(
-    tokens[0].type === "CONST",
-    "First token should be CONST, comments are skipped",
+    result.errors[0].message.includes("undeclared variable"),
+    "Error message should mention undeclared variable"
   );
 });
 
-test("Tokenize type annotations", () => {
-  const tokens = tokenize("const x: number = 5;");
-  const colonToken = tokens.find((t) => t.type === "COLON");
-  assert(colonToken, "Should have a COLON token");
-  const typeToken = tokens.find((t) => t.type === "TYPE_NUMBER");
-  assert(typeToken, "Should have a TYPE_NUMBER token");
-});
+test("Detect duplicate variable declaration", () => {
+  const statements = compile("const x = 5; const x = 10;");
+  const result = naming(statements);
 
-test("Tokenize array literals", () => {
-  const tokens = tokenize("const arr = [1, 2, 3];");
-  const leftBracket = tokens.find((t) => t.type === "LEFT_BRACKET");
-  assert(leftBracket, "Should have LEFT_BRACKET token");
-  const rightBracket = tokens.find((t) => t.type === "RIGHT_BRACKET");
-  assert(rightBracket, "Should have RIGHT_BRACKET token");
-});
-
-test("Tokenize ternary expressions", () => {
-  const tokens = tokenize('const result = x > 0 ? "positive" : "negative";');
-  const ternaryToken = tokens.find((t) => t.type === "TERNARY");
-  assert(ternaryToken, "Should have TERNARY token");
-  const colonToken = tokens.find((t) => t.type === "COLON");
-  assert(colonToken, "Should have COLON token");
-});
-
-test("Should throw on invalid characters", () => {
-  let error;
-  try {
-    tokenize("const x = @;");
-  } catch (e) {
-    error = e;
-  }
-  assert(error, "Should throw an error for invalid characters");
+  assertEqual(result.errors.length, 1, "Should report duplicate declaration");
   assert(
-    error.message.includes("Unexpected character"),
-    "Error message should mention unexpected character",
+    result.errors[0].message.includes("Duplicate declaration"),
+    "Error message should mention duplicate declaration"
   );
 });
 
-// Parser tests
-test("Parse empty program", () => {
-  const tokens = tokenize("");
-  const statements = parse(tokens);
-  assertEqual(statements.length, 0, "Empty program should have no statements");
-});
+test("Analyze function scopes", () => {
+  const statements = compile(`
+    const x = 5;
+    const foo = () => {
+      const y = x;
+      return y + 1;
+    };
+  `);
+  const result = naming(statements);
 
-test("Parse const declaration", () => {
-  const tokens = tokenize("const x = 5;");
-  const statements = parse(tokens);
-  assertEqual(statements.length, 1, "Program should have one statement");
+  assertEqual(result.errors.length, 0, "No errors expected");
 
-  const stmt = statements[0];
+  // Function creates a new scope
+  const scopes = Array.from(result.scopes.values());
+  assertEqual(scopes.length, 2, "Should have two scopes (global and function)");
+
+  // Function scope should have 'y' declared
+  const functionScope = scopes.find(scope => scope !== scopes[0]);
+  assert(functionScope.declarations.has("y"), "Function scope should have 'y' declared");
+
+  // Variable 'x' from outer scope should be referenced
+  const globalScope = scopes[0];
   assertEqual(
-    stmt.type,
-    "ConstDeclaration",
-    "Statement should be ConstDeclaration",
-  );
-  assertEqual(stmt.id.name, "x", 'Variable name should be "x"');
-  assertEqual(
-    stmt.init.type,
-    "NumericLiteral",
-    "Initializer should be NumericLiteral",
-  );
-  assertEqual(stmt.init.value, 5, "Numeric value should be 5");
-});
-
-test("Parse const with type annotation", () => {
-  const tokens = tokenize("const x: number = 5;");
-  const statements = parse(tokens);
-  const stmt = statements[0];
-
-  assert(stmt.typeAnnotation, "Should have type annotation");
-  assertEqual(
-    stmt.typeAnnotation.valueType,
-    "number",
-    'Type should be "number"',
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should be referenced in function"
   );
 });
 
-test("Parse string literal", () => {
-  const tokens = tokenize('const message = "hello world";');
-  const statements = parse(tokens);
-  const init = statements[0].init;
+test("Analyze nested function scopes", () => {
+  const statements = compile(`
+    const x = 1;
+    const outer = () => {
+      const y = 2;
+      const inner = () => {
+        const z = 3;
+        return x + y + z;
+      };
+      return inner;
+    };
+  `);
+  const result = naming(statements);
 
-  assertEqual(init.type, "StringLiteral", "Should be StringLiteral");
-  assertEqual(
-    init.value,
-    "hello world",
-    "String value should not include quotes",
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // Should have three scopes: global, outer function, inner function
+  const scopes = Array.from(result.scopes.values());
+  assertEqual(scopes.length, 3, "Should have three scopes");
+});
+
+test("Detect duplicate parameter names", () => {
+  const statements = compile("const foo = (a, a) => { return a; };");
+  const result = naming(statements);
+
+  assertEqual(result.errors.length, 1, "Should report duplicate parameter name");
+  assert(
+    result.errors[0].message.includes("Duplicate parameter"),
+    "Error message should mention duplicate parameter"
   );
 });
 
-test("Parse binary expression", () => {
-  const tokens = tokenize("const sum = 1 + 2;");
-  const statements = parse(tokens);
-  const init = statements[0].init;
+test("Analyze binary expressions", () => {
+  const statements = compile("const x = 5; const y = 10; const z = x + y;");
+  const result = naming(statements);
 
-  assertEqual(init.type, "BinaryExpression", "Should be BinaryExpression");
-  assertEqual(init.operator, "+", 'Operator should be "+"');
-  assertEqual(init.left.value, 1, "Left value should be 1");
-  assertEqual(init.right.value, 2, "Right value should be 2");
-});
+  assertEqual(result.errors.length, 0, "No errors expected");
 
-test("Parse array literal", () => {
-  const tokens = tokenize("const numbers = [1, 2, 3];");
-  const statements = parse(tokens);
-  const init = statements[0].init;
-
-  assertEqual(init.type, "ArrayLiteral", "Should be ArrayLiteral");
-  assertEqual(init.elements.length, 3, "Should have 3 elements");
-  assertEqual(init.elements[0].value, 1, "First element should be 1");
-  assertEqual(init.elements[1].value, 2, "Second element should be 2");
-  assertEqual(init.elements[2].value, 3, "Third element should be 3");
-});
-
-test("Parse arrow function", () => {
-  const tokens = tokenize("const add = (a, b) => { return a + b; };");
-  const statements = parse(tokens);
-  const init = statements[0].init;
-
+  // Both x and y should be referenced
+  const globalScope = result.scopes.values().next().value;
   assertEqual(
-    init.type,
-    "ArrowFunctionExpression",
-    "Should be ArrowFunctionExpression",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should have one reference"
   );
-  assertEqual(init.params.length, 2, "Should have 2 parameters");
-  assertEqual(init.params[0].name, "a", 'First parameter should be "a"');
-  assertEqual(init.params[1].name, "b", 'Second parameter should be "b"');
-
   assertEqual(
-    init.body.type,
-    "BlockStatement",
-    "Body should be BlockStatement",
-  );
-  assertEqual(init.body.body.length, 1, "Body should have 1 statement");
-  assertEqual(
-    init.body.body[0].type,
-    "ReturnStatement",
-    "Statement should be ReturnStatement",
+    globalScope.declarations.get("y").references.length,
+    1,
+    "Variable 'y' should have one reference"
   );
 });
 
-test("Parse arrow function with type annotations", () => {
-  const tokens = tokenize(
-    "const add = (a: number, b: number): number => { return a + b; };",
-  );
-  const statements = parse(tokens);
-  const init = statements[0].init;
+test("Analyze ternary expressions", () => {
+  const statements = compile("const x = true; const y = x ? 1 : 2;");
+  const result = naming(statements);
 
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // x should be referenced in the condition
+  const globalScope = result.scopes.values().next().value;
   assertEqual(
-    init.params[0].typeAnnotation.valueType,
-    "number",
-    "First parameter should have number type",
-  );
-  assertEqual(
-    init.params[1].typeAnnotation.valueType,
-    "number",
-    "Second parameter should have number type",
-  );
-  assertEqual(
-    init.returnType.valueType,
-    "number",
-    "Return type should be number",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should have one reference"
   );
 });
 
-test("Parse ternary expression", () => {
-  // We'll modify the test to use a condition our parser understands
-  const tokens = tokenize('const result = (x) ? "positive" : "negative";');
-  const statements = parse(tokens);
-  const init = statements[0].init;
+test("Analyze function calls", () => {
+  const statements = compile(`
+    const x = 5;
+    const foo = (a) => a + 1;
+    const result = foo(x);
+  `);
+  const result = naming(statements);
 
-  assertEqual(
-    init.type,
-    "ConditionalExpression",
-    "Should be ConditionalExpression",
-  );
-  assertEqual(init.test.type, "Identifier", "Test should be an Identifier");
-  assertEqual(init.test.name, "x", 'Test value should be "x"');
-  assertEqual(
-    init.consequent.value,
-    "positive",
-    'Consequent should be "positive"',
-  );
-  assertEqual(
-    init.alternate.value,
-    "negative",
-    'Alternate should be "negative"',
-  );
-});
+  assertEqual(result.errors.length, 0, "No errors expected");
 
-test("Parse simple ternary expression", () => {
-  const tokens = tokenize('const result = true ? "yes" : "no";');
-  const statements = parse(tokens);
-  const init = statements[0].init;
-
+  // foo and x should be referenced
+  const globalScope = result.scopes.values().next().value;
   assertEqual(
-    init.type,
-    "ConditionalExpression",
-    "Should be ConditionalExpression",
+    globalScope.declarations.get("foo").references.length,
+    1,
+    "Function 'foo' should have one reference"
   );
   assertEqual(
-    init.test.type,
-    "BooleanLiteral",
-    "Test should be BooleanLiteral",
-  );
-  assertEqual(init.test.value, true, "Test value should be true");
-  assertEqual(init.consequent.value, "yes", 'Consequent should be "yes"');
-  assertEqual(init.alternate.value, "no", 'Alternate should be "no"');
-});
-
-test("Parse function call", () => {
-  const tokens = tokenize("const result = add(1, 2);");
-  const statements = parse(tokens);
-  const init = statements[0].init;
-
-  assertEqual(init.type, "CallExpression", "Should be CallExpression");
-  assertEqual(init.callee.name, "add", 'Callee should be "add"');
-  assertEqual(init.arguments.length, 2, "Should have 2 arguments");
-  assertEqual(init.arguments[0].value, 1, "First argument should be 1");
-  assertEqual(init.arguments[1].value, 2, "Second argument should be 2");
-});
-
-test("Parse return statement", () => {
-  const tokens = tokenize("const fn = () => { return 42; };");
-  const statements = parse(tokens);
-  const fnBody = statements[0].init.body.body[0];
-
-  assertEqual(fnBody.type, "ReturnStatement", "Should be ReturnStatement");
-  assertEqual(
-    fnBody.argument.type,
-    "NumericLiteral",
-    "Return argument should be NumericLiteral",
-  );
-  assertEqual(fnBody.argument.value, 42, "Return value should be 42");
-});
-
-test("Integrate tokenize and parse", () => {
-  const sourceCode = 'const x = 5; const y = "hello"; const z = x;';
-  const statements = compile(sourceCode);
-
-  assertEqual(statements.length, 3, "Program should have three statements");
-});
-
-// Formatter tests
-test("Format const declaration", () => {
-  const code = "const x = 5;";
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    "const x = 5;",
-    "Should format const declaration correctly",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should have one reference"
   );
 });
 
-test("Format const declaration with type annotation", () => {
-  const code = "const x: number = 5;";
-  const tree = compile(code);
-  const formatted = format(tree);
+test("Analyze array literals", () => {
+  const statements = compile("const x = 1; const y = 2; const arr = [x, y, 3];");
+  const result = naming(statements);
 
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // x and y should be referenced
+  const globalScope = result.scopes.values().next().value;
   assertEqual(
-    formatted,
-    "const x: number = 5;",
-    "Should preserve type annotations",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Variable 'x' should have one reference"
+  );
+  assertEqual(
+    globalScope.declarations.get("y").references.length,
+    1,
+    "Variable 'y' should have one reference"
   );
 });
 
-test("Format string literal", () => {
-  const code = 'const message = "hello world";';
-  const tree = compile(code);
-  const formatted = format(tree);
+test("Declaration in block scope", () => {
+  const statements = compile(`
+    const x = 1;
+    const foo = () => {
+      const x = 2; // This shadows the outer x
+      return x;
+    };
+    const y = x;
+  `);
+  const result = naming(statements);
 
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // Should have different declarations for x in different scopes
+  const scopes = Array.from(result.scopes.values());
+  const globalScope = scopes[0];
+  const functionScope = scopes.find(scope => scope !== globalScope);
+
+  // Global x should have one reference (in y = x)
   assertEqual(
-    formatted,
-    'const message = "hello world";',
-    "Should format string literals correctly",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Global 'x' should have one reference"
+  );
+
+  // Function x should have one reference (in return x)
+  assertEqual(
+    functionScope.declarations.get("x").references.length,
+    1,
+    "Function-scoped 'x' should have one reference"
   );
 });
 
-test("Format binary expression", () => {
-  const code = "const sum = 1 + 2;";
-  const tree = compile(code);
-  const formatted = format(tree);
+test("Function parameters create local declarations", () => {
+  const statements = compile(`
+    const x = 1;
+    const foo = (x) => x * 2;
+    const y = foo(x);
+  `);
+  const result = naming(statements);
 
-  assertEqual(
-    formatted,
-    "const sum = 1 + 2;",
-    "Should format binary expressions correctly",
+  assertEqual(result.errors.length, 0, "No errors expected");
+
+  // Parameter x should shadow global x
+  const scopes = Array.from(result.scopes.values());
+  const globalScope = scopes[0];
+  const functionScope = scopes.find(scope => scope !== globalScope);
+
+  // Both x's should have references
+  assert(
+    functionScope.declarations.has("x"),
+    "Function should have local declaration for parameter x"
   );
-});
-
-test("Format array literal", () => {
-  const code = "const numbers = [1, 2, 3];";
-  const tree = compile(code);
-  const formatted = format(tree);
-
   assertEqual(
-    formatted,
-    "const numbers = [1, 2, 3];",
-    "Should format array literals correctly",
+    globalScope.declarations.get("x").references.length,
+    1,
+    "Global 'x' should be referenced once (in function call)"
   );
-});
-
-test("Format arrow function", () => {
-  const code = "const add = (a, b) => { return a + b; };";
-  const tree = compile(code);
-  const formatted = format(tree);
-
   assertEqual(
-    formatted,
-    "const add = (a, b) => {\n  return a + b;\n};",
-    "Should format arrow functions with proper indentation",
-  );
-});
-
-test("Format arrow function with type annotations", () => {
-  const code =
-    "const add = (a: number, b: number): number => { return a + b; };";
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    "const add = (a: number, b: number): number => {\n  return a + b;\n};",
-    "Should preserve type annotations in arrow functions",
-  );
-});
-
-test("Format function call", () => {
-  const code = "const result = add(1, 2);";
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    "const result = add(1, 2);",
-    "Should format function calls correctly",
-  );
-});
-
-test("Format ternary expression", () => {
-  const code = 'const result = true ? "yes" : "no";';
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    'const result = true ? "yes" : "no";',
-    "Should format ternary expressions correctly",
-  );
-});
-
-test("Format multiple statements", () => {
-  const code = 'const x = 5;\nconst y = "hello";\nconst z = x;';
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    'const x = 5;\nconst y = "hello";\nconst z = x;',
-    "Should format multiple statements with line breaks",
-  );
-});
-
-test("Format nested structures", () => {
-  const code = "const complex = (a) => { return [1, a ? 2 : 3, 4]; };";
-  const tree = compile(code);
-  const formatted = format(tree);
-
-  assertEqual(
-    formatted,
-    "const complex = (a) => {\n  return [1, a ? 2 : 3, 4];\n};",
-    "Should format nested structures correctly",
-  );
-});
-
-// Formatting roundtrip tests
-test("Formatting roundtrip for simple code", () => {
-  const originalCode = "const    x=5;";
-  const firstPass = formatSourceCode(originalCode);
-  const secondPass = formatSourceCode(firstPass);
-
-  assertEqual(
-    firstPass,
-    secondPass,
-    "Second formatting should not change anything",
-  );
-});
-
-test("Formatting roundtrip for arrow function", () => {
-  const originalCode = "const add=(a,b)=>{return a+b;}";
-  const firstPass = formatSourceCode(originalCode);
-  const secondPass = formatSourceCode(firstPass);
-
-  assertEqual(
-    firstPass,
-    secondPass,
-    "Second formatting should not change anything",
-  );
-});
-
-test("Formatting roundtrip with messy indentation", () => {
-  const originalCode = "const fn = () => {\n    return 42;\n         };";
-  const firstPass = formatSourceCode(originalCode);
-  const secondPass = formatSourceCode(firstPass);
-
-  assertEqual(
-    firstPass,
-    secondPass,
-    "Second formatting should not change anything",
-  );
-});
-
-test("Formatting roundtrip with type annotations", () => {
-  const originalCode = "const add=(a:number,b:number):number=>{return a+b;}";
-  const firstPass = formatSourceCode(originalCode);
-  const secondPass = formatSourceCode(firstPass);
-
-  assertEqual(
-    firstPass,
-    secondPass,
-    "Second formatting should not change anything",
-  );
-});
-
-test("Formatting roundtrip for complex nested structure", () => {
-  const originalCode =
-    "const complex=(a)=>{return[1,a?2:3,(b)=>{return b+1;}];}";
-  const firstPass = formatSourceCode(originalCode);
-  const secondPass = formatSourceCode(firstPass);
-
-  assertEqual(
-    firstPass,
-    secondPass,
-    "Second formatting should not change anything",
+    functionScope.declarations.get("x").references.length,
+    1,
+    "Parameter 'x' should be referenced once (in function body)"
   );
 });
 
