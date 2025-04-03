@@ -17,6 +17,7 @@ let db = [];
 let errors = [];
 let nextTypeId = 0;
 let scope = {}; // Variable scope to track types
+let functionReturnTypes = {}; // Store function return types separately
 
 /**
  * Create a new type variable (type id)
@@ -350,6 +351,11 @@ function visitArrowFunction(node) {
   // Create a function type - in a real implementation
   // this would capture parameter and return types
   const functionTypeId = freshTypeId();
+  
+  // Store the function's return type in our separate map
+  // This doesn't interfere with the type database
+  functionReturnTypes[functionTypeId] = bodyType;
+  
   return functionTypeId;
 }
 
@@ -361,15 +367,33 @@ function visitArrowFunction(node) {
  */
 function visitCallExpression(node) {
   const calleeType = visitNode(node.callee);
-
-  // Visit all arguments
+  
+  // Visit all arguments and collect their types
+  const argTypes = [];
   for (const arg of node.arguments) {
-    visitNode(arg);
+    argTypes.push(visitNode(arg));
   }
-
-  // The return type is a fresh type variable
-  // In a full implementation, this would unify with the callee's return type
-  return freshTypeId();
+  
+  // Create a return type variable
+  const returnTypeId = freshTypeId();
+  
+  // Direct arrow function case - unify with its body type
+  if (node.callee.type === "ArrowFunctionExpression") {
+    const bodyType = visitNode(node.callee.body);
+    unify(returnTypeId, bodyType, node);
+  } 
+  // Function reference case - when calling a named function
+  else if (node.callee.type === "Identifier" && scope[node.callee.name] !== undefined) {
+    // Get the function's type ID from scope
+    const functionTypeId = resolveSymlinksAndCompress(scope[node.callee.name]);
+    
+    // Check if there's return type information in our function return types map
+    if (functionReturnTypes[functionTypeId] !== undefined) {
+      unify(returnTypeId, functionReturnTypes[functionTypeId], node);
+    }
+  }
+  
+  return returnTypeId;
 }
 
 /**
