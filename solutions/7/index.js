@@ -1,233 +1,180 @@
-const { compile } = require("./parse");
-const { nameCheck } = require("./naming");
-const { typeCheck } = require("./typecheck");
-const {
-  test,
-  assert,
-  assertEqual,
-  summarize: reportTestFailures,
-} = require("../test");
+const fs = require('fs');
+const { compileToWasm } = require('./wasm');
+const { test, assert, assertEqual, summarize } = require('../test');
 
-// Basic tests to ensure the type system works
-test("Type-check empty program", () => {
-  const statements = compile("");
-  const result = typeCheck(statements);
+// WebAssembly testing utilities
+async function instantiateWasm(wasmBinary) {
+  const importObject = {
+    console: {
+      log: (value) => console.log(value)
+    }
+  };
+  
+  try {
+    const module = await WebAssembly.compile(wasmBinary);
+    const instance = await WebAssembly.instantiate(module, importObject);
+    return { module, instance, exports: instance.exports };
+  } catch (error) {
+    throw new Error(`Failed to instantiate WebAssembly module: ${error.message}`);
+  }
+}
 
-  assertEqual(
-    result.errors,
-    [],
-    "Empty program should have no type errors",
-  );
+async function compileAndRunWasm(sourceCode) {
+  // Compile source to WASM binary
+  const result = compileToWasm(sourceCode);
+  
+  if (result.errors && result.errors.length > 0) {
+    console.error("Compilation errors:", result.errors);
+    return { success: false, errors: result.errors };
+  }
+  
+  try {
+    // Instantiate the WebAssembly module
+    const { exports } = await instantiateWasm(result.wasm);
+    return { success: true, exports };
+  } catch (error) {
+    return { success: false, error };
+  }
+}
+
+// Adapter function to run async tests with the synchronous test framework
+function runAsyncTest(name, testFn) {
+  test(name, () => {
+    // Create a promise that will be resolved by the test
+    const promise = testFn();
+    
+    // Since our test framework doesn't support async, we need to make this synchronous
+    // We'll throw if the test fails, which the test framework will catch
+    let resolved = false;
+    let testPassed = false;
+    let errorMsg = '';
+    
+    promise.then(() => {
+      resolved = true;
+      testPassed = true;
+    }).catch(error => {
+      resolved = true;
+      errorMsg = error.message;
+    });
+    
+    // Hacky synchronous wait - in a real app, never do this!
+    const start = Date.now();
+    while (!resolved && Date.now() - start < 5000) {
+      // Busy wait - this is a terrible practice but necessary for our simple test framework
+    }
+    
+    if (!resolved) {
+      throw new Error("Test timed out after 5 seconds");
+    }
+    
+    if (!testPassed) {
+      throw new Error(errorMsg);
+    }
+  });
+}
+
+// WASM binary testing
+
+runAsyncTest("Simple numeric constant", async () => {
+  const sourceCode = `
+    const main = () => {
+      return 42.5;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-// Polymorphic Functions Tests
-
-test("Identity function with numeric type", () => {
-  const statements = compile(`
-    const identity = (x) => { return x; };
-    const result = identity(5);
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for identity function with number",
-  );
+runAsyncTest("Simple numeric addition", async () => {
+  const sourceCode = `
+    const main = () => {
+      return 20 + 22.5;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-test("Identity function with string type", () => {
-  const statements = compile(`
-    const identity = (x) => { return x; };
-    const result = identity("hello");
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for identity function with string",
-  );
+runAsyncTest("Function with parameters", async () => {
+  const sourceCode = `
+    const add = (a, b) => {
+      return a + b;
+    };
+    
+    const main = () => {
+      return add(40, 2.5);
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-test("Identity function with boolean type", () => {
-  const statements = compile(`
-    const identity = (x) => { return x; };
-    const result = identity(true);
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for identity function with boolean",
-  );
+runAsyncTest("Boolean constants", async () => {
+  const sourceCode = `
+    const returnTrue = () => {
+      return true;
+    };
+    
+    const returnFalse = () => {
+      return false;
+    };
+    
+    const main = () => {
+      const t = returnTrue();
+      const f = returnFalse();
+      // In our implementation, true = 1.0, false = 0.0
+      return t + f;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 1, "Function should return 1 (true + false = 1 + 0)");
 });
 
-test("Higher-order function with function parameter", () => {
-  const statements = compile(`
-    const applyToFive = (fn) => { return fn(5); };
-    const add1 = (x) => { return x + 1; };
-    const result = applyToFive(add1);
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for higher-order function",
-  );
+runAsyncTest("Conditional expressions", async () => {
+  const sourceCode = `
+    const main = () => {
+      return true ? 42.5 : 10;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-test("Higher-order function with different function types", () => {
-  const statements = compile(`
-    const applyFn = (fn, x) => { return fn(x); };
-    const add1 = (x) => { return x + 1; };
-    const numResult = applyFn(add1, 5);
-
-    const concat = (s) => { return s + "!"; };
-    const strResult = applyFn(concat, "hello");
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for polymorphic higher-order function",
-  );
+runAsyncTest("Local variables", async () => {
+  const sourceCode = `
+    const main = () => {
+      const x = 40;
+      const y = 2.5;
+      return x + y;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-test("Type-preserving function chain", () => {
-  const statements = compile(`
-    const double = (x) => { return x + x; };
-    const addExclamation = (x) => { return x + "!"; };
-
-    const num = 5;
-    const doubledNum = double(num);
-
-    const str = "hello";
-    const exclaimed = addExclamation(str);
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for type-preserving function chain",
-  );
+runAsyncTest("Multiplication", async () => {
+  const sourceCode = `
+    const main = () => {
+      return 8.5 * 5;
+    };
+  `;
+  
+  const { success, exports, error } = await compileAndRunWasm(sourceCode);
+  assert(success, `WebAssembly compilation/instantiation failed: ${error?.message || "unknown error"}`);
+  assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-test("Type error in polymorphic function", () => {
-  const statements = compile(`
-    const double = (x) => { return x + x; };
-    const num = 5;
-    const str = "hello";
-
-    const doubledNum = double(num);
-    const mixed = double(num) + double(str);
-  `);
-  const result = typeCheck(statements);
-
-  assert(
-    result.errors.length === 1 && result.errors[0].message.includes("Type mismatch"),
-    "Should detect type mismatch in expression using polymorphic functions",
-  );
-});
-
-// Array Tests
-
-test("Homogeneous number array", () => {
-  const statements = compile(`
-    const numbers = [1, 2, 3, 4, 5];
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for homogeneous number array",
-  );
-});
-
-test("Homogeneous string array", () => {
-  const statements = compile(`
-    const strings = ["a", "b", "c", "d"];
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for homogeneous string array",
-  );
-});
-
-test("Homogeneous boolean array", () => {
-  const statements = compile(`
-    const booleans = [true, false, true, true];
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for homogeneous boolean array",
-  );
-});
-
-test("Detect heterogeneous array type mismatch", () => {
-  const statements = compile(`
-    const mixed = [1, "hello", true];
-  `);
-  const result = typeCheck(statements);
-
-  assert(
-    result.errors.length > 0 && result.errors[0].message.includes("array"),
-    "Should detect type mismatch in heterogeneous array",
-  );
-});
-
-test("Nested arrays with consistent types", () => {
-  const statements = compile(`
-    const matrix = [[1, 2], [3, 4], [5, 6]];
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for nested arrays with consistent types",
-  );
-});
-
-test("Array-returning function", () => {
-  const statements = compile(`
-    const makeArray = (x, y, z) => { return [x, y, z]; };
-    const numbers = makeArray(1, 2, 3);
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for array-returning function",
-  );
-});
-
-test("Function creating different array types", () => {
-  const statements = compile(`
-    const repeat = (x) => { return [x, x, x]; };
-    const numbers = repeat(42);
-    const strings = repeat("hello");
-  `);
-  const result = typeCheck(statements);
-
-  assertEqual(
-    result.errors,
-    [],
-    "No type errors expected for polymorphic array-creating function",
-  );
-});
-
-// Report test results
-reportTestFailures();
+// Run the tests
+summarize();

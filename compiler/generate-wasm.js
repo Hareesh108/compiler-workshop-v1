@@ -7,7 +7,7 @@
  * - Function definitions and calls
  * - Control flow (if/else expressions)
  * - Arrays via linear memory
- * 
+ *
  * The implementation follows a simple mapping from our type system to WebAssembly types:
  * - Number -> i32 (32-bit integers)
  * - Float -> f64 (64-bit floats)
@@ -121,7 +121,7 @@ const OP = {
  */
 function encodeULEB128(value) {
   const result = [];
-  
+
   do {
     let byte = value & 0x7f;
     value >>>= 7;
@@ -130,7 +130,7 @@ function encodeULEB128(value) {
     }
     result.push(byte);
   } while (value !== 0);
-  
+
   return new Uint8Array(result);
 }
 
@@ -140,11 +140,11 @@ function encodeULEB128(value) {
 function encodeSLEB128(value) {
   const result = [];
   let more = true;
-  
+
   while (more) {
     let byte = value & 0x7f;
     value >>= 7;
-    
+
     // If value is 0 but sign bit would be set, continue
     const signBit = (byte & 0x40) !== 0;
     if ((value === 0 && !signBit) || (value === -1 && signBit)) {
@@ -152,10 +152,10 @@ function encodeSLEB128(value) {
     } else {
       byte |= 0x80;
     }
-    
+
     result.push(byte);
   }
-  
+
   return new Uint8Array(result);
 }
 
@@ -182,7 +182,7 @@ function encodeF64(value) {
  */
 function convertType(type) {
   type = compress(type);
-  
+
   if (type.kind === "PrimitiveType") {
     switch (type.type) {
       case "Number": return TYPES.I32;
@@ -228,7 +228,7 @@ function generateWasmModule(ast, { memory = { initial: 1 }, exportAll = true } =
     nextGlobalIndex: 0,
     memory
   };
-  
+
   // Process each top-level declaration
   for (const node of ast.body) {
     if (node.type === "ConstDeclaration") {
@@ -241,7 +241,7 @@ function generateWasmModule(ast, { memory = { initial: 1 }, exportAll = true } =
       }
     }
   }
-  
+
   // Combine all parts into a complete module
   return buildModule(state);
 }
@@ -253,24 +253,24 @@ function processFunction(state, node) {
   const functionName = node.id.name;
   const functionNode = node.init;
   const functionIndex = state.nextFunctionIndex++;
-  
+
   // Store the function in our table
   state.functionTable.set(functionName, functionIndex);
-  
+
   // Create function type signature
   const signature = createFunctionSignature(functionNode);
-  
+
   // Add type if not already present
-  let typeIndex = state.typeEntries.findIndex(entry => 
-    arraysEqual(entry.params, signature.params) && 
+  let typeIndex = state.typeEntries.findIndex(entry =>
+    arraysEqual(entry.params, signature.params) &&
     entry.returnType === signature.returnType
   );
-  
+
   if (typeIndex === -1) {
     typeIndex = state.typeEntries.length;
     state.typeEntries.push(signature);
   }
-  
+
   // Add to function list
   state.functions.push({
     name: functionName,
@@ -278,7 +278,7 @@ function processFunction(state, node) {
     node: functionNode,
     signature
   });
-  
+
   // Export the function if requested
   if (state.exportAll) {
     state.exports.push({
@@ -296,7 +296,7 @@ function processGlobal(state, node) {
   const name = node.id.name;
   const type = convertType(node.inferredType);
   const index = state.nextGlobalIndex++;
-  
+
   state.globals.set(name, {
     index,
     type,
@@ -309,42 +309,42 @@ function processGlobal(state, node) {
  */
 function createFunctionSignature(node) {
   const params = [];
-  
+
   // If we have type information on the function, use it
   if (node.inferredType && node.inferredType.kind === "FunctionType") {
     // Extract parameter types from the function type
     let currentType = node.inferredType;
     const paramTypes = [];
-    
+
     // For multi-parameter functions, unwrap the curried function types
     while (currentType.kind === "FunctionType") {
       paramTypes.push(convertType(currentType.paramType));
       currentType = compress(currentType.returnType);
     }
-    
+
     // The final currentType is the return type
     const returnType = convertType(currentType);
-    
+
     // For functions with no parameters (void -> returnType)
-    if (node.params.length === 0 && paramTypes.length === 1 && 
+    if (node.params.length === 0 && paramTypes.length === 1 &&
         paramTypes[0] === TYPES.VOID) {
       return {
         params: [],
         returnType
       };
     }
-    
+
     return {
       params: paramTypes,
       returnType
     };
   }
-  
+
   // Fallback: extract parameter and return types directly
   for (const param of node.params) {
     params.push(TYPES.I32); // Default to i32 if no type info
   }
-  
+
   return {
     params,
     returnType: TYPES.I32 // Default to i32 if no type info
@@ -357,19 +357,19 @@ function createFunctionSignature(node) {
 function generateFunctionCode(state, func) {
   const locals = [];
   state.varLookup = new Map();
-  
+
   // Set up parameters as locals
   const node = func.node;
   for (let i = 0; i < node.params.length; i++) {
     const param = node.params[i];
     state.varLookup.set(param.name, i);
   }
-  
+
   // Now generate the actual function body
-  const body = generateExpressionCode(state, 
+  const body = generateExpressionCode(state,
     Array.isArray(node.body) ? { type: "BlockStatement", body: node.body } : node.body
   );
-  
+
   // Encode function body
   const localBytes = encodeLocals(locals);
   const bodyBytes = concatBytes([body, new Uint8Array([OP.END])]);
@@ -378,7 +378,7 @@ function generateFunctionCode(state, func) {
     localBytes,
     bodyBytes
   ]);
-  
+
   return allBytes;
 }
 
@@ -389,12 +389,12 @@ function encodeLocals(locals) {
   if (locals.length === 0) {
     return encodeULEB128(0);
   }
-  
+
   // Group locals by type
   const groups = [];
   let currentType = locals[0];
   let count = 1;
-  
+
   for (let i = 1; i < locals.length; i++) {
     if (locals[i] === currentType) {
       count++;
@@ -404,17 +404,17 @@ function encodeLocals(locals) {
       count = 1;
     }
   }
-  
+
   groups.push({ type: currentType, count });
-  
+
   // Encode local groups
   const bytes = [encodeULEB128(groups.length)];
-  
+
   for (const group of groups) {
     bytes.push(encodeULEB128(group.count));
     bytes.push(new Uint8Array([group.type]));
   }
-  
+
   return concatBytes(bytes);
 }
 
@@ -423,10 +423,10 @@ function encodeLocals(locals) {
  */
 function generateBlockStatement(state, node) {
   const statements = [];
-  
+
   for (let i = 0; i < node.body.length; i++) {
     const stmt = node.body[i];
-    
+
     if (stmt.type === "ReturnStatement") {
       if (stmt.argument) {
         statements.push(generateExpressionCode(state, stmt.argument));
@@ -439,7 +439,7 @@ function generateBlockStatement(state, node) {
       statements.push(generateExpressionCode(state, stmt));
     }
   }
-  
+
   return concatBytes(statements);
 }
 
@@ -450,7 +450,7 @@ function generateExpressionCode(state, node) {
   switch (node.type) {
     case "BlockStatement":
       return generateBlockStatement(state, node);
-      
+
     case "NumericLiteral":
       if (Number.isInteger(node.value)) {
         return concatBytes([
@@ -463,13 +463,13 @@ function generateExpressionCode(state, node) {
           encodeF64(node.value)
         ]);
       }
-      
+
     case "BooleanLiteral":
       return concatBytes([
         new Uint8Array([OP.I32_CONST]),
         encodeSLEB128(node.value ? 1 : 0)
       ]);
-      
+
     case "Identifier":
       if (state.varLookup.has(node.name)) {
         // Local variable
@@ -488,22 +488,22 @@ function generateExpressionCode(state, node) {
       }
       // Handle error - identifier not found
       return new Uint8Array([OP.I32_CONST, 0]); // Default to 0
-      
+
     case "BinaryExpression":
       return generateBinaryExpression(state, node);
-      
+
     case "ConditionalExpression":
       return generateConditionalExpression(state, node);
-      
+
     case "CallExpression":
       return generateCallExpression(state, node);
-      
+
     case "ArrayLiteral":
       return generateArrayLiteral(state, node);
-      
-    case "MemberExpression": 
+
+    case "MemberExpression":
       return generateMemberExpression(state, node);
-      
+
     default:
       // For unsupported node types, default to 0
       return new Uint8Array([OP.I32_CONST, 0]);
@@ -517,14 +517,14 @@ function generateBinaryExpression(state, node) {
   const left = generateExpressionCode(state, node.left);
   const right = generateExpressionCode(state, node.right);
   let opCode;
-  
+
   // Handle Float vs Int operations
   const leftType = node.left.inferredType ? compress(node.left.inferredType) : null;
   const rightType = node.right.inferredType ? compress(node.right.inferredType) : null;
-  
+
   const isFloatOp = (leftType && leftType.kind === "PrimitiveType" && leftType.type === "Float") ||
                     (rightType && rightType.kind === "PrimitiveType" && rightType.type === "Float");
-  
+
   switch (node.operator) {
     case "+":
       opCode = isFloatOp ? OP.F64_ADD : OP.I32_ADD;
@@ -559,7 +559,7 @@ function generateBinaryExpression(state, node) {
     default:
       opCode = OP.I32_ADD; // Default to addition
   }
-  
+
   return concatBytes([left, right, new Uint8Array([opCode])]);
 }
 
@@ -570,11 +570,11 @@ function generateConditionalExpression(state, node) {
   const condition = generateExpressionCode(state, node.test);
   const thenExpr = generateExpressionCode(state, node.consequent);
   const elseExpr = generateExpressionCode(state, node.alternate);
-  
+
   // Get the result type - it needs to be the same for both branches
-  const resultType = node.consequent.inferredType ? 
+  const resultType = node.consequent.inferredType ?
     convertType(node.consequent.inferredType) : TYPES.I32;
-    
+
   // WebAssembly if/else expression
   return concatBytes([
     condition,
@@ -595,12 +595,12 @@ function generateCallExpression(state, node) {
   for (const arg of node.arguments) {
     argCodes.push(generateExpressionCode(state, arg));
   }
-  
+
   // Then prepare the call instruction
   let functionIndex;
   if (node.callee.type === "Identifier" && state.functionTable.has(node.callee.name)) {
     functionIndex = state.functionTable.get(node.callee.name);
-    
+
     // Combine argument code and call instruction
     return concatBytes([
       ...argCodes,
@@ -608,24 +608,24 @@ function generateCallExpression(state, node) {
       encodeULEB128(functionIndex)
     ]);
   }
-  
+
   // If function not found, return 0
   return new Uint8Array([OP.I32_CONST, 0]);
 }
 
 /**
- * Generate code for an array literal 
- * 
+ * Generate code for an array literal
+ *
  * Arrays in WebAssembly are represented as:
  * - A pointer to the start of the array data in linear memory
  * - The length of the array (stored just before the data)
- * 
+ *
  * The function returns a pointer to the array structure.
  */
 function generateArrayLiteral(state, node) {
   // This is a simplified implementation that doesn't handle memory allocation properly
   // For a real implementation, we'd need a memory manager
-  
+
   // For now, we'll just return a constant since we're not implementing the full array system
   return new Uint8Array([OP.I32_CONST, 0]);
 }
@@ -635,7 +635,7 @@ function generateArrayLiteral(state, node) {
  */
 function generateMemberExpression(state, node) {
   // This is a simplified implementation that doesn't handle memory access properly
-  
+
   // For now, we'll just return a constant since we're not implementing the full array system
   return new Uint8Array([OP.I32_CONST, 0]);
 }
@@ -645,34 +645,34 @@ function generateMemberExpression(state, node) {
  */
 function buildModule(state) {
   const sections = [];
-  
+
   // Magic number and version
   sections.push(new Uint8Array([0x00, 0x61, 0x73, 0x6d])); // "\0asm"
   sections.push(new Uint8Array([0x01, 0x00, 0x00, 0x00])); // Version 1
-  
+
   // Type section (function signatures)
   if (state.typeEntries.length > 0) {
     sections.push(buildTypeSection(state));
   }
-  
+
   // Function section (function type indices)
   if (state.functions.length > 0) {
     sections.push(buildFunctionSection(state));
   }
-  
+
   // Memory section
   sections.push(buildMemorySection(state));
-  
+
   // Export section
   if (state.exports.length > 0) {
     sections.push(buildExportSection(state));
   }
-  
+
   // Code section (function bodies)
   if (state.functions.length > 0) {
     sections.push(buildCodeSection(state));
   }
-  
+
   return concatBytes(sections);
 }
 
@@ -681,17 +681,17 @@ function buildModule(state) {
  */
 function buildTypeSection(state) {
   const entries = [];
-  
+
   for (const type of state.typeEntries) {
     // Function type
     entries.push(new Uint8Array([TYPES.FUNC]));
-    
+
     // Parameter count and types
     entries.push(encodeULEB128(type.params.length));
     for (const param of type.params) {
       entries.push(new Uint8Array([param]));
     }
-    
+
     // Return type
     if (type.returnType === TYPES.VOID) {
       entries.push(encodeULEB128(0)); // No return values
@@ -700,12 +700,12 @@ function buildTypeSection(state) {
       entries.push(new Uint8Array([type.returnType]));
     }
   }
-  
+
   const content = concatBytes([
     encodeULEB128(state.typeEntries.length),
     ...entries
   ]);
-  
+
   return concatBytes([
     new Uint8Array([SECTION.TYPE]),
     encodeULEB128(content.length),
@@ -721,7 +721,7 @@ function buildFunctionSection(state) {
     encodeULEB128(state.functions.length),
     ...state.functions.map(func => encodeULEB128(func.typeIndex))
   ]);
-  
+
   return concatBytes([
     new Uint8Array([SECTION.FUNCTION]),
     encodeULEB128(content.length),
@@ -738,7 +738,7 @@ function buildMemorySection(state) {
     new Uint8Array([0]), // No maximum size (flags = 0)
     encodeULEB128(state.memory.initial) // Initial size in pages (64KB each)
   ]);
-  
+
   return concatBytes([
     new Uint8Array([SECTION.MEMORY]),
     encodeULEB128(content.length),
@@ -751,7 +751,7 @@ function buildMemorySection(state) {
  */
 function buildExportSection(state) {
   const entries = [];
-  
+
   for (const entry of state.exports) {
     const nameBytes = encoder.encode(entry.name);
     entries.push(concatBytes([
@@ -761,12 +761,12 @@ function buildExportSection(state) {
       encodeULEB128(entry.index)
     ]));
   }
-  
+
   const content = concatBytes([
     encodeULEB128(state.exports.length),
     ...entries
   ]);
-  
+
   return concatBytes([
     new Uint8Array([SECTION.EXPORT]),
     encodeULEB128(content.length),
@@ -779,16 +779,16 @@ function buildExportSection(state) {
  */
 function buildCodeSection(state) {
   const entries = [];
-  
+
   for (const func of state.functions) {
     entries.push(generateFunctionCode(state, func));
   }
-  
+
   const content = concatBytes([
     encodeULEB128(entries.length),
     ...entries
   ]);
-  
+
   return concatBytes([
     new Uint8Array([SECTION.CODE]),
     encodeULEB128(content.length),
@@ -804,15 +804,15 @@ function concatBytes(arrays) {
   for (const array of arrays) {
     totalLength += array.byteLength;
   }
-  
+
   const result = new Uint8Array(totalLength);
   let offset = 0;
-  
+
   for (const array of arrays) {
     result.set(array, offset);
     offset += array.byteLength;
   }
-  
+
   return result;
 }
 
@@ -833,11 +833,11 @@ function arraysEqual(a, b) {
 function generateWasmFromSource(sourceCode, options = {}) {
   // Run the full compilation pipeline to get typed AST
   const { ast, errors } = window.CompilerModule.compileWithTypes(sourceCode);
-  
+
   if (errors.length > 0) {
     return { wasm: null, errors };
   }
-  
+
   // Generate WebAssembly from the typed AST
   try {
     const wasmBinary = generateWasmModule(ast, options);
@@ -860,20 +860,8 @@ async function instantiateWasm(wasmBinary, importObject = {}) {
   }
 }
 
-// Export functions for use in the browser
-if (typeof window !== "undefined") {
-  window.CompilerModule = window.CompilerModule || {};
-  
-  // Add WebAssembly generation to CompilerModule
-  window.CompilerModule.generateWasm = generateWasmFromSource;
-  window.CompilerModule.instantiateWasm = instantiateWasm;
-}
-
-// Export for Node.js environment
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {
-    generateWasmModule,
-    generateWasmFromSource,
-    instantiateWasm
-  };
-}
+module.exports = {
+  generateWasmModule,
+  generateWasmFromSource,
+  instantiateWasm
+};
