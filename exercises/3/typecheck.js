@@ -67,23 +67,17 @@ function resolveSymlinksAndCompress(typeId) {
 
   // If it's a symlink, follow it (with path compression)
   if (entry && entry.symlink !== undefined) {
-    throw "ahh";
-    // 👉 Replace this with an implementation that finds the ultimate type ID
-    // by following all the symlinks until it returns a non-symlink.
-    //
-    // Hint: this function will return a non-symlink.
-    const ultimateTypeId = 12345;
+    const ultimateTypeId = resolveSymlinksAndCompress(entry.symlink);
 
-    // 👉 Next, update our entry in the db so that it is now
-    // a symlink to the ultimatetypeId we just calculated.
-    //
-    // Hint: this function will return a non-symlink.
-    db[typeId] = { symlink: ultimateTypeId };
+    // Path compression: update the symlink to point directly to the ultimate type
+    if (ultimateTypeId !== entry.symlink) {
+      db[typeId] = { symlink: ultimateTypeId };
+    }
 
     return ultimateTypeId;
   }
 
-  // This must have been a concrete type, so just return it.
+  // For concrete types
   return typeId;
 }
 
@@ -141,15 +135,11 @@ const unify = (aTypeId, bTypeId, node) => {
   const aEntry = db[aType];
   const bEntry = db[bType];
 
-  // If both have concrete types and they're different, report mismatch
-  if (
-    aEntry &&
-    aEntry.concrete !== undefined &&
-    bEntry &&
-    bEntry.concrete !== undefined &&
-    aEntry.concrete !== bEntry.concrete
-  ) {
-    return reportTypeMismatch(aType, bType, node);
+  // Check if both types are concrete and different
+  if (aEntry && aEntry.concrete !== undefined && 
+      bEntry && bEntry.concrete !== undefined && 
+      aEntry.concrete !== bEntry.concrete) {
+    return reportTypeMismatch(aTypeId, bTypeId, node);
   }
 
   if (aEntry === null) {
@@ -453,7 +443,7 @@ function visitConditionalExpression(node) {
   if (testConcrete && testConcrete !== "Boolean") {
     reportError(
       `Type mismatch in ternary: condition must be Boolean, got ${testConcrete}`,
-      node.test,
+      node.test
     );
   } else {
     // Try to unify if we don't have concrete type info
@@ -465,14 +455,10 @@ function visitConditionalExpression(node) {
   const alternateConcrete = getConcreteTypeName(alternateType);
 
   // Check if branches have the same type, directly compare concrete types
-  if (
-    consequentConcrete &&
-    alternateConcrete &&
-    consequentConcrete !== alternateConcrete
-  ) {
+  if (consequentConcrete && alternateConcrete && consequentConcrete !== alternateConcrete) {
     reportError(
       `Type mismatch in ternary: branches must have the same type, got ${consequentConcrete} and ${alternateConcrete}`,
-      node,
+      node
     );
   } else {
     // Try to unify if we don't have concrete type info for both
@@ -505,14 +491,10 @@ function visitArrayLiteral(node) {
     const elementConcrete = getConcreteTypeName(elementType);
 
     // If we have concrete types and they're different, report error
-    if (
-      firstElementConcrete &&
-      elementConcrete &&
-      firstElementConcrete !== elementConcrete
-    ) {
+    if (firstElementConcrete && elementConcrete && firstElementConcrete !== elementConcrete) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types, found ${firstElementConcrete} and ${elementConcrete}`,
-        node.elements[i],
+        node.elements[i]
       );
       continue;
     }
@@ -521,7 +503,7 @@ function visitArrayLiteral(node) {
     if (!unify(firstElementType, elementType, node.elements[i])) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types`,
-        node.elements[i],
+        node.elements[i]
       );
     }
   }
@@ -529,6 +511,8 @@ function visitArrayLiteral(node) {
   // Create an array type (in a real implementation, this would be Array<T>)
   return createConcreteType("Array");
 }
+
+
 
 /**
  * Perform type checking on a parse tree
@@ -549,8 +533,7 @@ function typeCheck(statements) {
   }
 
   return {
-    errors,
-    // For debugging: db
+    errors
   };
 }
 
