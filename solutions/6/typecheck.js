@@ -395,6 +395,7 @@ function pushScope() {
  * @returns {object} - Inferred type
  */
 function infer(node) {
+  console.log("infer", node);
   // Dispatch based on node type
   switch (node.type) {
     // Program structure
