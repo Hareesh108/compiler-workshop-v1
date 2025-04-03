@@ -1,5 +1,5 @@
 const { compile } = require("./parse");
-const { naming } = require("./naming");
+const { nameCheck } = require("./naming");
 const {
   test,
   assert,
@@ -7,18 +7,18 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-// Analyzer tests
-test("Analyze empty program", () => {
+// Naming tests
+test("Name-check empty program", () => {
   const statements = compile("");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "Empty program should have no errors");
   assert(result.scopes, "Should return scope information");
 });
 
-test("Analyze simple const declaration", () => {
+test("Name-check simple const declaration", () => {
   const statements = compile("const x = 5;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -27,9 +27,9 @@ test("Analyze simple const declaration", () => {
   assert(globalScope.declarations.has("x"), "Should have declaration for 'x'");
 });
 
-test("Analyze variable reference", () => {
+test("Name-check variable reference", () => {
   const statements = compile("const x = 5; const y = x;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -44,7 +44,7 @@ test("Analyze variable reference", () => {
 
 test("Detect undeclared variable", () => {
   const statements = compile("const y = x;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 1, "Should report undeclared variable");
   assert(
@@ -55,7 +55,7 @@ test("Detect undeclared variable", () => {
 
 test("Detect duplicate variable declaration", () => {
   const statements = compile("const x = 5; const x = 10;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 1, "Should report duplicate declaration");
   assert(
@@ -64,7 +64,7 @@ test("Detect duplicate variable declaration", () => {
   );
 });
 
-test("Analyze function scopes", () => {
+test("Name-check function scopes", () => {
   const statements = compile(`
     const x = 5;
     const foo = () => {
@@ -72,7 +72,7 @@ test("Analyze function scopes", () => {
       return y + 1;
     };
   `);
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -93,7 +93,7 @@ test("Analyze function scopes", () => {
   );
 });
 
-test("Analyze nested function scopes", () => {
+test("Name-check nested function scopes", () => {
   const statements = compile(`
     const x = 1;
     const outer = () => {
@@ -105,7 +105,7 @@ test("Analyze nested function scopes", () => {
       return inner;
     };
   `);
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -116,7 +116,7 @@ test("Analyze nested function scopes", () => {
 
 test("Detect duplicate parameter names", () => {
   const statements = compile("const foo = (a, a) => { return a; };");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 1, "Should report duplicate parameter name");
   assert(
@@ -125,9 +125,9 @@ test("Detect duplicate parameter names", () => {
   );
 });
 
-test("Analyze binary expressions", () => {
+test("Name-check binary expressions", () => {
   const statements = compile("const x = 5; const y = 10; const z = x + y;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -145,9 +145,9 @@ test("Analyze binary expressions", () => {
   );
 });
 
-test("Analyze ternary expressions", () => {
+test("Name-check ternary expressions", () => {
   const statements = compile("const x = true; const y = x ? 1 : 2;");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -160,13 +160,13 @@ test("Analyze ternary expressions", () => {
   );
 });
 
-test("Analyze function calls", () => {
+test("Name-check function calls", () => {
   const statements = compile(`
     const x = 5;
     const foo = (a) => a + 1;
     const result = foo(x);
   `);
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -184,9 +184,9 @@ test("Analyze function calls", () => {
   );
 });
 
-test("Analyze array literals", () => {
+test("Name-check array literals", () => {
   const statements = compile("const x = 1; const y = 2; const arr = [x, y, 3];");
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -213,7 +213,7 @@ test("Declaration in block scope", () => {
     };
     const y = x;
   `);
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 
@@ -243,7 +243,7 @@ test("Function parameters create local declarations", () => {
     const foo = (x) => x * 2;
     const y = foo(x);
   `);
-  const result = naming(statements);
+  const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
 

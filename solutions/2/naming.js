@@ -438,7 +438,7 @@ function visitMemberExpression(state, node) {
  * @param {object|Array} ast - The AST to analyze (may be an array of statements)
  * @returns {object} - The analyzed AST with scope information and any errors
  */
-function analyze(ast) {
+function nameCheck(ast) {
   const state = {
     currentScope: createScope(), // Initialize with global scope
     errors: [],
@@ -462,29 +462,6 @@ function analyze(ast) {
   };
 }
 
-/**
- * Analyze source code, running the parser first then the analyzer
- *
- * @param {string} sourceCode - Source code to analyze
- * @returns {object} - Result containing the AST and any errors
- */
-function analyzeCode(sourceCode) {
-  const { compile } = require("./parse");
-
-  // First, parse the source code into an AST
-  const statements = compile(sourceCode);
-
-  // Then, perform semantic analysis on the AST
-  const analysisResult = analyze(statements);
-
-  return {
-    ast: statements,
-    errors: analysisResult.errors,
-    scopes: analysisResult.scopes,
-  };
-}
-
 module.exports = {
-  analyze,
-  analyzeCode,
+  nameCheck,
 };
