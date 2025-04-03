@@ -36,10 +36,7 @@ test("Name-check variable reference", () => {
   // Verify reference was recorded
   const globalScope = result.scopes.values().next().value;
   // Removed references check
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
 });
 
 test("Detect undeclared variable", () => {
@@ -49,7 +46,7 @@ test("Detect undeclared variable", () => {
   assertEqual(result.errors.length, 1, "Should report undeclared variable");
   assert(
     result.errors[0].message.includes("undeclared variable"),
-    "Error message should mention undeclared variable"
+    "Error message should mention undeclared variable",
   );
 });
 
@@ -60,7 +57,7 @@ test("Detect duplicate variable declaration", () => {
   assertEqual(result.errors.length, 1, "Should report duplicate declaration");
   assert(
     result.errors[0].message.includes("Duplicate declaration"),
-    "Error message should mention duplicate declaration"
+    "Error message should mention duplicate declaration",
   );
 });
 
@@ -81,16 +78,16 @@ test("Name-check function scopes", () => {
   assertEqual(scopes.length, 2, "Should have two scopes (global and function)");
 
   // Function scope should have 'y' declared
-  const functionScope = scopes.find(scope => scope !== scopes[0]);
-  assert(functionScope.declarations.has("y"), "Function scope should have 'y' declared");
+  const functionScope = scopes.find((scope) => scope !== scopes[0]);
+  assert(
+    functionScope.declarations.has("y"),
+    "Function scope should have 'y' declared",
+  );
 
   // Variable 'x' from outer scope should be referenced
   const globalScope = scopes[0];
   // Removed references check
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
 });
 
 test("Name-check nested function scopes", () => {
@@ -118,10 +115,14 @@ test("Detect duplicate parameter names", () => {
   const statements = compile("const foo = (a, a) => { return a; };");
   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 1, "Should report duplicate parameter name");
+  assertEqual(
+    result.errors.length,
+    1,
+    "Should report duplicate parameter name",
+  );
   assert(
     result.errors[0].message.includes("Duplicate parameter"),
-    "Error message should mention duplicate parameter"
+    "Error message should mention duplicate parameter",
   );
 });
 
@@ -134,14 +135,8 @@ test("Name-check binary expressions", () => {
   // Both x and y should be referenced
   const globalScope = result.scopes.values().next().value;
   // Removed references check
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
-  assert(
-    globalScope.declarations.has("y"),
-    "Variable 'y' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
+  assert(globalScope.declarations.has("y"), "Variable 'y' should be declared");
 });
 
 test("Name-check ternary expressions", () => {
@@ -153,16 +148,13 @@ test("Name-check ternary expressions", () => {
   // x should be referenced in the condition
   const globalScope = result.scopes.values().next().value;
   // Removed references check
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
 });
 
 test("Name-check function calls", () => {
   const statements = compile(`
     const x = 5;
-    const foo = (a) => a + 1;
+    const foo = (a) => { return a + 1; };
     const result = foo(x);
   `);
   const result = nameCheck(statements);
@@ -174,16 +166,15 @@ test("Name-check function calls", () => {
   // Removed references check
   assert(
     globalScope.declarations.has("foo"),
-    "Function 'foo' should be declared"
+    "Function 'foo' should be declared",
   );
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
 });
 
 test("Name-check array literals", () => {
-  const statements = compile("const x = 1; const y = 2; const arr = [x, y, 3];");
+  const statements = compile(
+    "const x = 1; const y = 2; const arr = [x, y, 3];",
+  );
   const result = nameCheck(statements);
 
   assertEqual(result.errors.length, 0, "No errors expected");
@@ -191,14 +182,8 @@ test("Name-check array literals", () => {
   // x and y should be referenced
   const globalScope = result.scopes.values().next().value;
   // Removed references check
-  assert(
-    globalScope.declarations.has("x"),
-    "Variable 'x' should be declared"
-  );
-  assert(
-    globalScope.declarations.has("y"),
-    "Variable 'y' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Variable 'x' should be declared");
+  assert(globalScope.declarations.has("y"), "Variable 'y' should be declared");
 });
 
 test("Declaration in block scope", () => {
@@ -217,25 +202,22 @@ test("Declaration in block scope", () => {
   // Should have different declarations for x in different scopes
   const scopes = Array.from(result.scopes.values());
   const globalScope = scopes[0];
-  const functionScope = scopes.find(scope => scope !== globalScope);
+  const functionScope = scopes.find((scope) => scope !== globalScope);
 
   // Removed references check for global x
-  assert(
-    globalScope.declarations.has("x"),
-    "Global 'x' should be declared"
-  );
+  assert(globalScope.declarations.has("x"), "Global 'x' should be declared");
 
   // Removed references check for function x
   assert(
     functionScope.declarations.has("x"),
-    "Function-scoped 'x' should be declared"
+    "Function-scoped 'x' should be declared",
   );
 });
 
 test("Function parameters create local declarations", () => {
   const statements = compile(`
     const x = 1;
-    const foo = (x) => x * 2;
+    const foo = (x) => { return x * 2; };
     const y = foo(x);
   `);
   const result = nameCheck(statements);
@@ -245,21 +227,21 @@ test("Function parameters create local declarations", () => {
   // Parameter x should shadow global x
   const scopes = Array.from(result.scopes.values());
   const globalScope = scopes[0];
-  const functionScope = scopes.find(scope => scope !== globalScope);
+  const functionScope = scopes.find((scope) => scope !== globalScope);
 
   // Both x's should have references
   assert(
     functionScope.declarations.has("x"),
-    "Function should have local declaration for parameter x"
+    "Function should have local declaration for parameter x",
   );
   assert(
     globalScope.declarations.has("x"),
-    "Global scope should have 'x' declaration"
+    "Global scope should have 'x' declaration",
   );
   assert(
     functionScope.declarations.has("x"),
-    "Function scope should have 'x' declaration"
+    "Function scope should have 'x' declaration",
   );
 });
 
-reportTestFailures()
+reportTestFailures();

@@ -27,15 +27,12 @@ let scopeStack = []; // Stack to track the current scope hierarchy
  */
 function declareVariable(name, node) {
   const currentScope = scopes.get(scopeStack[scopeStack.length - 1]);
-  
+
   if (currentScope.declarations.has(name)) {
-    reportError(
-      `Duplicate declaration of variable: ${name}`,
-      node
-    );
+    reportError(`Duplicate declaration of variable: ${name}`, node);
     return false;
   }
-  
+
   currentScope.declarations.add(name);
   return true;
 }
@@ -55,7 +52,7 @@ function reportError(message, node) {
 
 /**
  * Create a new scope
- * 
+ *
  * @returns {number} - The ID of the newly created scope
  */
 function createScope() {
@@ -83,7 +80,7 @@ function visitNode(node) {
  */
 function processNode(node) {
   if (!node) return;
-  
+
   switch (node.type) {
     case "ConstDeclaration":
       visitConstDeclaration(node);
@@ -160,16 +157,13 @@ function visitArrowFunction(node) {
   // Create a new scope for the function
   const scopeId = createScope();
   scopeStack.push(scopeId);
-  
+
   // Check for duplicate parameters within function scope
   if (node.params) {
     const paramNames = new Set();
     for (const param of node.params) {
       if (paramNames.has(param.name)) {
-        reportError(
-          `Duplicate parameter name: ${param.name}`,
-          param
-        );
+        reportError(`Duplicate parameter name: ${param.name}`, param);
       } else {
         paramNames.add(param.name);
         // Declare the parameter in the current function scope
@@ -182,7 +176,7 @@ function visitArrowFunction(node) {
   if (node.body) {
     visitNode(node.body);
   }
-  
+
   // Exit the function scope
   scopeStack.pop();
 }
@@ -202,7 +196,7 @@ function visitBlockStatement(node) {
 
 /**
  * Check if a variable is declared in any accessible scope
- * 
+ *
  * @param {string} name - The variable name to look for
  * @returns {boolean} - True if the variable is declared in any accessible scope
  */
@@ -211,15 +205,15 @@ function isVariableDeclared(name) {
   for (let i = scopeStack.length - 1; i >= 0; i--) {
     const scopeId = scopeStack[i];
     if (!scopes.has(scopeId)) continue;
-    
+
     const scope = scopes.get(scopeId);
     if (!scope || !scope.declarations) continue;
-    
+
     if (scope.declarations.has(name)) {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -236,10 +230,7 @@ function visitIdentifier(node) {
   }
 
   if (!isVariableDeclared(node.name)) {
-    reportError(
-      `Reference to undeclared variable: ${node.name}`,
-      node
-    );
+    reportError(`Reference to undeclared variable: ${node.name}`, node);
     return;
   }
 }
@@ -289,18 +280,18 @@ function visitConditionalExpression(node) {
  * @param {object} node - CallExpression node to visit
  */
 function visitCallExpression(node) {
-  // First evaluate arguments
+  // First visit the function being called
+  if (node.callee) {
+    visitNode(node.callee);
+  }
+
+  // Then check arguments
   if (node.arguments && Array.isArray(node.arguments)) {
     for (const arg of node.arguments) {
       if (arg) {
         visitNode(arg);
       }
     }
-  }
-  
-  // Then check that the function itself is in scope
-  if (node.callee) {
-    visitNode(node.callee);
   }
 }
 
@@ -354,9 +345,9 @@ function nameCheck(statements) {
   // Clean up global scope after analysis
   scopeStack.pop();
 
-  return { 
+  return {
     errors,
-    scopes
+    scopes,
   };
 }
 

@@ -319,7 +319,6 @@ function parse(tokens) {
       type: "ArrowFunctionExpression",
       params,
       body,
-      expression: false, // Always false as expression bodies are not supported
       returnType,
     };
   }
