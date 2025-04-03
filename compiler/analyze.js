@@ -58,7 +58,6 @@ function declareInScope(scope, name, node) {
   // Add the declaration to this scope
   scope.declarations.set(name, {
     node,
-    references: [],
   });
 
   return true;
@@ -379,10 +378,6 @@ function visitIdentifier(state, node) {
     );
     return;
   }
-
-  // Record the reference in the original declaration
-  declaration.references = declaration.references || [];
-  declaration.references.push(node);
 
   // Link this identifier to its declaration
   node._declaration = declaration.node;

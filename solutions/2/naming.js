@@ -10,6 +10,13 @@
  * - Tracks variable scoping in nested environments (functions, blocks)
  */
 
+// Global state for the name resolver
+const state = {
+  currentScope: null,
+  errors: [],
+  scopes: new Map() // Map from nodes to their scopes
+};
+
 /**
  * Create a new scope
  * @param {object|null} parent - Parent scope, or null for the global scope
@@ -42,7 +49,6 @@ function declareInScope(scope, name, node) {
   // Add the declaration to this scope
   scope.declarations.set(name, {
     node,
-    references: [],
   });
 
   return true;
@@ -95,12 +101,11 @@ function getDeclarationFromScope(scope, name) {
 /**
  * Report an error found during analysis
  *
- * @param {Array} errors - Array to add the error to
  * @param {string} message - Error message
  * @param {object} node - Parse tree node where the error occurred
  */
-function reportError(errors, message, node) {
-  errors.push({
+function reportError(message, node) {
+  state.errors.push({
     message,
     node,
   });
@@ -122,10 +127,9 @@ function isNodeWithScope(node) {
 /**
  * Visit and analyze a parse tree node and its children
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - Parse tree node to visit
  */
-function visitNode(state, node) {
+function visitNode(node) {
   if (!node || typeof node !== "object") {
     return;
   }
@@ -143,23 +147,22 @@ function visitNode(state, node) {
     state.scopes.set(node, newScope);
 
     // Process the node according to its type
-    processNode(state, node);
+    processNode(node);
 
     // After processing, revert to the previous scope
     state.currentScope = previousScope;
   } else {
     // Process node normally without changing scope
-    processNode(state, node);
+    processNode(node);
   }
 }
 
 /**
  * Process a node according to its type
  *
- * @param {object} state - The current state
  * @param {object} node - The parse tree node
  */
-function processNode(state, node) {
+function processNode(node) {
   // Skip null/undefined nodes and non-objects
   if (!node || typeof node !== "object") {
     return;
@@ -169,47 +172,47 @@ function processNode(state, node) {
   switch (node.type) {
     // Variable declarations
     case "ConstDeclaration":
-      visitConstDeclaration(state, node);
+      visitConstDeclaration(node);
       break;
 
     // Functions
     case "ArrowFunctionExpression":
-      visitArrowFunction(state, node);
+      visitArrowFunction(node);
       break;
 
     // Variable references
     case "Identifier":
-      visitIdentifier(state, node);
+      visitIdentifier(node);
       break;
 
     // Statements
     case "ReturnStatement":
-      visitReturnStatement(state, node);
+      visitReturnStatement(node);
       break;
 
     // Expressions
     case "BinaryExpression":
-      visitBinaryExpression(state, node);
+      visitBinaryExpression(node);
       break;
 
     case "ConditionalExpression":
-      visitConditionalExpression(state, node);
+      visitConditionalExpression(node);
       break;
 
     case "CallExpression":
-      visitCallExpression(state, node);
+      visitCallExpression(node);
       break;
 
     case "ArrayLiteral":
-      visitArrayLiteral(state, node);
+      visitArrayLiteral(node);
       break;
 
     case "MemberExpression":
-      visitMemberExpression(state, node);
+      visitMemberExpression(node);
       break;
 
     case "BlockStatement":
-      visitBlockStatement(state, node);
+      visitBlockStatement(node);
       break;
 
     // Literals don't need name resolution
@@ -220,7 +223,7 @@ function processNode(state, node) {
 
     default:
       // For unknown node types, traverse children generically
-      visitChildren(state, node);
+      visitChildren(node);
       break;
   }
 }
@@ -228,10 +231,9 @@ function processNode(state, node) {
 /**
  * Visit all children of a node
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - Node whose children should be visited
  */
-function visitChildren(state, node) {
+function visitChildren(node) {
   if (!node || typeof node !== "object") {
     return;
   }
@@ -244,12 +246,12 @@ function visitChildren(state, node) {
       // Handle arrays (e.g., body of a block)
       if (Array.isArray(child)) {
         for (const item of child) {
-          visitNode(state, item);
+          visitNode(item);
         }
       }
       // Handle nested objects (other parse tree nodes)
       else if (child && typeof child === "object") {
-        visitNode(state, child);
+        visitNode(child);
       }
     }
   }
@@ -258,19 +260,17 @@ function visitChildren(state, node) {
 /**
  * Visit a const declaration
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - ConstDeclaration node to visit
  */
-function visitConstDeclaration(state, node) {
+function visitConstDeclaration(node) {
   // Process the initializer first (must be evaluated before variable is in scope)
   if (node.init) {
-    visitNode(state, node.init);
+    visitNode(node.init);
   }
 
   // Check for duplicate declaration
   if (!declareInScope(state.currentScope, node.id.name, node)) {
     reportError(
-      state.errors,
       `Duplicate declaration of variable: ${node.id.name}`,
       node
     );
@@ -280,17 +280,15 @@ function visitConstDeclaration(state, node) {
 /**
  * Visit an arrow function
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - ArrowFunctionExpression node to visit
  */
-function visitArrowFunction(state, node) {
+function visitArrowFunction(node) {
   // For each parameter, declare it in the current scope
   if (node.params) {
     for (const param of node.params) {
       // Declare the parameter in the current function scope
       if (!declareInScope(state.currentScope, param.name, param)) {
         reportError(
-          state.errors,
           `Duplicate parameter name: ${param.name}`,
           param
         );
@@ -299,29 +297,27 @@ function visitArrowFunction(state, node) {
   }
 
   // Process the function body
-  visitNode(state, node.body);
+  visitNode(node.body);
 }
 
 /**
  * Visit a block statement
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - BlockStatement node to visit
  */
-function visitBlockStatement(state, node) {
+function visitBlockStatement(node) {
   // Visit each statement in the block
   for (const statement of node.body) {
-    visitNode(state, statement);
+    visitNode(statement);
   }
 }
 
 /**
  * Visit an identifier (variable reference)
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - Identifier node to visit
  */
-function visitIdentifier(state, node) {
+function visitIdentifier(node) {
   // We only care about identifiers used as variables
   // Skip identifiers used in other contexts (e.g., property names)
   if (node._context === "property") {
@@ -333,15 +329,11 @@ function visitIdentifier(state, node) {
 
   if (!declaration) {
     reportError(
-      state.errors,
       `Reference to undeclared variable: ${node.name}`,
       node
     );
     return;
   }
-
-  // Record the reference in the original declaration
-  declaration.references.push(node);
 
   // Link this identifier to its declaration
   node._declaration = declaration.node;
@@ -350,115 +342,99 @@ function visitIdentifier(state, node) {
 /**
  * Visit a return statement
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - ReturnStatement node to visit
  */
-function visitReturnStatement(state, node) {
+function visitReturnStatement(node) {
   // If we have a return value, process it
   if (node.argument) {
-    visitNode(state, node.argument);
+    visitNode(node.argument);
   }
 }
 
 /**
  * Visit a binary expression
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - BinaryExpression node to visit
  */
-function visitBinaryExpression(state, node) {
+function visitBinaryExpression(node) {
   // Visit left and right operands
-  visitNode(state, node.left);
-  visitNode(state, node.right);
+  visitNode(node.left);
+  visitNode(node.right);
 }
 
 /**
  * Visit a conditional (ternary) expression
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - ConditionalExpression node to visit
  */
-function visitConditionalExpression(state, node) {
+function visitConditionalExpression(node) {
   // Process test condition
-  visitNode(state, node.test);
+  visitNode(node.test);
 
   // Process consequent (true branch)
-  visitNode(state, node.consequent);
+  visitNode(node.consequent);
 
   // Process alternate (false branch)
-  visitNode(state, node.alternate);
+  visitNode(node.alternate);
 }
 
 /**
  * Visit a function call expression
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - CallExpression node to visit
  */
-function visitCallExpression(state, node) {
+function visitCallExpression(node) {
   // Visit the function being called
-  visitNode(state, node.callee);
+  visitNode(node.callee);
 
   // Visit each argument passed to the function
   for (const arg of node.arguments) {
-    visitNode(state, arg);
+    visitNode(arg);
   }
 }
 
 /**
  * Visit an array literal
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - ArrayLiteral node to visit
  */
-function visitArrayLiteral(state, node) {
+function visitArrayLiteral(node) {
   // Visit each element in the array
   for (const element of node.elements) {
-    visitNode(state, element);
+    visitNode(element);
   }
 }
 
 /**
  * Visit a member expression (array access)
  *
- * @param {object} state - Current analyzer state
  * @param {object} node - MemberExpression node to visit
  */
-function visitMemberExpression(state, node) {
+function visitMemberExpression(node) {
   // Visit the object being accessed
-  visitNode(state, node.object);
+  visitNode(node.object);
 
   // Visit the index expression
-  visitNode(state, node.index);
+  visitNode(node.index);
 }
 
 /**
  * Analyze a parse tree to check for scope-based errors
  *
- * @param {object|Array} parseTree - The parse tree to analyze (may be an array of statements)
+ * @param {object|Array} statements - The parse tree to analyze (may be an array of statements)
  * @returns {object} - The analyzed parse tree with scope information and any errors
  */
-function nameCheck(parseTree) {
-  const state = {
-    currentScope: createScope(), // Initialize with global scope
-    errors: [],
-    scopes: new Map(), // Map from nodes to their scopes
-  };
+function nameCheck(statements) {
+  state.currentScope = createScope();
+  state.errors = [];
+  state.scopes = new Map();
 
-  // If parseTree is an array (program statements), process each statement
-  if (Array.isArray(parseTree)) {
-    for (const statement of parseTree) {
-      visitNode(state, statement);
-    }
-  } else {
-    // Otherwise just process the single node
-    visitNode(state, parseTree);
+  for (const statement of statements) {
+    visitNode(statement);
   }
 
   return {
-    parseTree: parseTree,
     errors: state.errors,
-    scopes: state.scopes,
   };
 }
 
