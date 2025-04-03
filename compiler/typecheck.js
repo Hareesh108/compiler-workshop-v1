@@ -1,16 +1,17 @@
 /**
- * Hindley-Milner Type Inference Module
+ * Type Inference Module
  *
- * This module implements type inference based on the Hindley-Milner algorithm,
+ * This module implements type inference based on a modified version of the Hindley-Milner algorithm,
  * which is the foundation of type systems in many functional languages.
  *
  * Features:
  * - Automatic type inference without explicit type annotations
  * - Polymorphic type support (functions that work on multiple types)
+ * - Multiple parameter functions with proper type checking
  * - Type checking for operations and expressions
  * - Detailed type error reporting
  *
- * It also enforces that return statements can only appear as the last statement in a function.
+ * Note: Return statement position validation is handled by the validate.js module.
  *
  * How it works:
  * 1. Each expression is assigned a type variable initially
@@ -18,8 +19,9 @@
  * 3. We use unification to solve these constraints, determining concrete types
  * 4. If constraints are inconsistent, we report type errors
  *
- * The algorithm is named after Roger Hindley and Robin Milner, who independently
- * developed similar type systems in the late 1960s and early 1970s.
+ * The algorithm is based on the work of Roger Hindley and Robin Milner, who independently
+ * developed similar type systems in the late 1960s and early 1970s, but has been modified
+ * to support multiple parameter functions directly rather than through currying.
  */
 
 /**
@@ -47,12 +49,12 @@ const Types = {
 /**
  * Create a new function type
  *
- * @param {object} paramType - Type of the parameter
+ * @param {object[]} paramTypes - Array of parameter types
  * @param {object} returnType - Type of the return value
  * @returns {object} - A function type object
  */
-function createFunctionType(paramType, returnType) {
-  return { kind: "FunctionType", paramType, returnType };
+function createFunctionType(paramTypes, returnType) {
+  return { kind: "FunctionType", paramTypes, returnType };
 }
 
 /**
@@ -115,7 +117,8 @@ function occursIn(typeVar, type) {
   // Check inside function types recursively
   if (type.kind === "FunctionType") {
     return (
-      occursIn(typeVar, type.paramType) || occursIn(typeVar, type.returnType)
+      type.paramTypes.some(paramType => occursIn(typeVar, paramType)) ||
+      occursIn(typeVar, type.returnType)
     );
   }
 
@@ -141,13 +144,16 @@ function typeToString(type) {
   } else if (type.kind === "PrimitiveType") {
     return type.type;
   } else if (type.kind === "FunctionType") {
-    // Parenthesize parameter type if it's a function to avoid ambiguity
-    const paramStr =
-      compress(type.paramType).kind === "FunctionType"
-        ? `(${typeToString(type.paramType)})`
-        : typeToString(type.paramType);
+    // Handle multiple parameters
+    const paramTypeStrs = type.paramTypes.map(paramType => {
+      // Parenthesize parameter type if it's a function to avoid ambiguity
+      return compress(paramType).kind === "FunctionType"
+        ? `(${typeToString(paramType)})`
+        : typeToString(paramType);
+    });
 
-    return `${paramStr} -> ${typeToString(type.returnType)}`;
+    // Format as (Type1, Type2, ...) -> ReturnType
+    return `(${paramTypeStrs.join(", ")}) -> ${typeToString(type.returnType)}`;
   } else if (type.kind === "ArrayType") {
     return `Array<${typeToString(type.elementType)}>`;
   }
@@ -236,8 +242,11 @@ function freshInstance(state, type, mappings = new Map()) {
     return mappings.get(type);
   } else if (type.kind === "FunctionType") {
     // For function types, recursively freshen parameter and return types
+    const freshParamTypes = type.paramTypes.map(paramType =>
+      freshInstance(state, paramType, mappings)
+    );
     return createFunctionType(
-      freshInstance(state, type.paramType, mappings),
+      freshParamTypes,
       freshInstance(state, type.returnType, mappings),
     );
   } else if (type.kind === "ArrayType") {
@@ -300,8 +309,6 @@ function unify(state, t1, t2, node) {
   t1 = compress(t1);
   t2 = compress(t2);
 
-
-
   // Case 1: First type is a variable
   if (t1.kind === "TypeVariable") {
     // If they're not already the same variable
@@ -314,23 +321,31 @@ function unify(state, t1, t2, node) {
           node,
         );
 
-
-
         return;
       }
 
       // Set the type variable to point to the other type
       t1.symlink = t2;
-
-
     }
   }
   // Case 2: Both are function types
   else if (t1.kind === "FunctionType" && t2.kind === "FunctionType") {
+    // Check if the number of parameters match
+    if (t1.paramTypes.length !== t2.paramTypes.length) {
+      reportError(
+        state.errors,
+        `Function parameter count mismatch: ${typeToString(t1)} vs ${typeToString(t2)}`,
+        node
+      );
+      return;
+    }
 
+    // Recursively unify each parameter type
+    for (let i = 0; i < t1.paramTypes.length; i++) {
+      unify(state, t1.paramTypes[i], t2.paramTypes[i], node);
+    }
 
-    // Recursively unify parameter and return types
-    unify(state, t1.paramType, t2.paramType, node);
+    // Unify the return types
     unify(state, t1.returnType, t2.returnType, node);
   }
   // Case 3: Both are array types
@@ -383,8 +398,6 @@ function pushScope(state) {
   // Create a new scope with the current scope as prototype
   const newScope = Object.create(outerScope);
 
-
-
   state.previousScope = outerScope;
   state.currentScope = newScope;
 }
@@ -395,41 +408,10 @@ function pushScope(state) {
  * @param {object} state - Current type inference state
  */
 function popScope(state) {
-  // const scopeVars = Object.keys(state.currentScope);
-
   state.currentScope = state.previousScope;
 }
 
-/**
- * Check if a return statement is in a valid position (last statement)
- *
- * @param {object} state - Current type inference state
- * @param {object} node - Return statement node
- * @param {Array} body - Array of statements to check
- * @returns {boolean} - Whether the return is in a valid position
- */
-function checkReturnPosition(state, node, body) {
-  if (!body || !Array.isArray(body)) {
-    return true; // Nothing to check
-  }
 
-  const returnIndex = body.findIndex((stmt) => stmt.type === "ReturnStatement");
-  if (returnIndex === -1) {
-    return true; // No return statement
-  }
-
-  // Check if it's the last statement
-  if (returnIndex !== body.length - 1) {
-    reportError(
-      state.errors,
-      `Return statement must be the last statement in a function`,
-      body[returnIndex],
-    );
-    return false;
-  }
-
-  return true;
-}
 
 /**
  * Analyze an AST node and infer its type
@@ -514,59 +496,42 @@ function inferTypeCallExpression(state, node) {
       // Create a return type variable
       const returnType = newTypeVar(state, null, `Return type for call to ${node.callee.type === 'Identifier' ? node.callee.name : 'expression'}`);
 
-      if (node.arguments.length === 0) {
-        // For zero arguments, create a Void -> returnType function
-        const funcType = createFunctionType(primitive(Types.Void), returnType);
-        unify(state, fnType, funcType, node);
-        return returnType;
-      } else {
-        // For each argument, infer its type and create the function type
-        let argTypes = [];
-
-        for (const arg of node.arguments) {
-          const argType = infer(state, arg);
-          argTypes.push(argType);
-        }
-
-        // Unify the function with a function expecting these argument types
-        let funcType = returnType;
-        for (let i = argTypes.length - 1; i >= 0; i--) {
-          funcType = createFunctionType(argTypes[i], funcType);
-        }
-
-        unify(state, fnType, funcType, node);
-        return returnType;
+      // For each argument, infer its type and create the function type
+      const argTypes = [];
+      for (const arg of node.arguments) {
+        const argType = infer(state, arg);
+        argTypes.push(argType);
       }
+
+      // Create function type with all argument types
+      const funcType = createFunctionType(argTypes, returnType);
+      unify(state, fnType, funcType, node);
+      return returnType;
     } else {
       reportError(state.errors, "Called value is not a function", node);
       return newTypeVar(state);
     }
   }
 
-  // Handle multi-parameter functions (curried form)
-  let currentFnType = fnType;
-  let resultType = newTypeVar(state, null, `Result of function call${node.callee.type === 'Identifier' ? ' to ' + node.callee.name : ''}`);
+  // Check if the argument count matches the function's parameter count
+  if (node.arguments.length !== fnType.paramTypes.length) {
+    reportError(
+      state.errors,
+      `Expected ${fnType.paramTypes.length} arguments but got ${node.arguments.length}`,
+      node
+    );
+    return newTypeVar(state);
+  }
 
-  // Check each argument against the expected parameter type
+  // Infer types for all arguments and unify with function parameter types
   for (let i = 0; i < node.arguments.length; i++) {
     const arg = node.arguments[i];
     const argType = infer(state, arg);
-
-    if (currentFnType.kind !== "FunctionType") {
-      reportError(
-        state.errors,
-        `Too many arguments provided to function`,
-        node,
-      );
-      return newTypeVar(state);
-    }
-
-    unify(state, currentFnType.paramType, argType, arg);
-    resultType = currentFnType.returnType;
-    currentFnType = compress(resultType);
+    unify(state, fnType.paramTypes[i], argType, arg);
   }
 
-  return resultType;
+  // Return the function's return type
+  return fnType.returnType;
 }
 
 /**
@@ -734,10 +699,7 @@ function inferTypeFunction(state, node) {
   const outerNonGeneric = state.nonGeneric;
   state.nonGeneric = new Set(outerNonGeneric);
 
-  // Validate return statement position
-  if (Array.isArray(node.body)) {
-    checkReturnPosition(state, node, node.body);
-  }
+  // Return statement position validation is now done in the validate.js module
 
   // Create types for parameters, using annotations if available
   const paramTypes = [];
@@ -761,36 +723,28 @@ function inferTypeFunction(state, node) {
   let returnType;
   let inferredReturnType;
 
-  if (Array.isArray(node.body)) {
-    // For block bodies, the return type is the type of the return statement,
-    // or Void if there is no return statement
-    const returnStatement = node.body.find(
-      (stmt) => stmt.type === "ReturnStatement",
-    );
+  const returnStatement = node.body.find(
+    (stmt) => stmt.type === "ReturnStatement",
+  );
 
-    if (returnStatement) {
-      if (returnStatement.argument) {
-        inferredReturnType = infer(state, returnStatement.argument);
-      } else {
-        inferredReturnType = primitive(Types.Void);
-      }
-
-      // Process all statements for side effects and type checking
-      for (const statement of node.body) {
-        if (statement !== returnStatement) {
-          infer(state, statement);
-        }
-      }
+  if (returnStatement) {
+    if (returnStatement.argument) {
+      inferredReturnType = infer(state, returnStatement.argument);
     } else {
-      // No return statement, process all statements
-      for (const statement of node.body) {
-        infer(state, statement);
-      }
       inferredReturnType = primitive(Types.Void);
     }
+
+    // Process all statements for side effects and type checking
+    for (const statement of node.body) {
+      if (statement !== returnStatement) {
+        infer(state, statement);
+      }
+    }
   } else {
-    // Expression bodies should not exist - they've been disallowed in the parser
-    reportError(state.errors, "Functions require a block body with explicit return statements", node);
+    // No return statement, process all statements
+    for (const statement of node.body) {
+      infer(state, statement);
+    }
     inferredReturnType = primitive(Types.Void);
   }
 
@@ -804,16 +758,7 @@ function inferTypeFunction(state, node) {
   }
 
   // Construct the function type
-  let functionType;
-  if (paramTypes.length === 0) {
-    functionType = createFunctionType(primitive(Types.Void), returnType);
-  } else {
-    // For multiple parameters, create a curried function type
-    functionType = paramTypes.reduceRight(
-      (acc, paramType) => createFunctionType(paramType, acc),
-      returnType,
-    );
-  }
+  const functionType = createFunctionType(paramTypes, returnType);
 
   popScope(state);
   state.nonGeneric = outerNonGeneric;
@@ -934,19 +879,16 @@ function createTypeFromAnnotation(state, annotation) {
     }
 
     case "FunctionTypeAnnotation": {
-      // Build function type from return type and parameter types
-      let functionType = createTypeFromAnnotation(state, annotation.returnType);
+      // Get the return type
+      const returnType = createTypeFromAnnotation(state, annotation.returnType);
 
-      // Build the function type from right to left (curried style)
-      for (let i = annotation.paramTypes.length - 1; i >= 0; i--) {
-        const paramType = createTypeFromAnnotation(
-          state,
-          annotation.paramTypes[i].typeAnnotation,
-        );
-        functionType = createFunctionType(paramType, functionType);
-      }
+      // Convert all parameter types
+      const paramTypes = annotation.paramTypes.map(param =>
+        createTypeFromAnnotation(state, param.typeAnnotation)
+      );
 
-      return functionType;
+      // Create a function type with all parameters at once
+      return createFunctionType(paramTypes, returnType);
     }
 
     default:
@@ -1033,7 +975,7 @@ function inferAst(ast, options = {}) {
 }
 
 /**
- * Combined analysis: name resolution + type inference
+ * Combined analysis: validation + name resolution + type inference
  *
  * @param {object} ast - AST to analyze
  * @param {Array} nameErrors - Errors from name resolution
@@ -1042,13 +984,27 @@ function inferAst(ast, options = {}) {
  * @returns {object} - Result with AST and all errors
  */
 function typecheck(ast, nameErrors = [], options = {}) {
+  // Validate the AST structure (including return statement positions)
+  let validationErrors = [];
+  if (typeof window !== "undefined" && window.CompilerModule && window.CompilerModule.validate) {
+    validationErrors = window.CompilerModule.validate(ast);
+  } else if (typeof require !== "undefined") {
+    try {
+      const validateModule = require("./validate");
+      validationErrors = validateModule.validate(ast);
+    } catch (e) {
+      // If validate module is not available, we'll continue without it
+      console.warn("Validation module not found, skipping validation step");
+    }
+  }
+
   // Perform type inference
   const { errors: typeErrors } = inferAst(ast);
 
-  // Combine errors from name resolution and type inference
+  // Combine errors from validation, name resolution, and type inference
   return {
     ast,
-    errors: [...nameErrors, ...typeErrors],
+    errors: [...validationErrors, ...nameErrors, ...typeErrors],
   };
 }
 
