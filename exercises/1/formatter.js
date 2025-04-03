@@ -28,11 +28,11 @@ function format(parseTree, options = {}) {
    * Format a single node with the given indentation level
    *
    * @param {Object} node - The parse tree node
-   * @param {number} indentLevel - The current indentation level
+   * @param {number} indentLevel - The current indentation level (defaults to 0)
    * @param {string} indentString - The string to use for one level of indentation (defaults to empty string)
    * @returns {string} - Formatted code for this node
    */
-  function formatNode(node, indentLevel, indentString = "") {
+  function formatNode(node, indentLevel = 0, indentString = "") {
     switch (node.type) {
       case "ConstDeclaration":
         return formatConstDeclaration(node, indentLevel, indentString);
@@ -113,8 +113,8 @@ function format(parseTree, options = {}) {
    * Format a binary expression
    */
   function formatBinaryExpression(node) {
-    const left = formatNode(node.left, 0);
-    const right = formatNode(node.right, 0);
+    const left = formatNode(node.left);
+    const right = formatNode(node.right);
 
     return `${left} ${node.operator} ${right}`;
   }
@@ -123,9 +123,9 @@ function format(parseTree, options = {}) {
    * Format a conditional (ternary) expression
    */
   function formatConditionalExpression(node) {
-    const test = formatNode(node.test, 0);
-    const consequent = formatNode(node.consequent, 0);
-    const alternate = formatNode(node.alternate, 0);
+    const test = formatNode(node.test);
+    const consequent = formatNode(node.consequent);
+    const alternate = formatNode(node.alternate);
 
     return `${test} ? ${consequent} : ${alternate}`;
   }
@@ -134,8 +134,8 @@ function format(parseTree, options = {}) {
    * Format a function call expression
    */
   function formatCallExpression(node) {
-    const callee = formatNode(node.callee, 0);
-    const args = node.arguments.map((arg) => formatNode(arg, 0)).join(", ");
+    const callee = formatNode(node.callee);
+    const args = node.arguments.map((arg) => formatNode(arg)).join(", ");
 
     return `${callee}(${args})`;
   }
@@ -147,7 +147,7 @@ function format(parseTree, options = {}) {
     // Format parameters with their type annotations
     const params = node.params
       .map((param) => {
-        let paramStr = formatNode(param, 0);
+        let paramStr = formatNode(param);
 
         if (param.typeAnnotation) {
           paramStr += ": " + formatTypeAnnotation(param.typeAnnotation);
@@ -186,7 +186,7 @@ function format(parseTree, options = {}) {
     }
 
     const elements = node.elements
-      .map((elem) => formatNode(elem, 0))
+      .map((elem) => formatNode(elem))
       .join(", ");
 
     return `[${elements}]`;
@@ -196,8 +196,8 @@ function format(parseTree, options = {}) {
    * Format a member expression (array access)
    */
   function formatMemberExpression(node) {
-    const object = formatNode(node.object, 0);
-    const index = formatNode(node.index, 0);
+    const object = formatNode(node.object);
+    const index = formatNode(node.index);
 
     return `${object}[${index}]`;
   }
