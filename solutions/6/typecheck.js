@@ -587,10 +587,15 @@ function inferTypeBinaryExpression(node) {
         compress(rightType).kind === "PrimitiveType" &&
         compress(rightType).type === Types.String;
 
-      if (leftIsString || rightIsString) {
+      if (leftIsString && rightIsString) {
         // String concatenation - both operands must be strings
-        unify(leftType, primitive(Types.String), node.left);
-        unify(rightType, primitive(Types.String), node.right);
+        return primitive(Types.String);
+      } else if (leftIsString || rightIsString) {
+        // One operand is a string but not both - this is an error
+        reportError(
+          `Cannot concatenate string with non-string value`,
+          node
+        );
         return primitive(Types.String);
       } else {
         // Numeric addition
@@ -951,15 +956,31 @@ function inferTypeExpressionStatement(node) {
  * Analyze the parse tree and infer types
  *
  * @param {object} node - parse tree to analyze
+ * @param {Array} nameErrors - Errors from name checking phase
  * @returns {object} - Result with parse tree and errors
  */
-function typecheck(node) {
+function typecheck(node, nameErrors) {
   errors = [];
   currentScope = {};
   nonGeneric = new Set();
   nextTypeVarId = 0;
 
-  infer(node);
+  // If we have name errors, don't bother typechecking
+  if (nameErrors && nameErrors.length > 0) {
+    return { errors: nameErrors };
+  }
+
+  // Handle case where node is an array of statements
+  if (Array.isArray(node)) {
+    // Create a program node
+    const programNode = {
+      type: "Program",
+      body: node
+    };
+    infer(programNode);
+  } else {
+    infer(node);
+  }
 
   return { errors };
 }

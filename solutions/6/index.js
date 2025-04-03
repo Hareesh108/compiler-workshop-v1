@@ -20,39 +20,39 @@ function compileAndTypecheck(code) {
   return typecheck(statements, nameErrors);
 }
 
-// test("Typecheck simple literals", () => {
-//   // Check numeric literals
-//   let result = compileAndTypecheck("const x = 42;");
-//   assertEqual(result.errors.length, 0, "Integer should have no type errors");
+test("Typecheck simple literals", () => {
+  // Check numeric literals
+  let result = compileAndTypecheck("const x = 42;");
+  assertEqual(result.errors.length, 0, "Integer should have no type errors");
 
-//   // Check string literals
-//   result = compileAndTypecheck("const s = \"hello\";");
-//   assertEqual(result.errors.length, 0, "String should have no type errors");
+  // Check string literals
+  result = compileAndTypecheck("const s = \"hello\";");
+  assertEqual(result.errors.length, 0, "String should have no type errors");
 
-//   // Check boolean literals
-//   result = compileAndTypecheck("const b = true;");
-//   assertEqual(result.errors.length, 0, "Boolean should have no type errors");
-// });
+  // Check boolean literals
+  result = compileAndTypecheck("const b = true;");
+  assertEqual(result.errors.length, 0, "Boolean should have no type errors");
+});
 
-// test("Typecheck numeric operations", () => {
-//   // Addition of two numbers
-//   let result = compileAndTypecheck("const x = 5 + 10;");
-//   assertEqual(result.errors.length, 0, "Adding two numbers should have no type errors");
+test("Typecheck numeric operations", () => {
+  // Addition of two numbers
+  let result = compileAndTypecheck("const x = 5 + 10;");
+  assertEqual(result.errors.length, 0, "Adding two numbers should have no type errors");
 
-//   // Type mismatch in addition
-//   result = compileAndTypecheck("const x = 5 + true;");
-//   assert(result.errors.length > 0, "Adding number and boolean should have type errors");
-//   assert(
-//     result.errors.some(err => err.message.includes("Type mismatch") ||
-//                          err.message.includes("operands")),
-//     "Error should indicate type mismatch for operands"
-//   );
-// });
+  // Type mismatch in addition
+  result = compileAndTypecheck("const x = 5 + true;");
+  assert(result.errors.length > 0, "Adding number and boolean should have type errors");
+  assert(
+    result.errors.some(err => err.message.includes("Type mismatch") ||
+                         err.message.includes("operands")),
+    "Error should indicate type mismatch for operands"
+  );
+});
 
 test("Typecheck string operations", () => {
   // String concatenation
   let result = compileAndTypecheck("const x = \"hello\" + \" world\";");
-  assertEqual(JSON.stringify(result.errors), "[]", "String concatenation should have no type errors");
+  assertEqual(result.errors.length, 0, "String concatenation should have no type errors");
 
   // String + number (should coerce to string)
   result = compileAndTypecheck("const x = \"value: \" + 42;");
@@ -73,19 +73,19 @@ test("Typecheck string operations", () => {
 //   assert(result.errors.length > 0, "Inconsistent branch types should have type errors");
 // });
 
-// test("Typecheck array literals", () => {
-//   // Homogeneous array
-//   let result = compileAndTypecheck("const arr = [1, 2, 3];");
-//   assertEqual(result.errors.length, 0, "Homogeneous array should have no type errors");
+test("Typecheck array literals", () => {
+  // Homogeneous array
+  let result = compileAndTypecheck("const arr = [1, 2, 3];");
+  assertEqual(result.errors.length, 0, "Homogeneous array should have no type errors");
 
-//   // Empty array (should be ok, element type will be a type variable)
-//   result = compileAndTypecheck("const arr = [];");
-//   assertEqual(result.errors.length, 0, "Empty array should have no type errors");
+  // Empty array (should be ok, element type will be a type variable)
+  result = compileAndTypecheck("const arr = [];");
+  assertEqual(result.errors.length, 0, "Empty array should have no type errors");
 
-//   // Heterogeneous array
-//   result = compileAndTypecheck("const arr = [1, \"hello\", true];");
-//   assert(result.errors.length > 0, "Heterogeneous array should have type errors");
-// });
+  // Heterogeneous array
+  result = compileAndTypecheck("const arr = [1, \"hello\", true];");
+  assert(result.errors.length > 0, "Heterogeneous array should have type errors");
+});
 
 // test("Typecheck array access", () => {
 //   // Valid array access
