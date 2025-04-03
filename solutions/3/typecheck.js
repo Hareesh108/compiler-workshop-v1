@@ -488,19 +488,20 @@ function visitArrayLiteral(node) {
     const elementType = visitNode(node.elements[i]);
     const elementConcrete = getConcreteTypeName(elementType);
 
-    // Check if types are compatible
-    const typesMatch = unify(firstElementType, elementType, node.elements[i]);
-
-    // Report error if types don't match or concrete types differ
-    if (
-      !typesMatch ||
-      (firstElementConcrete &&
-        elementConcrete &&
-        firstElementConcrete !== elementConcrete)
-    ) {
+    // If we have concrete types and they're different, report error
+    if (firstElementConcrete && elementConcrete && firstElementConcrete !== elementConcrete) {
       reportError(
-        `Type mismatch: all elements in an array must have the same type, got ${firstElementConcrete || "unknown"} and ${elementConcrete || "unknown"} at index ${i}`,
-        node.elements[i],
+        `Type mismatch in array literal: array elements must have consistent types, found ${firstElementConcrete} and ${elementConcrete}`,
+        node.elements[i]
+      );
+      continue;
+    }
+
+    // Otherwise try to unify the types
+    if (!unify(firstElementType, elementType, node.elements[i])) {
+      reportError(
+        `Type mismatch in array literal: array elements must have consistent types`,
+        node.elements[i]
       );
     }
   }

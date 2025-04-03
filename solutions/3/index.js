@@ -123,43 +123,43 @@ test("Detect type mismatch in ternary branches", () => {
   );
 });
 
-// test("Type-check array literals with consistent types", () => {
-//   const statements = compile(
-//     "const x = 1; const y = 2; const arr = [x, y, 3];",
-//   );
-//   const result = typeCheck(statements);
+test("Type-check array literals with consistent types", () => {
+  const statements = compile(
+    "const x = 1; const y = 2; const arr = [x, y, 3];",
+  );
+  const result = typeCheck(statements);
 
-//   assertEqual(
-//     result.errors,
-//     [],
-//     "No type errors expected for array with consistent types",
-//   );
-// });
+  assertEqual(
+    result.errors,
+    [],
+    "No type errors expected for array with consistent types",
+  );
+});
 
-// test("Detect type mismatch in array literals", () => {
-//   const statements = compile(
-//     'const x = 1; const y = "hello"; const arr = [x, y, 3];',
-//   );
-//   const result = typeCheck(statements);
+test("Detect type mismatch in array literals", () => {
+  const statements = compile(
+    'const x = 1; const y = "hello"; const arr = [x, y, 3];',
+  );
+  const result = typeCheck(statements);
 
-//   assert(
-//     result.errors.length === 1 && result.errors[0].message.includes("array"),
-//     "Error message should mention array element type consistency",
-//   );
-// });
+  assert(
+    result.errors.length === 1 && result.errors[0].message.includes("array"),
+    "Error message should mention array element type consistency",
+  );
+});
 
-// test("Type-check function with compatible argument types", () => {
-//   const statements = compile(`
-//     const add = (x) => { return x + 1; };
-//     const result = add(5);
-//   `);
-//   const result = typeCheck(statements);
+test("Type-check function with compatible argument types", () => {
+  const statements = compile(`
+    const add = (x) => { return x + 1; };
+    const result = add(5);
+  `);
+  const result = typeCheck(statements);
 
-//   assertEqual(
-//     result.errors,
-//     [],
-//     "No type errors expected for function with compatible arg",
-//   );
-// });
+  assertEqual(
+    result.errors,
+    [],
+    "No type errors expected for function with compatible arg",
+  );
+});
 
 reportTestFailures();
