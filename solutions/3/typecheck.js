@@ -131,6 +131,15 @@ const unify = (aTypeId, bTypeId, node) => {
   const aEntry = db[aType];
   const bEntry = db[bType];
 
+  // If both have concrete types and they're different, report mismatch
+  if (
+    aEntry && aEntry.concrete !== undefined &&
+    bEntry && bEntry.concrete !== undefined &&
+    aEntry.concrete !== bEntry.concrete
+  ) {
+    return reportTypeMismatch(aType, bType, node);
+  }
+
   if (aEntry === null) {
     // If aEntry is null (unassigned type variable)
     db[aType] =
@@ -142,13 +151,6 @@ const unify = (aTypeId, bTypeId, node) => {
     return true;
   } else if (bEntry === null) {
     return unify(bTypeId, aTypeId, node); // Swap the args
-  } else if (
-    aEntry.concrete !== undefined &&
-    bEntry.concrete !== undefined &&
-    aEntry.concrete !== bEntry.concrete
-  ) {
-    // Both are concrete types but different - report mismatch
-    return reportTypeMismatch(aType, bType, node);
   } else if (aEntry.concrete !== undefined) {
     // a is concrete, b is not null but must be a variable
     db[bType] = { symlink: aType };
@@ -435,31 +437,30 @@ function visitConditionalExpression(node) {
   const booleanType = createConcreteType("Boolean");
   const testConcrete = getConcreteTypeName(testType);
 
-  // Ensure test expression is boolean
-  const isBoolean = unify(testType, booleanType, node.test);
-  if (!isBoolean) {
+  // Check if test is Boolean, directly compare concrete types
+  if (testConcrete && testConcrete !== "Boolean") {
     reportError(
-      `Type mismatch: condition in ternary expression must be a Boolean, got ${testConcrete || "unknown"}`,
-      node.test,
+      `Type mismatch in ternary: condition must be Boolean, got ${testConcrete}`,
+      node.test
     );
+  } else {
+    // Try to unify if we don't have concrete type info
+    unify(testType, booleanType, node.test);
   }
 
   // Get concrete types for branches
   const consequentConcrete = getConcreteTypeName(consequentType);
   const alternateConcrete = getConcreteTypeName(alternateType);
 
-  // Consequent and alternate must have the same type
-  const branchesMatch = unify(consequentType, alternateType, node);
-  if (
-    !branchesMatch ||
-    (consequentConcrete &&
-      alternateConcrete &&
-      consequentConcrete !== alternateConcrete)
-  ) {
+  // Check if branches have the same type, directly compare concrete types
+  if (consequentConcrete && alternateConcrete && consequentConcrete !== alternateConcrete) {
     reportError(
-      `Type mismatch: both branches of ternary expression must have the same type, got ${consequentConcrete || "unknown"} and ${alternateConcrete || "unknown"}`,
-      node,
+      `Type mismatch in ternary: branches must have the same type, got ${consequentConcrete} and ${alternateConcrete}`,
+      node
     );
+  } else {
+    // Try to unify if we don't have concrete type info for both
+    unify(consequentType, alternateType, node);
   }
 
   // The type of the expression is the type of either branch
