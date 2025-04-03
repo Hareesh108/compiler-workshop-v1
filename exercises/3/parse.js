@@ -364,8 +364,6 @@ function parse(tokens) {
     };
   }
 
-  // Array access functionality has been removed
-
   /**
    * Parse a type annotation
    */

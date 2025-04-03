@@ -224,7 +224,7 @@ function visitIdentifier(node) {
     node.typeId = scope[node.name];
     return node.typeId;
   }
-  
+
   // If not found in scope, create a fresh type variable
   if (node.typeId === undefined) {
     node.typeId = freshTypeId();
@@ -255,7 +255,7 @@ function visitBinaryExpression(node) {
       );
       return createConcreteType("Number"); // Return a placeholder type
     }
-    
+
     // If not both concrete, try to unify
     const canUnify = unify(leftType, rightType, node);
     if (!canUnify) {
@@ -265,12 +265,12 @@ function visitBinaryExpression(node) {
       );
       return createConcreteType("Number"); // Return a placeholder type
     }
-    
+
     return leftType;
   } else if (node.operator === "*") {
     // Multiplication: both operands must be numbers
     const numberType = createConcreteType("Number");
-    
+
     // Check if we have concrete types that aren't numbers
     if (leftConcrete && leftConcrete !== "Number") {
       reportError(
@@ -278,19 +278,19 @@ function visitBinaryExpression(node) {
         node.left,
       );
     }
-    
+
     if (rightConcrete && rightConcrete !== "Number") {
       reportError(
         `Type mismatch: expected Number for right operand of '*' operator, got ${rightConcrete}`,
         node.right,
       );
     }
-    
+
     // If we don't have concrete types, try to unify with Number
     if (!leftConcrete) {
       unify(leftType, numberType, node.left);
     }
-    
+
     if (!rightConcrete) {
       unify(rightType, numberType, node.right);
     }
@@ -377,7 +377,7 @@ function visitConstDeclaration(node) {
 
   // Assign type to the declared identifier
   node.id.typeId = initType;
-  
+
   // Add the variable to scope
   scope[node.id.name] = initType;
 
@@ -510,7 +510,7 @@ function visitArrayLiteral(node) {
   return createConcreteType("Array");
 }
 
-// Array access functionality has been removed
+
 
 /**
  * Perform type checking on a parse tree

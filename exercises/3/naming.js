@@ -205,8 +205,6 @@ function visitArrayLiteral(node) {
   }
 }
 
-// Array access functionality has been removed
-
 /**
  * Analyze a parse tree to check for scope-based errors
  *

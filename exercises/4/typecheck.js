@@ -514,7 +514,7 @@ function visitArrayLiteral(node) {
   return createConcreteType("Array");
 }
 
-// Array access functionality has been removed
+
 
 /**
  * Perform type checking on a parse tree
