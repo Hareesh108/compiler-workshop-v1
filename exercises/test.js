@@ -48,11 +48,15 @@ function summarize() {
   console.log("\n=== Test Summary ===\n");
   if (failedTests.length === 0) {
     console.log(`${PASS} All tests passed!`);
+    return true;
   } else {
     console.log(`${FAIL} Some tests failed:`);
     failedTests.forEach((test) => {
       console.log(`  - ${test}`);
     });
+    // Exit with a non-zero code when tests fail
+    process.exitCode = 1;
+    return false;
   }
 }
 
