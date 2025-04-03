@@ -4,34 +4,24 @@ const { test, assert, assertEqual, summarize } = require('../test');
 
 // WebAssembly testing utilities
 async function instantiateWasm(wasmBinary) {
-  console.log('Starting WebAssembly instantiation...');
   const importObject = {
     console: {
-      log: (value) => console.log(`WASM log:`, value)
+      log: (value) => console.log(value)
     }
   };
   
   try {
-    console.log('Compiling WebAssembly module...');
     const module = await WebAssembly.compile(wasmBinary);
-    console.log('WebAssembly module compiled successfully');
-    
-    console.log('Instantiating WebAssembly module...');
     const instance = await WebAssembly.instantiate(module, importObject);
-    console.log('WebAssembly module instantiated successfully');
-    
     return { module, instance, exports: instance.exports };
   } catch (error) {
-    console.error('WebAssembly instantiation error:', error);
     throw new Error(`Failed to instantiate WebAssembly module: ${error.message}`);
   }
 }
 
 async function compileAndRunWasm(sourceCode) {
-  console.log('Starting compilation to WASM...');
   // Compile source to WASM binary
   const result = compileToWasm(sourceCode);
-  console.log('compileToWasm result:', result ? 'success' : 'failure');
   
   if (result.errors && result.errors.length > 0) {
     console.error("Compilation errors:", result.errors);
@@ -39,14 +29,10 @@ async function compileAndRunWasm(sourceCode) {
   }
   
   try {
-    console.log('WASM binary size:', result.wasm ? result.wasm.length : 'unknown');
     // Instantiate the WebAssembly module
-    console.log('Calling instantiateWasm...');
     const { exports } = await instantiateWasm(result.wasm);
-    console.log('instantiateWasm completed successfully, exports:', Object.keys(exports));
     return { success: true, exports };
   } catch (error) {
-    console.error('compileAndRunWasm error:', error);
     return { success: false, error };
   }
 }
@@ -83,9 +69,6 @@ function createTimedPromise(callback, timeout) {
   });
 }
 
-// Global test results array to store async test results
-const asyncTestResults = [];
-
 // Store test functions instead of registering them immediately
 const asyncTests = [];
 
@@ -110,10 +93,10 @@ async function runAsyncTestsAndSummarize() {
     try {
       // Run the test with a timeout
       await createTimedPromise(() => testFn(), 5000);
-      console.log(`✓ ${name}`);
+      console.log(`✅ ${name}`);
       testResults.push({ name, passed: true });
     } catch (error) {
-      console.error(`✗ ${name}`);
+      console.error(`❌ ${name}`);
       console.error(`   Error: ${error.message}`);
       testResults.push({ name, passed: false, error: error.message });
       allTestsPassed = false;
@@ -125,9 +108,9 @@ async function runAsyncTestsAndSummarize() {
   
   for (const result of testResults) {
     if (result.passed) {
-      console.log(`✓ ${result.name}`);
+      console.log(`✅ ${result.name}`);
     } else {
-      console.log(`✗ ${result.name}`);
+      console.log(`❌ ${result.name}`);
       console.log(`   Error: ${result.error}`);
     }
   }

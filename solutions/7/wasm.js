@@ -195,76 +195,49 @@ function generateWasm(ast) {
  * @returns {Uint8Array} - WebAssembly binary module
  */
 function generateModule(ast) {
-  console.log('Generating WebAssembly module from AST...');
   // First pass: collect function declarations and string literals
   collectFunctions(ast);
-  console.log('Functions collected:', Object.keys(functionTable));
-  
   collectStringLiterals(ast);
-  console.log('String literals collected:', stringLiterals.length);
 
   // Initialize sections
   const sections = [];
 
   // Magic number and version
-  console.log('Adding magic number and version');
   sections.push(new Uint8Array([0x00, 0x61, 0x73, 0x6d])); // "\0asm"
   sections.push(new Uint8Array([0x01, 0x00, 0x00, 0x00])); // Version 1
 
   // Build type section first (imports need to reference types)
-  console.log('Building type section');
   const typeSection = buildTypeSection();
-  console.log('Type section size:', typeSection.length);
   sections.push(typeSection);
 
   // Then build import section (which references the type section)
-  console.log('Building import section');
   const importSection = buildImportSection();
-  console.log('Import section size:', importSection.length);
   sections.push(importSection);
 
   // Build function section
-  console.log('Building function section');
   const functionSection = buildFunctionSection();
-  console.log('Function section size:', functionSection.length);
   sections.push(functionSection);
 
   // Build memory section
-  console.log('Building memory section');
   const memorySection = buildMemorySection();
-  console.log('Memory section size:', memorySection.length);
   sections.push(memorySection);
 
   // Build export section
-  console.log('Building export section');
   const exportSection = buildExportSection();
-  console.log('Export section size:', exportSection.length);
   sections.push(exportSection);
 
   // Build code section
-  console.log('Building code section');
   const codeSection = buildCodeSection();
-  console.log('Code section size:', codeSection.length);
   sections.push(codeSection);
 
   // Build data section for string literals
   if (stringLiterals.length > 0) {
-    console.log('Building data section for string literals');
     const dataSection = buildDataSection();
-    console.log('Data section size:', dataSection.length);
     sections.push(dataSection);
   }
 
   // Concatenate all sections
-  console.log('Concatenating all sections into final binary');
-  const binary = concatBytes(sections);
-  console.log('Final binary size:', binary.length, 'bytes');
-  
-  // Debug the binary - log first few bytes as hex
-  const firstBytes = Array.from(binary.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ');
-  console.log('First 32 bytes:', firstBytes);
-  
-  return binary;
+  return concatBytes(sections);
 }
 
 /**
@@ -296,7 +269,6 @@ function buildImportSection() {
  * Build the WebAssembly type section
  */
 function buildTypeSection() {
-  console.log('Building type section');
   const entries = [];
   
   // Type for console.log (i32) -> void
@@ -307,16 +279,11 @@ function buildTypeSection() {
     encodeULEB128(0)  // 0 results
   ]));
   
-  // Debug log
-  console.log(`Added console.log type signature: (i32) -> void`);
-  
   // Types for user functions
   const functionNames = Object.keys(functionTable);
-  console.log(`Found ${functionNames.length} user functions`);
   
   for (let i = 0; i < functionNames.length; i++) {
     const func = functionTable[functionNames[i]];
-    console.log(`Adding type for function: ${functionNames[i]} with ${func.params.length} parameters`);
     
     // Build function type (all params are f64, result is f64)
     const params = new Array(func.params.length).fill(TYPES.F64);
@@ -334,8 +301,6 @@ function buildTypeSection() {
     encodeULEB128(entries.length),
     ...entries
   ]);
-  
-  console.log(`Built type section with ${entries.length} type entries`);
   
   return concatBytes([
     new Uint8Array([SECTION.TYPE]),
