@@ -510,32 +510,18 @@ function visitArrayLiteral(node) {
   const firstElementType = visitNode(node.elements[0]);
   const firstElementConcrete = getConcreteTypeName(firstElementType);
 
-  for (let i = 1; i < node.elements.length; i++) {
-    // 👉 Get the element's type from its type id.
-    const elementType = visitNode(node.elements[i]);
-    const elementConcrete = getConcreteTypeName(elementType);
+  node.elements.slice(1).forEach((element) => {
+    // 👉 Get the element's type id, and then
+    // call getConcreteTypeName on that (instead of 0.)
+    const elementConcrete = getConcreteTypeName(0);
 
-    // If we have concrete types and they're different, report error
-    if (
-      firstElementConcrete &&
-      elementConcrete &&
-      firstElementConcrete !== elementConcrete
-    ) {
-      reportError(
-        `Type mismatch in array literal: array elements must have consistent types, found ${firstElementConcrete} and ${elementConcrete}`,
-        node.elements[i],
-      );
-      continue;
-    }
+    // 👉 If this element has a concrete type, and so does
+    // the first element, and those concrete types are
+    // different, report a type mismatch and return early.
 
-    // Otherwise try to unify the types
-    if (!unify(firstElementType, elementType, node.elements[i])) {
-      reportError(
-        `Type mismatch in array literal: array elements must have consistent types`,
-        node.elements[i],
-      );
-    }
-  }
+    // 👉 Otherwise, unify firstElementType with this element's type.
+    // (Report a type mismatch if unify() returns false.)
+  });
 
   // Create an array type (in a real implementation, this would be Array<T>)
   return createConcreteType("Array");
