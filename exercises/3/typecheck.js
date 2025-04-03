@@ -70,9 +70,7 @@ function resolveSymlinksAndCompress(typeId) {
     const ultimateTypeId = resolveSymlinksAndCompress(entry.symlink);
 
     // Path compression: update the symlink to point directly to the ultimate type
-    if (ultimateTypeId !== entry.symlink) {
-      db[typeId] = { symlink: ultimateTypeId };
-    }
+    db[typeId] = { symlink: ultimateTypeId };
 
     return ultimateTypeId;
   }
@@ -135,11 +133,15 @@ const unify = (aTypeId, bTypeId, node) => {
   const aEntry = db[aType];
   const bEntry = db[bType];
 
-  // Check if both types are concrete and different
-  if (aEntry && aEntry.concrete !== undefined && 
-      bEntry && bEntry.concrete !== undefined && 
-      aEntry.concrete !== bEntry.concrete) {
-    return reportTypeMismatch(aTypeId, bTypeId, node);
+  // If both have concrete types and they're different, report mismatch
+  if (
+    aEntry &&
+    aEntry.concrete !== undefined &&
+    bEntry &&
+    bEntry.concrete !== undefined &&
+    aEntry.concrete !== bEntry.concrete
+  ) {
+    return reportTypeMismatch(aType, bType, node);
   }
 
   if (aEntry === null) {
@@ -375,19 +377,25 @@ function visitCallExpression(node) {
  * @returns {number} - The type id of the declared variable
  */
 function visitConstDeclaration(node) {
-  const initType = visitNode(node.init);
+  // 👉 Find the type id of the parse tree node stored in `node.init`
+  //
+  // `node` looks like this:
+  //
+  // {
+  //    type: "ConstDeclaration",
+  //    id: { typeId: ... }, // a types db id
+  //    init: { ... },       // another parse tree node
+  // }
+  //
+  // For example, in `const x = 5` the parse tree node for `5` will be in `node.init` here.
 
-  // Assign type to the declared identifier
+  // 👉 Set `scope[name] = ...` to be equal to the type id we found above.
+  //    The `name` in `scope[name] =` should be the const variable's name.
+  //
+  // Hint: In `const x = 5`, `node.id.name` will be "x"
+
+  // 👉 Record the type id we just added to scope inside the node's `node.id.typeId` for later.
   node.id.typeId = initType;
-
-  // Add the variable to scope
-  scope[node.id.name] = initType;
-
-  // If there's a type annotation, check it matches the initialization
-  if (node.typeAnnotation) {
-    // In a real implementation, process the type annotation
-    // and unify it with initType
-  }
 
   return initType;
 }
@@ -443,7 +451,7 @@ function visitConditionalExpression(node) {
   if (testConcrete && testConcrete !== "Boolean") {
     reportError(
       `Type mismatch in ternary: condition must be Boolean, got ${testConcrete}`,
-      node.test
+      node.test,
     );
   } else {
     // Try to unify if we don't have concrete type info
@@ -455,10 +463,14 @@ function visitConditionalExpression(node) {
   const alternateConcrete = getConcreteTypeName(alternateType);
 
   // Check if branches have the same type, directly compare concrete types
-  if (consequentConcrete && alternateConcrete && consequentConcrete !== alternateConcrete) {
+  if (
+    consequentConcrete &&
+    alternateConcrete &&
+    consequentConcrete !== alternateConcrete
+  ) {
     reportError(
       `Type mismatch in ternary: branches must have the same type, got ${consequentConcrete} and ${alternateConcrete}`,
-      node
+      node,
     );
   } else {
     // Try to unify if we don't have concrete type info for both
@@ -491,10 +503,14 @@ function visitArrayLiteral(node) {
     const elementConcrete = getConcreteTypeName(elementType);
 
     // If we have concrete types and they're different, report error
-    if (firstElementConcrete && elementConcrete && firstElementConcrete !== elementConcrete) {
+    if (
+      firstElementConcrete &&
+      elementConcrete &&
+      firstElementConcrete !== elementConcrete
+    ) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types, found ${firstElementConcrete} and ${elementConcrete}`,
-        node.elements[i]
+        node.elements[i],
       );
       continue;
     }
@@ -503,7 +519,7 @@ function visitArrayLiteral(node) {
     if (!unify(firstElementType, elementType, node.elements[i])) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types`,
-        node.elements[i]
+        node.elements[i],
       );
     }
   }
@@ -511,8 +527,6 @@ function visitArrayLiteral(node) {
   // Create an array type (in a real implementation, this would be Array<T>)
   return createConcreteType("Array");
 }
-
-
 
 /**
  * Perform type checking on a parse tree
@@ -532,9 +546,7 @@ function typeCheck(statements) {
     visitNode(statement);
   }
 
-  return {
-    errors
-  };
+  return { errors };
 }
 
 module.exports = {
