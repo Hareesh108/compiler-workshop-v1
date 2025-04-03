@@ -311,7 +311,7 @@ function parse(tokens) {
     } else {
       // Expression bodies are not allowed, only block bodies with curly braces
       throw new Error(
-        `Arrow functions only support block bodies with curly braces in this language`
+        `Arrow functions only support block bodies with curly braces in this language`,
       );
     }
 
