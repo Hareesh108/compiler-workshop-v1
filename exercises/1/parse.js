@@ -1,17 +1,17 @@
 /**
  * Syntax Analysis (Parsing)
  *
- * This module takes a stream of tokens and builds an Abstract Syntax Tree (AST).
- * The AST represents the structure of the code with nodes for different syntax constructs.
+ * This module takes a stream of tokens and builds a Parse Tree.
+ * The Parse Tree represents the structure of the code with nodes for different syntax constructs.
  */
 
 /**
- * Parse tokens into an Abstract Syntax Tree (AST)
+ * Parse tokens into a Parse Tree
  *
  * @param {Array} tokens - A list of tokens from the tokenizer
  * @param {Object} [options] - Optional configuration
- * @param {Function} [options.onNode] - Callback function triggered when an AST node is produced
- * @returns {Object} - The root node of the Abstract Syntax Tree
+ * @param {Function} [options.onNode] - Callback function triggered when a Parse Tree Node is produced
+ * @returns {Object} - The root node of the Parse Tree
  */
 function parse(tokens, options = {}) {
   let current = 0; // Current token index
@@ -998,7 +998,7 @@ function parse(tokens, options = {}) {
  * Main compilation function that combines tokenizing and parsing
  *
  * @param {string} sourceCode - The source code to compile
- * @returns {Object} - The AST representing the program
+ * @returns {Object} - The Parse Tree representing the program
  */
 function compile(sourceCode) {
   const { tokenize } = require("./tokenize");
@@ -1006,10 +1006,10 @@ function compile(sourceCode) {
   // Step 1: Tokenize the source code
   const tokens = tokenize(sourceCode);
 
-  // Step 2: Parse the tokens into an AST
-  const ast = parse(tokens);
+  // Step 2: Parse the tokens into a Parse Tree
+  const parseTree = parse(tokens);
 
-  return ast;
+  return parseTree;
 }
 
 module.exports = {

@@ -1,14 +1,37 @@
-/**
- * Test suite for the tokenizer and parser
- *
- * This file contains tests for the tokenizer and parser modules.
- * Run this file with Node.js to execute all the tests.
- */
-
 const { tokenize } = require("./tokenize");
 const { parse, compile } = require("./parse");
 
-// Test utilities
+function runAllTests() {
+  console.log("Running tests...");
+
+  let tokenizeResults = runTokenizerTests();
+  let parserResults = runParserTests();
+
+  // Summary
+  console.log("\n=== Test Summary ===\n");
+  if (tokenizeResults.passed && parserResults.passed) {
+    console.log(`${PASS} All tests passed!`);
+  } else {
+    console.log(`${FAIL} Some tests failed:`);
+
+    // Show which tokenizer tests failed
+    if (!tokenizeResults.passed) {
+      console.log("\nFailed Tokenizer Tests:");
+      tokenizeResults.failedTests.forEach((test) => {
+        console.log(`  - ${test}`);
+      });
+    }
+
+    // Show which parser tests failed
+    if (!parserResults.passed) {
+      console.log("\nFailed Parser Tests:");
+      parserResults.failedTests.forEach((test) => {
+        console.log(`  - ${test}`);
+      });
+    }
+  }
+}
+
 const PASS = "✅";
 const FAIL = "❌";
 
@@ -25,7 +48,7 @@ function test(name, testFn) {
     return true;
   } catch (error) {
     console.log(`${FAIL} ${name}`);
-    // Only print error message, not the stack trace
+    // Hide the stack trace but print the error message.
     console.error(`   Error: ${error.message}`);
     return false;
   }
@@ -204,18 +227,18 @@ function runParserTests() {
 
   runTest("Parse empty program", () => {
     const tokens = tokenize("");
-    const ast = parse(tokens);
-    assertEqual(ast.type, "Program", "Root node should be Program");
-    assertEqual(ast.body.length, 0, "Empty program should have no statements");
+    const parseTree = parse(tokens);
+    assertEqual(parseTree.type, "Program", "Root node should be Program");
+    assertEqual(parseTree.body.length, 0, "Empty program should have no statements");
   });
 
   runTest("Parse const declaration", () => {
     const tokens = tokenize("const x = 5;");
-    const ast = parse(tokens);
-    assertEqual(ast.type, "Program", "Root node should be Program");
-    assertEqual(ast.body.length, 1, "Program should have one statement");
+    const parseTree = parse(tokens);
+    assertEqual(parseTree.type, "Program", "Root node should be Program");
+    assertEqual(parseTree.body.length, 1, "Program should have one statement");
 
-    const stmt = ast.body[0];
+    const stmt = parseTree.body[0];
     assertEqual(
       stmt.type,
       "ConstDeclaration",
@@ -232,8 +255,8 @@ function runParserTests() {
 
   runTest("Parse const with type annotation", () => {
     const tokens = tokenize("const x: number = 5;");
-    const ast = parse(tokens);
-    const stmt = ast.body[0];
+    const parseTree = parse(tokens);
+    const stmt = parseTree.body[0];
 
     assert(stmt.typeAnnotation, "Should have type annotation");
     assertEqual(
@@ -245,8 +268,8 @@ function runParserTests() {
 
   runTest("Parse string literal", () => {
     const tokens = tokenize('const message = "hello world";');
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(init.type, "StringLiteral", "Should be StringLiteral");
     assertEqual(
@@ -258,8 +281,8 @@ function runParserTests() {
 
   runTest("Parse binary expression", () => {
     const tokens = tokenize("const sum = 1 + 2;");
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(init.type, "BinaryExpression", "Should be BinaryExpression");
     assertEqual(init.operator, "+", 'Operator should be "+"');
@@ -269,8 +292,8 @@ function runParserTests() {
 
   runTest("Parse array literal", () => {
     const tokens = tokenize("const numbers = [1, 2, 3];");
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(init.type, "ArrayLiteral", "Should be ArrayLiteral");
     assertEqual(init.elements.length, 3, "Should have 3 elements");
@@ -281,8 +304,8 @@ function runParserTests() {
 
   runTest("Parse arrow function", () => {
     const tokens = tokenize("const add = (a, b) => { return a + b; };");
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(
       init.type,
@@ -310,8 +333,8 @@ function runParserTests() {
     const tokens = tokenize(
       "const add = (a: number, b: number): number => { return a + b; };",
     );
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(
       init.params[0].typeAnnotation.valueType,
@@ -333,8 +356,8 @@ function runParserTests() {
   runTest("Parse ternary expression", () => {
     // We'll modify the test to use a condition our parser understands
     const tokens = tokenize('const result = (x) ? "positive" : "negative";');
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(
       init.type,
@@ -357,8 +380,8 @@ function runParserTests() {
 
   runTest("Parse simple ternary expression", () => {
     const tokens = tokenize('const result = true ? "yes" : "no";');
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(
       init.type,
@@ -377,8 +400,8 @@ function runParserTests() {
 
   runTest("Parse function call", () => {
     const tokens = tokenize("const result = add(1, 2);");
-    const ast = parse(tokens);
-    const init = ast.body[0].init;
+    const parseTree = parse(tokens);
+    const init = parseTree.body[0].init;
 
     assertEqual(init.type, "CallExpression", "Should be CallExpression");
     assertEqual(init.callee.name, "add", 'Callee should be "add"');
@@ -389,8 +412,8 @@ function runParserTests() {
 
   runTest("Parse return statement", () => {
     const tokens = tokenize("const fn = () => { return 42; };");
-    const ast = parse(tokens);
-    const fnBody = ast.body[0].init.body.body[0];
+    const parseTree = parse(tokens);
+    const fnBody = parseTree.body[0].init.body.body[0];
 
     assertEqual(fnBody.type, "ReturnStatement", "Should be ReturnStatement");
     assertEqual(
@@ -403,44 +426,13 @@ function runParserTests() {
 
   runTest("Integrate tokenize and parse", () => {
     const sourceCode = 'const x = 5; const y = "hello"; const z = x;';
-    const ast = compile(sourceCode);
+    const parseTree = compile(sourceCode);
 
-    assertEqual(ast.type, "Program", "Root node should be Program");
-    assertEqual(ast.body.length, 3, "Program should have three statements");
+    assertEqual(parseTree.type, "Program", "Root node should be Program");
+    assertEqual(parseTree.body.length, 3, "Program should have three statements");
   });
 
   return { passed: allPassed, failedTests };
 }
 
-// -----------------------------------------------------------------------------
-// Run all tests
-// -----------------------------------------------------------------------------
-
-console.log("Running tests...");
-
-let tokenizeResults = runTokenizerTests();
-let parserResults = runParserTests();
-
-// Summary
-console.log("\n=== Test Summary ===\n");
-if (tokenizeResults.passed && parserResults.passed) {
-  console.log(`${PASS} All tests passed!`);
-} else {
-  console.log(`${FAIL} Some tests failed:`);
-
-  // Show which tokenizer tests failed
-  if (!tokenizeResults.passed) {
-    console.log("\nFailed Tokenizer Tests:");
-    tokenizeResults.failedTests.forEach((test) => {
-      console.log(`  - ${test}`);
-    });
-  }
-
-  // Show which parser tests failed
-  if (!parserResults.passed) {
-    console.log("\nFailed Parser Tests:");
-    parserResults.failedTests.forEach((test) => {
-      console.log(`  - ${test}`);
-    });
-  }
-}
+runAllTests();
