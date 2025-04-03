@@ -511,6 +511,7 @@ function visitArrayLiteral(node) {
   const firstElementConcrete = getConcreteTypeName(firstElementType);
 
   for (let i = 1; i < node.elements.length; i++) {
+    // 👉 Get the element's type from its type id.
     const elementType = visitNode(node.elements[i]);
     const elementConcrete = getConcreteTypeName(elementType);
 

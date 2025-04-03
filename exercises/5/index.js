@@ -161,18 +161,36 @@ test("Type-check function with compatible argument types", () => {
   );
 });
 
-test("Type-check named function call stored in scope", () => {
+test("Type-check named function call stored in scope with type verification", () => {
   const statements = compile(`
     const processNumber = (x) => { return x * 2; };
     const storeFunction = processNumber;
     const result = storeFunction(10);
+    // This will fail if return type inference doesn't work
+    const checkType = result + 5;
   `);
   const result = typeCheck(statements);
 
   assertEqual(
     result.errors, 
     [],
-    "No type errors expected when calling a named function from scope"
+    "No type errors expected when calling a named function from scope with correct return type"
+  );
+  
+  // Now verify with a type mismatch to ensure branch is working
+  const statementsWithMismatch = compile(`
+    const processString = (x) => { return "string result"; };
+    const storeFunction = processString;
+    const result = storeFunction("hello");
+    // This should fail if the branch is working correctly
+    const checkType = result * 10;
+  `);
+  const resultWithMismatch = typeCheck(statementsWithMismatch);
+  
+  assert(
+    resultWithMismatch.errors.length === 1 && 
+    resultWithMismatch.errors[0].message.includes("Type mismatch"),
+    "Should report type mismatch when using string return value in numeric operation"
   );
 });
 
