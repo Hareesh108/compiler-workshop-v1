@@ -7,7 +7,6 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-// Naming tests
 test("Name-check empty program", () => {
   const statements = compile("");
   const result = nameCheck(statements);
