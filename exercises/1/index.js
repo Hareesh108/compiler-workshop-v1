@@ -1,6 +1,6 @@
 const { tokenize } = require("./tokenize");
 const { parse, compile } = require("./parse");
-const { test, assert, assertEqual, summarize } = require("../test");
+const { test, assert, assertEqual, summarize: reportTestFailures } = require("../test");
 
 // Tokenizer tests
 test("Tokenize empty string", () => {
@@ -102,18 +102,16 @@ test("Should throw on invalid characters", () => {
 // Parser tests
 test("Parse empty program", () => {
   const tokens = tokenize("");
-  const parseTree = parse(tokens);
-  assertEqual(parseTree.type, "Program", "Root node should be Program");
-  assertEqual(parseTree.body.length, 0, "Empty program should have no statements");
+  const statements = parse(tokens);
+  assertEqual(statements.length, 0, "Empty program should have no statements");
 });
 
 test("Parse const declaration", () => {
   const tokens = tokenize("const x = 5;");
-  const parseTree = parse(tokens);
-  assertEqual(parseTree.type, "Program", "Root node should be Program");
-  assertEqual(parseTree.body.length, 1, "Program should have one statement");
+  const statements = parse(tokens);
+  assertEqual(statements.length, 1, "Program should have one statement");
 
-  const stmt = parseTree.body[0];
+  const stmt = statements[0];
   assertEqual(
     stmt.type,
     "ConstDeclaration",
@@ -130,8 +128,8 @@ test("Parse const declaration", () => {
 
 test("Parse const with type annotation", () => {
   const tokens = tokenize("const x: number = 5;");
-  const parseTree = parse(tokens);
-  const stmt = parseTree.body[0];
+  const statements = parse(tokens);
+  const stmt = statements[0];
 
   assert(stmt.typeAnnotation, "Should have type annotation");
   assertEqual(
@@ -143,8 +141,8 @@ test("Parse const with type annotation", () => {
 
 test("Parse string literal", () => {
   const tokens = tokenize('const message = "hello world";');
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(init.type, "StringLiteral", "Should be StringLiteral");
   assertEqual(
@@ -156,8 +154,8 @@ test("Parse string literal", () => {
 
 test("Parse binary expression", () => {
   const tokens = tokenize("const sum = 1 + 2;");
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(init.type, "BinaryExpression", "Should be BinaryExpression");
   assertEqual(init.operator, "+", 'Operator should be "+"');
@@ -167,8 +165,8 @@ test("Parse binary expression", () => {
 
 test("Parse array literal", () => {
   const tokens = tokenize("const numbers = [1, 2, 3];");
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(init.type, "ArrayLiteral", "Should be ArrayLiteral");
   assertEqual(init.elements.length, 3, "Should have 3 elements");
@@ -179,8 +177,8 @@ test("Parse array literal", () => {
 
 test("Parse arrow function", () => {
   const tokens = tokenize("const add = (a, b) => { return a + b; };");
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(
     init.type,
@@ -208,8 +206,8 @@ test("Parse arrow function with type annotations", () => {
   const tokens = tokenize(
     "const add = (a: number, b: number): number => { return a + b; };",
   );
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(
     init.params[0].typeAnnotation.valueType,
@@ -231,8 +229,8 @@ test("Parse arrow function with type annotations", () => {
 test("Parse ternary expression", () => {
   // We'll modify the test to use a condition our parser understands
   const tokens = tokenize('const result = (x) ? "positive" : "negative";');
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(
     init.type,
@@ -255,8 +253,8 @@ test("Parse ternary expression", () => {
 
 test("Parse simple ternary expression", () => {
   const tokens = tokenize('const result = true ? "yes" : "no";');
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(
     init.type,
@@ -275,8 +273,8 @@ test("Parse simple ternary expression", () => {
 
 test("Parse function call", () => {
   const tokens = tokenize("const result = add(1, 2);");
-  const parseTree = parse(tokens);
-  const init = parseTree.body[0].init;
+  const statements = parse(tokens);
+  const init = statements[0].init;
 
   assertEqual(init.type, "CallExpression", "Should be CallExpression");
   assertEqual(init.callee.name, "add", 'Callee should be "add"');
@@ -287,8 +285,8 @@ test("Parse function call", () => {
 
 test("Parse return statement", () => {
   const tokens = tokenize("const fn = () => { return 42; };");
-  const parseTree = parse(tokens);
-  const fnBody = parseTree.body[0].init.body.body[0];
+  const statements = parse(tokens);
+  const fnBody = statements[0].init.body.body[0];
 
   assertEqual(fnBody.type, "ReturnStatement", "Should be ReturnStatement");
   assertEqual(
@@ -301,11 +299,9 @@ test("Parse return statement", () => {
 
 test("Integrate tokenize and parse", () => {
   const sourceCode = 'const x = 5; const y = "hello"; const z = x;';
-  const parseTree = compile(sourceCode);
+  const statements = compile(sourceCode);
 
-  assertEqual(parseTree.type, "Program", "Root node should be Program");
-  assertEqual(parseTree.body.length, 3, "Program should have three statements");
+  assertEqual(statements.length, 3, "Program should have three statements");
 });
 
-// Display test summary after all tests have run
-summarize();
+reportTestFailures();

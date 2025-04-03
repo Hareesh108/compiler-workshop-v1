@@ -1,12 +1,10 @@
 /**
- * Lexical Analysis (Tokenization)
+ * Tokenization (aka Lexing)
  *
- * This module handles the tokenization phase of our compiler.
- * It breaks source code into tokens - minimal, meaningful units of code.
+ * It breaks an input source code string into tokens.
+ * Afterwards, these tokens wil lbe given to the parser.
  */
 
-// Token patterns and whitespace regex
-const WHITESPACE_REGEX = /^\s+/;
 const TOKEN_PATTERNS = [
   // Comments
   { type: "COMMENT", regex: /^\/\/.*?(?:\n|$)/ }, // Single-line comments
@@ -57,30 +55,20 @@ const TOKEN_PATTERNS = [
  * Tokenize source code into a stream of tokens
  *
  * @param {string} sourceCode - The raw source code to tokenize
- * @param {Object} [options] - Optional configuration
- * @param {Function} [options.onToken] - Callback function triggered when a token is produced
  * @returns {Array} - A list of token objects
  */
-function tokenize(sourceCode, options = {}) {
+function tokenize(sourceCode) {
   const tokens = [];
   let position = 0; // Current position in the source code
-  const onToken = options.onToken || (() => {}); // Default to no-op if no callback provided
 
   /**
    * Helper function to skip over whitespace characters
    * Whitespace doesn't affect the program's meaning, so we ignore it
    */
   function skipWhitespace() {
-    const match = sourceCode.slice(position).match(WHITESPACE_REGEX);
+    const match = sourceCode.slice(position).match(/^\s+/);
     if (match) {
       const whitespaceText = match[0];
-      onToken({
-        type: "WHITESPACE",
-        value: whitespaceText,
-        position,
-        length: whitespaceText.length,
-        consumedText: whitespaceText,
-      });
       position += whitespaceText.length;
     }
   }
@@ -109,15 +97,6 @@ function tokenize(sourceCode, options = {}) {
 
         // Skip comments, don't add them to the token stream
         if (pattern.type === "COMMENT") {
-          // Emit comment event before changing position
-          onToken({
-            type: "COMMENT",
-            value,
-            position: startPosition,
-            length: value.length,
-            consumedText: value,
-          });
-
           position += value.length;
           matched = true;
           break;
@@ -126,7 +105,7 @@ function tokenize(sourceCode, options = {}) {
         // Create a token object with:
         // - type: the category of token (e.g., "IDENTIFIER", "NUMBER")
         // - value: the actual text from the source code
-        // - position: where in the source this token appears
+        // - position: the index in the source string where this token appears
         const token = {
           type: pattern.type,
           value,
@@ -134,13 +113,6 @@ function tokenize(sourceCode, options = {}) {
         };
 
         tokens.push(token);
-
-        // Emit token event before changing position
-        onToken({
-          ...token,
-          length: value.length,
-          consumedText: value,
-        });
 
         // Advance our position by the length of the matched token
         position += value.length;
@@ -157,35 +129,15 @@ function tokenize(sourceCode, options = {}) {
     }
   }
 
-  // Add a special End-Of-File token to mark the end of the source
-  // This simplifies the parser logic by avoiding special cases for the end
-  const eofToken = { type: "EOF", position };
-  tokens.push(eofToken);
-
-  // Emit EOF token event
-  onToken({
-    ...eofToken,
-    length: 0,
-    consumedText: "",
+  // Always add an EOF token at the end
+  tokens.push({
+    type: "EOF",
+    position: position,
   });
 
   return tokens;
 }
 
-// Function to get the token patterns
-function getTokenPatterns() {
-  return TOKEN_PATTERNS;
-}
-
-// Function to get the whitespace regex
-function getWhitespaceRegex() {
-  return WHITESPACE_REGEX;
-}
-
 module.exports = {
   tokenize,
-  getTokenPatterns,
-  getWhitespaceRegex,
-  TOKEN_PATTERNS,
-  WHITESPACE_REGEX,
 };

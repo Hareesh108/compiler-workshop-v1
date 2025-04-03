@@ -1,7 +1,7 @@
 /**
- * Syntax Analysis (Parsing)
+ * Parsing (aka Syntax Analysis)
  *
- * This module takes a stream of tokens and builds a Parse Tree.
+ * This module takes a stream of tokens (from the Tokenize step) and builds a Parse Tree.
  * The Parse Tree represents the structure of the code with nodes for different syntax constructs.
  */
 
@@ -9,13 +9,10 @@
  * Parse tokens into a Parse Tree
  *
  * @param {Array} tokens - A list of tokens from the tokenizer
- * @param {Object} [options] - Optional configuration
- * @param {Function} [options.onNode] - Callback function triggered when a Parse Tree Node is produced
  * @returns {Object} - The root node of the Parse Tree
  */
-function parse(tokens, options = {}) {
+function parse(tokens) {
   let current = 0; // Current token index
-  const onNode = options.onNode || (() => {}); // Default to no-op if no callback provided
 
   /**
    * Look at the current token without consuming it
@@ -54,28 +51,27 @@ function parse(tokens, options = {}) {
   }
 
   /**
-   * Parse an entire program
-   * A program is a sequence of statements
+   * Parse an entire program, returning an array of its top-level statements.
    */
   function parseProgram() {
     const statements = [];
 
-    // Emit an event for the program start
-    onNode({
-      type: "ProgramStart",
-      position: peek().position,
-    });
-
-    while (!check("EOF")) {
+    while (current < tokens.length) {
       try {
-        statements.push(parseStatement());
+        const statement = parseStatement();
+        // Only add non-null statements (null is returned for EOF tokens)
+        if (statement !== null) {
+          statements.push(statement);
+        } else {
+          // We found an EOF token, so break out of the loop
+          break;
+        }
       } catch (error) {
         // Skip to the next statement on error
         console.error("Parse error:", error);
         while (
           current < tokens.length &&
-          !check("SEMICOLON") &&
-          !check("EOF")
+          !check("SEMICOLON")
         ) {
           next();
         }
@@ -83,36 +79,24 @@ function parse(tokens, options = {}) {
       }
     }
 
-    // Create the program node
-    const programNode = {
-      type: "Program",
-      body: statements,
-    };
-
-    // Emit an event for the completed program
-    onNode({
-      type: "ProgramComplete",
-      node: programNode,
-      position: tokens[tokens.length - 1].position,
-    });
-
-    return programNode;
+    // Return the array of statements directly
+    return statements;
   }
 
   /**
    * Parse a statement
-   * In our simple language, statements are:
+   * In our simple language, statements are either:
    * - const declarations (const x = ...)
    * - return statements (return ...)
-   * - expressions (anything that produces a value)
+   * There can be a semicolon after a statement, but it's optional.
    */
   function parseStatement() {
-    // Emit an event for statement start
-    onNode({
-      type: "StatementStart",
-      position: peek().position,
-    });
-
+    // Handle EOF token by returning null - parseProgram will handle this
+    if (check("EOF")) {
+      next(); // Consume the EOF token
+      return null;
+    }
+    
     let statement;
     if (check("CONST")) {
       statement = parseConstDeclaration();
@@ -127,13 +111,6 @@ function parse(tokens, options = {}) {
       next();
     }
 
-    // Emit an event for statement complete
-    onNode({
-      type: "StatementComplete",
-      node: statement,
-      position: tokens[current - 1].position,
-    });
-
     return statement;
   }
 
@@ -141,20 +118,13 @@ function parse(tokens, options = {}) {
    * Parse a return statement
    */
   function parseReturnStatement() {
-    // Emit an event for return statement start
-    const startPosition = peek().position;
-    onNode({
-      type: "ReturnStatementStart",
-      position: startPosition,
-    });
-
     // Consume the 'return' keyword
     expect("RETURN", "Expected 'return' keyword");
 
     let argument = null;
 
     // If there's an expression after return, parse it
-    if (!check("SEMICOLON") && !check("RIGHT_CURLY")) {
+    if (current < tokens.length && !check("SEMICOLON") && !check("RIGHT_CURLY")) {
       argument = parseExpression();
     }
 
@@ -163,13 +133,6 @@ function parse(tokens, options = {}) {
       argument,
     };
 
-    // Emit an event for return statement complete
-    onNode({
-      type: "ReturnStatementComplete",
-      node: returnStatement,
-      position: peek() ? peek().position : tokens[current - 1].position,
-    });
-
     return returnStatement;
   }
 
@@ -177,13 +140,6 @@ function parse(tokens, options = {}) {
    * Parse a const declaration
    */
   function parseConstDeclaration() {
-    // Emit event for const declaration start
-    const startPosition = peek().position;
-    onNode({
-      type: "ConstDeclarationStart",
-      position: startPosition,
-    });
-
     // Consume the 'const' keyword
     expect("CONST", "Expected 'const' keyword");
 
@@ -192,13 +148,6 @@ function parse(tokens, options = {}) {
       type: "Identifier",
       name: expect("IDENTIFIER", "Expected variable name").value,
     };
-
-    // Emit event for identifier
-    onNode({
-      type: "Identifier",
-      node: id,
-      position: tokens[current - 1].position,
-    });
 
     // Parse type annotation if present (with colon)
     let typeAnnotation = null;
@@ -221,13 +170,6 @@ function parse(tokens, options = {}) {
       typeAnnotation,
     };
 
-    // Emit event for const declaration complete
-    onNode({
-      type: "ConstDeclarationComplete",
-      node: constDeclaration,
-      position: peek() ? peek().position : tokens[current - 1].position,
-    });
-
     return constDeclaration;
   }
 
@@ -235,22 +177,7 @@ function parse(tokens, options = {}) {
    * Parse an expression (anything that produces a value)
    */
   function parseExpression() {
-    // Emit event for expression start
-    const startPosition = peek().position;
-    onNode({
-      type: "ExpressionStart",
-      position: startPosition,
-    });
-
     const expression = parseTernary();
-
-    // Emit event for expression complete
-    onNode({
-      type: "ExpressionComplete",
-      node: expression,
-      position: peek() ? peek().position : tokens[current - 1].position,
-    });
-
     return expression;
   }
 
@@ -263,12 +190,6 @@ function parse(tokens, options = {}) {
 
     // If we see a question mark, this is a ternary expression
     if (check("TERNARY")) {
-      // Emit event for ternary start
-      onNode({
-        type: "TernaryStart",
-        position: peek().position,
-      });
-
       // Consume the question mark
       next();
 
@@ -289,13 +210,6 @@ function parse(tokens, options = {}) {
         alternate,
       };
 
-      // Emit event for ternary complete
-      onNode({
-        type: "TernaryComplete",
-        node: ternary,
-        position: peek() ? peek().position : tokens[current - 1].position,
-      });
-
       return ternary;
     }
 
@@ -312,12 +226,6 @@ function parse(tokens, options = {}) {
 
     // If we see a plus sign, this is a binary expression
     while (check("PLUS")) {
-      // Emit event for binary expression start
-      onNode({
-        type: "BinaryExpressionStart",
-        position: peek().position,
-      });
-
       // Get the operator
       const operator = next().value;
 
@@ -331,13 +239,6 @@ function parse(tokens, options = {}) {
         operator,
         right,
       };
-
-      // Emit event for binary expression complete
-      onNode({
-        type: "BinaryExpressionComplete",
-        node: left,
-        position: peek() ? peek().position : tokens[current - 1].position,
-      });
     }
 
     return left;
@@ -347,13 +248,6 @@ function parse(tokens, options = {}) {
    * Parse a function expression
    */
   function parseFunction() {
-    // Emit event for function start
-    const startPosition = peek().position;
-    onNode({
-      type: "FunctionStart",
-      position: startPosition,
-    });
-
     // Start with a left parenthesis
     expect("LEFT_PAREN", "Expected '(' at start of arrow function");
 
@@ -370,13 +264,6 @@ function parse(tokens, options = {}) {
           type: "Identifier",
           name: paramToken.value,
         };
-
-        // Emit event for parameter identifier
-        onNode({
-          type: "Identifier",
-          node: param,
-          position: tokens[current - 1].position,
-        });
 
         // Check for type annotation (with colon)
         if (check("COLON")) {
@@ -418,7 +305,7 @@ function parse(tokens, options = {}) {
       next(); // Consume the {
 
       const blockStatements = [];
-      while (!check("RIGHT_CURLY") && !check("EOF")) {
+      while (current < tokens.length && !check("RIGHT_CURLY")) {
         try {
           blockStatements.push(parseStatement());
         } catch (error) {
@@ -427,8 +314,7 @@ function parse(tokens, options = {}) {
           while (
             current < tokens.length &&
             !check("SEMICOLON") &&
-            !check("RIGHT_CURLY") &&
-            !check("EOF")
+            !check("RIGHT_CURLY")
           ) {
             next();
           }
@@ -442,13 +328,6 @@ function parse(tokens, options = {}) {
         type: "BlockStatement",
         body: blockStatements,
       };
-
-      // Emit event for block statement
-      onNode({
-        type: "BlockStatement",
-        node: body,
-        position: tokens[current - 1].position,
-      });
     } else {
       // Always require block statement with return
       throw new Error(
@@ -464,13 +343,6 @@ function parse(tokens, options = {}) {
       expression, // true if body is an expression, false if it's a block
       returnType,
     };
-
-    // Emit event for function complete
-    onNode({
-      type: "FunctionComplete",
-      node: functionNode,
-      position: peek() ? peek().position : tokens[current - 1].position,
-    });
 
     return functionNode;
   }
@@ -505,7 +377,7 @@ function parse(tokens, options = {}) {
       } else {
         break;
       }
-    } while (!check("RIGHT_BRACKET") && !check("EOF"));
+    } while (current < tokens.length && !check("RIGHT_BRACKET"));
 
     expect("RIGHT_BRACKET", "Expected closing bracket for array literal");
 
@@ -535,12 +407,12 @@ function parse(tokens, options = {}) {
     };
 
     // Handle chained access like arr[0][1]
-    if (check("LEFT_BRACKET")) {
+    if (current < tokens.length && check("LEFT_BRACKET")) {
       return parseMemberExpression(node);
     }
 
     // Handle function call on array element like arr[0]()
-    if (check("LEFT_PAREN")) {
+    if (current < tokens.length && check("LEFT_PAREN")) {
       return parseCallExpression(node);
     }
 
@@ -591,7 +463,7 @@ function parse(tokens, options = {}) {
     // Explicitly reject 'any' type
     if (check("IDENTIFIER") && peek().value === "any") {
       throw new Error(
-        `'any' type is not supported at position ${peek().position}`,
+        `The 'any' type is not supported in this compiler (at position ${peek().position})`,
       );
     }
 
@@ -742,7 +614,7 @@ function parse(tokens, options = {}) {
       } else {
         break;
       }
-    } while (!check("RIGHT_PAREN") && !check("EOF"));
+    } while (current < tokens.length && !check("RIGHT_PAREN"));
 
     expect(
       "RIGHT_PAREN",
@@ -755,12 +627,6 @@ function parse(tokens, options = {}) {
    * Parse primary expressions - the most basic building blocks
    */
   function parsePrimary() {
-    // Emit event for primary expression start
-    const startPosition = peek().position;
-    onNode({
-      type: "PrimaryStart",
-      position: startPosition,
-    });
 
     let node;
 
@@ -882,12 +748,6 @@ function parse(tokens, options = {}) {
         value: token.value.slice(1, -1), // Remove the quotes
       };
 
-      // Emit event for string literal
-      onNode({
-        type: "StringLiteral",
-        node,
-        position: tokens[current - 1].position,
-      });
     } else if (check("NUMBER")) {
       // Number literal
       const token = next();
@@ -898,12 +758,6 @@ function parse(tokens, options = {}) {
         value,
       };
 
-      // Emit event for number literal
-      onNode({
-        type: "NumericLiteral",
-        node,
-        position: tokens[current - 1].position,
-      });
     } else if (check("BOOLEAN")) {
       // Boolean literal
       const token = next();
@@ -912,12 +766,7 @@ function parse(tokens, options = {}) {
         value: token.value === "true",
       };
 
-      // Emit event for boolean literal
-      onNode({
-        type: "BooleanLiteral",
-        node,
-        position: tokens[current - 1].position,
-      });
+
     } else if (check("IDENTIFIER")) {
       // Variable reference or function call
       const token = next();
@@ -926,12 +775,7 @@ function parse(tokens, options = {}) {
         name: token.value,
       };
 
-      // Emit event for identifier
-      onNode({
-        type: "Identifier",
-        node,
-        position: tokens[current - 1].position,
-      });
+
 
       // If the next token is a '(', this is a function call
       if (check("LEFT_PAREN")) {
@@ -947,16 +791,9 @@ function parse(tokens, options = {}) {
     }
 
     // Check for member expressions with dot notation
-    while (check("DOT")) {
+    while (current < tokens.length && check("DOT")) {
       node = parseMemberExpression(node);
     }
-
-    // Emit event for primary expression complete
-    onNode({
-      type: "PrimaryComplete",
-      node,
-      position: peek() ? peek().position : tokens[current - 1].position,
-    });
 
     return node;
   }
@@ -998,7 +835,7 @@ function parse(tokens, options = {}) {
  * Main compilation function that combines tokenizing and parsing
  *
  * @param {string} sourceCode - The source code to compile
- * @returns {Object} - The Parse Tree representing the program
+ * @returns {Array} - An array of statement nodes
  */
 function compile(sourceCode) {
   const { tokenize } = require("./tokenize");
@@ -1006,10 +843,10 @@ function compile(sourceCode) {
   // Step 1: Tokenize the source code
   const tokens = tokenize(sourceCode);
 
-  // Step 2: Parse the tokens into a Parse Tree
-  const parseTree = parse(tokens);
+  // Step 2: Parse the tokens into an array of statements
+  const statements = parse(tokens);
 
-  return parseTree;
+  return statements;
 }
 
 module.exports = {
