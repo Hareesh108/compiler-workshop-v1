@@ -1,3 +1,8 @@
+// 👉 Run `node index.js` to see which tests are failing.
+//
+// Fix the failing tests by resolving the "👉"
+// comments in this file!
+
 /**
  * Formatter
  *
