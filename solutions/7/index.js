@@ -4,24 +4,34 @@ const { test, assert, assertEqual, summarize } = require('../test');
 
 // WebAssembly testing utilities
 async function instantiateWasm(wasmBinary) {
+  console.log('Starting WebAssembly instantiation...');
   const importObject = {
     console: {
-      log: (value) => console.log(value)
+      log: (value) => console.log(`WASM log:`, value)
     }
   };
   
   try {
+    console.log('Compiling WebAssembly module...');
     const module = await WebAssembly.compile(wasmBinary);
+    console.log('WebAssembly module compiled successfully');
+    
+    console.log('Instantiating WebAssembly module...');
     const instance = await WebAssembly.instantiate(module, importObject);
+    console.log('WebAssembly module instantiated successfully');
+    
     return { module, instance, exports: instance.exports };
   } catch (error) {
+    console.error('WebAssembly instantiation error:', error);
     throw new Error(`Failed to instantiate WebAssembly module: ${error.message}`);
   }
 }
 
 async function compileAndRunWasm(sourceCode) {
+  console.log('Starting compilation to WASM...');
   // Compile source to WASM binary
   const result = compileToWasm(sourceCode);
+  console.log('compileToWasm result:', result ? 'success' : 'failure');
   
   if (result.errors && result.errors.length > 0) {
     console.error("Compilation errors:", result.errors);
@@ -29,48 +39,108 @@ async function compileAndRunWasm(sourceCode) {
   }
   
   try {
+    console.log('WASM binary size:', result.wasm ? result.wasm.length : 'unknown');
     // Instantiate the WebAssembly module
+    console.log('Calling instantiateWasm...');
     const { exports } = await instantiateWasm(result.wasm);
+    console.log('instantiateWasm completed successfully, exports:', Object.keys(exports));
     return { success: true, exports };
   } catch (error) {
+    console.error('compileAndRunWasm error:', error);
     return { success: false, error };
   }
 }
 
-// Adapter function to run async tests with the synchronous test framework
-function runAsyncTest(name, testFn) {
-  test(name, () => {
-    // Create a promise that will be resolved by the test
-    const promise = testFn();
+// Helper function to create a promise with a setTimeout
+function createTimedPromise(callback, timeout) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Operation timed out after ${timeout}ms`));
+    }, timeout);
     
-    // Since our test framework doesn't support async, we need to make this synchronous
-    // We'll throw if the test fails, which the test framework will catch
-    let resolved = false;
-    let testPassed = false;
-    let errorMsg = '';
-    
-    promise.then(() => {
-      resolved = true;
-      testPassed = true;
-    }).catch(error => {
-      resolved = true;
-      errorMsg = error.message;
-    });
-    
-    // Hacky synchronous wait - in a real app, never do this!
-    const start = Date.now();
-    while (!resolved && Date.now() - start < 5000) {
-      // Busy wait - this is a terrible practice but necessary for our simple test framework
-    }
-    
-    if (!resolved) {
-      throw new Error("Test timed out after 5 seconds");
-    }
-    
-    if (!testPassed) {
-      throw new Error(errorMsg);
+    try {
+      // Call the callback and capture its result
+      const result = callback();
+      
+      // If the callback returns a promise, handle it properly
+      if (result && typeof result.then === 'function') {
+        result.then(value => {
+          clearTimeout(timer);
+          resolve(value);
+        }).catch(error => {
+          clearTimeout(timer);
+          reject(error);
+        });
+      } else {
+        // If it's not a promise, resolve immediately
+        clearTimeout(timer);
+        resolve(result);
+      }
+    } catch (error) {
+      clearTimeout(timer);
+      reject(error);
     }
   });
+}
+
+// Global test results array to store async test results
+const asyncTestResults = [];
+
+// Store test functions instead of registering them immediately
+const asyncTests = [];
+
+// Adapter function to run async tests with the synchronous test framework
+function runAsyncTest(name, testFn) {
+  // Just store the test for later
+  asyncTests.push({ name, testFn });
+}
+
+// Run all async tests and report results
+async function runAsyncTestsAndSummarize() {
+  console.log("Running WebAssembly tests...");
+  
+  // Track test results
+  let allTestsPassed = true;
+  const testResults = [];
+  
+  // Run each test asynchronously
+  for (const { name, testFn } of asyncTests) {
+    console.log(`Running test: ${name}`);
+    
+    try {
+      // Run the test with a timeout
+      await createTimedPromise(() => testFn(), 5000);
+      console.log(`✓ ${name}`);
+      testResults.push({ name, passed: true });
+    } catch (error) {
+      console.error(`✗ ${name}`);
+      console.error(`   Error: ${error.message}`);
+      testResults.push({ name, passed: false, error: error.message });
+      allTestsPassed = false;
+    }
+  }
+  
+  // Print summary
+  console.log("\n=== WebAssembly Test Results ===\n");
+  
+  for (const result of testResults) {
+    if (result.passed) {
+      console.log(`✓ ${result.name}`);
+    } else {
+      console.log(`✗ ${result.name}`);
+      console.log(`   Error: ${result.error}`);
+    }
+  }
+  
+  console.log("\n=== Summary ===\n");
+  console.log(`${testResults.filter(r => r.passed).length} passing, ${testResults.filter(r => !r.passed).length} failing`);
+  
+  if (allTestsPassed) {
+    console.log("All tests passed!");
+  } else {
+    console.log("Some tests failed.");
+    process.exit(1); // Exit with error code
+  }
 }
 
 // WASM binary testing
@@ -176,5 +246,5 @@ runAsyncTest("Multiplication", async () => {
   assertEqual(exports.main(), 42.5, "Function should return 42.5");
 });
 
-// Run the tests
-summarize();
+// Run the async tests and then summarize
+runAsyncTestsAndSummarize();
