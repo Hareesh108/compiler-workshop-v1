@@ -1,7 +1,6 @@
 // 👉 Run `node index.js` from the parent directory to see which tests are failing.
 //
-// Fix the failing tests by resolving the "👉"
-// comments in this file!
+// Fix the failing tests by resolving the "👉" comments in this file!
 
 /**
  * Formatter

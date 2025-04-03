@@ -1,3 +1,7 @@
+// 👉 Run `node index.js` from the parent directory to see which tests are failing.
+//
+// Fix the failing tests by resolving the "👉" comments in this file!
+
 /**
  * WebAssembly Code Generation
  *
@@ -672,12 +676,10 @@ function generateBinaryExpressionBinary(node) {
   // Handle different operators
   let opCode;
   switch (node.operator) {
-    case '+':
-      opCode = OP.F64_ADD;
-      break;
-    case '*':
-      opCode = OP.F64_MUL;
-      break;
+    // 👉 Add cases for addition and multiplication operation using the glboal OP constant.
+    //
+    // Hint 1: In each case, you  want to set the opCode variable.
+    // Hint 2: WebAssembly uses the term "F64" for the type we call "Number".
     default:
       reportError(`Unsupported binary operator: ${node.operator}`, node);
       return new Uint8Array([]);
