@@ -1,125 +1,24 @@
 const { tokenize } = require("./tokenize");
 const { parse, compile } = require("./parse");
 
-function runAllTests() {
-  console.log("Running tests...");
-
-  let tokenizeResults = runTokenizerTests();
-  let parserResults = runParserTests();
-
-  // Summary
-  console.log("\n=== Test Summary ===\n");
-  if (tokenizeResults.passed && parserResults.passed) {
-    console.log(`${PASS} All tests passed!`);
-  } else {
-    console.log(`${FAIL} Some tests failed:`);
-
-    // Show which tokenizer tests failed
-    if (!tokenizeResults.passed) {
-      console.log("\nFailed Tokenizer Tests:");
-      tokenizeResults.failedTests.forEach((test) => {
-        console.log(`  - ${test}`);
-      });
-    }
-
-    // Show which parser tests failed
-    if (!parserResults.passed) {
-      console.log("\nFailed Parser Tests:");
-      parserResults.failedTests.forEach((test) => {
-        console.log(`  - ${test}`);
-      });
-    }
-  }
-}
-
-const PASS = "✅";
-const FAIL = "❌";
-
-/**
- * Run a test and report the result
- *
- * @param {string} name - Test name
- * @param {Function} testFn - Test function
- */
-function test(name, testFn) {
-  try {
-    testFn();
-    console.log(`${PASS} ${name}`);
-    return true;
-  } catch (error) {
-    console.log(`${FAIL} ${name}`);
-    // Hide the stack trace but print the error message.
-    console.error(`   Error: ${error.message}`);
-    return false;
-  }
-}
-
-/**
- * Assert that a condition is true
- *
- * @param {boolean} condition - The condition to check
- * @param {string} message - Error message if condition is false
- */
-function assert(condition, message = "Assertion failed") {
-  if (!condition) {
-    throw new Error(message);
-  }
-}
-
-/**
- * Assert that two values are equal
- *
- * @param {any} actual - The actual value
- * @param {any} expected - The expected value
- * @param {string} message - Error message if values are not equal
- */
-function assertEqual(actual, expected, message = "Values are not equal") {
-  if (typeof expected === "object" && expected !== null) {
-    // For objects, compare stringified versions
-    const actualStr = JSON.stringify(actual);
-    const expectedStr = JSON.stringify(expected);
-    if (actualStr !== expectedStr) {
-      throw new Error(
-        `${message}\nExpected: ${expectedStr}\nActual: ${actualStr}`,
-      );
-    }
-  } else if (actual !== expected) {
-    throw new Error(`${message}\nExpected: ${expected}\nActual: ${actual}`);
-  }
-}
-
-// -----------------------------------------------------------------------------
-// Tokenizer Tests
-// -----------------------------------------------------------------------------
+let failedTests = [];
 
 function runTokenizerTests() {
   console.log("\n=== Tokenizer Tests ===\n");
 
-  let allPassed = true;
-  let failedTests = [];
-
-  const runTest = (name, testFn) => {
-    const passed = test(name, testFn);
-    if (!passed) {
-      allPassed = false;
-      failedTests.push(name);
-    }
-    return passed;
-  };
-
-  runTest("Tokenize empty string", () => {
+  test("Tokenize empty string", () => {
     const tokens = tokenize("");
     assert(tokens.length === 1, "Should have only EOF token");
     assert(tokens[0].type === "EOF", "Last token should be EOF");
   });
 
-  runTest("Tokenize whitespace", () => {
+  test("Tokenize whitespace", () => {
     const tokens = tokenize("   \t\n  ");
     assert(tokens.length === 1, "Should have only EOF token");
     assert(tokens[0].type === "EOF", "Last token should be EOF");
   });
 
-  runTest("Tokenize simple expression", () => {
+  test("Tokenize simple expression", () => {
     const tokens = tokenize("const x = 5;");
     // Should have 5 tokens: CONST, IDENTIFIER, EQUAL, NUMBER, SEMICOLON, plus EOF
     assert(tokens.length === 6, `Expected 6 tokens, got ${tokens.length}`);
@@ -136,7 +35,7 @@ function runTokenizerTests() {
     assert(tokens[5].type === "EOF", "Last token should be EOF");
   });
 
-  runTest("Tokenize string literals", () => {
+  test("Tokenize string literals", () => {
     const tokens = tokenize('const greeting = "hello";');
     const stringToken = tokens[3];
     assert(stringToken.type === "STRING", "Should recognize string literals");
@@ -146,7 +45,7 @@ function runTokenizerTests() {
     );
   });
 
-  runTest("Tokenize arrow function", () => {
+  test("Tokenize arrow function", () => {
     const tokens = tokenize("const add = (a, b) => a + b;");
     const arrowToken = tokens.find((t) => t.type === "ARROW");
     assert(arrowToken, "Should have an ARROW token");
@@ -154,7 +53,7 @@ function runTokenizerTests() {
     assert(plusToken, "Should have a PLUS token");
   });
 
-  runTest("Tokenize with comments", () => {
+  test("Tokenize with comments", () => {
     const tokens = tokenize(
       "// This is a comment\nconst x = 5; /* Another comment */",
     );
@@ -165,7 +64,7 @@ function runTokenizerTests() {
     );
   });
 
-  runTest("Tokenize type annotations", () => {
+  test("Tokenize type annotations", () => {
     const tokens = tokenize("const x: number = 5;");
     const colonToken = tokens.find((t) => t.type === "COLON");
     assert(colonToken, "Should have a COLON token");
@@ -173,7 +72,7 @@ function runTokenizerTests() {
     assert(typeToken, "Should have a TYPE_NUMBER token");
   });
 
-  runTest("Tokenize array literals", () => {
+  test("Tokenize array literals", () => {
     const tokens = tokenize("const arr = [1, 2, 3];");
     const leftBracket = tokens.find((t) => t.type === "LEFT_BRACKET");
     assert(leftBracket, "Should have LEFT_BRACKET token");
@@ -181,7 +80,7 @@ function runTokenizerTests() {
     assert(rightBracket, "Should have RIGHT_BRACKET token");
   });
 
-  runTest("Tokenize ternary expressions", () => {
+  test("Tokenize ternary expressions", () => {
     const tokens = tokenize('const result = x > 0 ? "positive" : "negative";');
     const ternaryToken = tokens.find((t) => t.type === "TERNARY");
     assert(ternaryToken, "Should have TERNARY token");
@@ -189,7 +88,7 @@ function runTokenizerTests() {
     assert(colonToken, "Should have COLON token");
   });
 
-  runTest("Should throw on invalid characters", () => {
+  test("Should throw on invalid characters", () => {
     let error;
     try {
       tokenize("const x = @;");
@@ -203,7 +102,7 @@ function runTokenizerTests() {
     );
   });
 
-  return { passed: allPassed, failedTests };
+  return { passed: failedTests.filter(test => test.startsWith("Tokenize")).length === 0, failedTests: failedTests.filter(test => test.startsWith("Tokenize")) };
 }
 
 // -----------------------------------------------------------------------------
@@ -213,26 +112,14 @@ function runTokenizerTests() {
 function runParserTests() {
   console.log("\n=== Parser Tests ===\n");
 
-  let allPassed = true;
-  let failedTests = [];
-
-  const runTest = (name, testFn) => {
-    const passed = test(name, testFn);
-    if (!passed) {
-      allPassed = false;
-      failedTests.push(name);
-    }
-    return passed;
-  };
-
-  runTest("Parse empty program", () => {
+  test("Parse empty program", () => {
     const tokens = tokenize("");
     const parseTree = parse(tokens);
     assertEqual(parseTree.type, "Program", "Root node should be Program");
     assertEqual(parseTree.body.length, 0, "Empty program should have no statements");
   });
 
-  runTest("Parse const declaration", () => {
+  test("Parse const declaration", () => {
     const tokens = tokenize("const x = 5;");
     const parseTree = parse(tokens);
     assertEqual(parseTree.type, "Program", "Root node should be Program");
@@ -253,7 +140,7 @@ function runParserTests() {
     assertEqual(stmt.init.value, 5, "Numeric value should be 5");
   });
 
-  runTest("Parse const with type annotation", () => {
+  test("Parse const with type annotation", () => {
     const tokens = tokenize("const x: number = 5;");
     const parseTree = parse(tokens);
     const stmt = parseTree.body[0];
@@ -266,7 +153,7 @@ function runParserTests() {
     );
   });
 
-  runTest("Parse string literal", () => {
+  test("Parse string literal", () => {
     const tokens = tokenize('const message = "hello world";');
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -279,7 +166,7 @@ function runParserTests() {
     );
   });
 
-  runTest("Parse binary expression", () => {
+  test("Parse binary expression", () => {
     const tokens = tokenize("const sum = 1 + 2;");
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -290,7 +177,7 @@ function runParserTests() {
     assertEqual(init.right.value, 2, "Right value should be 2");
   });
 
-  runTest("Parse array literal", () => {
+  test("Parse array literal", () => {
     const tokens = tokenize("const numbers = [1, 2, 3];");
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -302,7 +189,7 @@ function runParserTests() {
     assertEqual(init.elements[2].value, 3, "Third element should be 3");
   });
 
-  runTest("Parse arrow function", () => {
+  test("Parse arrow function", () => {
     const tokens = tokenize("const add = (a, b) => { return a + b; };");
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -329,7 +216,7 @@ function runParserTests() {
     );
   });
 
-  runTest("Parse arrow function with type annotations", () => {
+  test("Parse arrow function with type annotations", () => {
     const tokens = tokenize(
       "const add = (a: number, b: number): number => { return a + b; };",
     );
@@ -353,7 +240,7 @@ function runParserTests() {
     );
   });
 
-  runTest("Parse ternary expression", () => {
+  test("Parse ternary expression", () => {
     // We'll modify the test to use a condition our parser understands
     const tokens = tokenize('const result = (x) ? "positive" : "negative";');
     const parseTree = parse(tokens);
@@ -378,7 +265,7 @@ function runParserTests() {
     );
   });
 
-  runTest("Parse simple ternary expression", () => {
+  test("Parse simple ternary expression", () => {
     const tokens = tokenize('const result = true ? "yes" : "no";');
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -398,7 +285,7 @@ function runParserTests() {
     assertEqual(init.alternate.value, "no", 'Alternate should be "no"');
   });
 
-  runTest("Parse function call", () => {
+  test("Parse function call", () => {
     const tokens = tokenize("const result = add(1, 2);");
     const parseTree = parse(tokens);
     const init = parseTree.body[0].init;
@@ -410,7 +297,7 @@ function runParserTests() {
     assertEqual(init.arguments[1].value, 2, "Second argument should be 2");
   });
 
-  runTest("Parse return statement", () => {
+  test("Parse return statement", () => {
     const tokens = tokenize("const fn = () => { return 42; };");
     const parseTree = parse(tokens);
     const fnBody = parseTree.body[0].init.body.body[0];
@@ -424,7 +311,7 @@ function runParserTests() {
     assertEqual(fnBody.argument.value, 42, "Return value should be 42");
   });
 
-  runTest("Integrate tokenize and parse", () => {
+  test("Integrate tokenize and parse", () => {
     const sourceCode = 'const x = 5; const y = "hello"; const z = x;';
     const parseTree = compile(sourceCode);
 
@@ -432,7 +319,78 @@ function runParserTests() {
     assertEqual(parseTree.body.length, 3, "Program should have three statements");
   });
 
-  return { passed: allPassed, failedTests };
+  return { passed: failedTests.filter(test => !test.startsWith("Tokenize")).length === 0, failedTests: failedTests.filter(test => !test.startsWith("Tokenize")) };
+}
+
+function runAllTests() {
+  console.log("Running tests...");
+
+  let tokenizeResults = runTokenizerTests();
+  let parserResults = runParserTests();
+
+  console.log("\n=== Test Summary ===\n");
+  if (tokenizeResults.passed && parserResults.passed) {
+    console.log(`${PASS} All tests passed!`);
+  } else {
+    console.log(`${FAIL} Some tests failed:`);
+
+    // Group failed tests by their prefix
+    const tokenizerFailures = failedTests.filter(test => test.startsWith("Tokenize"));
+    const parserFailures = failedTests.filter(test => !test.startsWith("Tokenize"));
+
+    if (tokenizerFailures.length > 0) {
+      console.log("\nFailed Tokenizer Tests:");
+      tokenizerFailures.forEach((test) => {
+        console.log(`  - ${test}`);
+      });
+    }
+
+    if (parserFailures.length > 0) {
+      console.log("\nFailed Parser Tests:");
+      parserFailures.forEach((test) => {
+        console.log(`  - ${test}`);
+      });
+    }
+  }
+}
+
+const PASS = "✅";
+const FAIL = "❌";
+
+
+
+function assert(condition, message = "Assertion failed") {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function assertEqual(actual, expected, message = "Values are not equal") {
+  if (typeof expected === "object" && expected !== null) {
+    const actualStr = JSON.stringify(actual);
+    const expectedStr = JSON.stringify(expected);
+    if (actualStr !== expectedStr) {
+      throw new Error(
+        `${message}\nExpected: ${expectedStr}\nActual: ${actualStr}`,
+      );
+    }
+  } else if (actual !== expected) {
+    throw new Error(`${message}\nExpected: ${expected}\nActual: ${actual}`);
+  }
+}
+
+function test (name, testFn) {
+  try {
+    testFn();
+    console.log(`${PASS} ${name}`);
+    return true;
+  } catch (error) {
+    console.log(`${FAIL} ${name}`);
+    // Hide the stack trace but print the error message.
+    console.error(`   Error: ${error.message}`);
+    failedTests.push(name);
+    return false;
+  }
 }
 
 runAllTests();
