@@ -69,18 +69,6 @@ function createScope() {
  * @param {object} node - Parse tree node to visit
  */
 function visitNode(node) {
-  if (!node) return;
-  processNode(node);
-}
-
-/**
- * Process a node according to its type
- *
- * @param {object} node - The parse tree node
- */
-function processNode(node) {
-  if (!node) return;
-
   switch (node.type) {
     case "ConstDeclaration":
       visitConstDeclaration(node);

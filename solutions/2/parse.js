@@ -211,14 +211,14 @@ function parse(tokens) {
   }
 
   /**
-   * Parse binary expressions like a + b + c
+   * Parse binary expressions like a + b + c or a * b * c
    */
   function parseBinaryExpression() {
     // Parse the left-hand side of the expression
     let left = parsePrimary();
 
-    // If we see a plus sign, this is a binary expression
-    while (check("PLUS")) {
+    // Process binary operators (+ and *)
+    while (check("PLUS") || check("MULTIPLY")) {
       const operator = next().value;
       const right = parsePrimary();
 
