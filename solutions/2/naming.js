@@ -12,6 +12,7 @@
 
 let errors = [];
 let scopeStack = []; // Stack of Sets, each Set contains variable names declared in that scope
+let allScopes = []; // Track all scopes created during analysis
 
 /**
  * Declare a new variable in the current scope
@@ -52,10 +53,12 @@ function reportError(message, node) {
  * Create a new scope
  *
  * Pushes a new Set onto the scopeStack to represent a new scope
+ * and tracks it in allScopes for later reference
  */
 function createScope() {
   const newScope = new Set();
   scopeStack.push(newScope);
+  allScopes.push(newScope); // Track this scope globally
 }
 
 /**
@@ -200,12 +203,6 @@ function isVariableDeclared(name) {
  * @param {object} node - Identifier node to visit
  */
 function visitIdentifier(node) {
-  // We only care about identifiers used as variables
-  // Skip identifiers used in other contexts (e.g., property names)
-  if (node._context === "property") {
-    return;
-  }
-
   if (!isVariableDeclared(node.name)) {
     reportError(`Reference to undeclared variable: ${node.name}`, node);
     return;
@@ -218,10 +215,7 @@ function visitIdentifier(node) {
  * @param {object} node - ReturnStatement node to visit
  */
 function visitReturnStatement(node) {
-  // If we have a return value, process it
-  if (node.argument) {
-    visitNode(node.argument);
-  }
+  visitNode(node.argument);
 }
 
 /**
@@ -308,6 +302,7 @@ function visitMemberExpression(node) {
 function nameCheck(statements) {
   errors = [];
   scopeStack = [];
+  allScopes = []; // Reset all scopes for this analysis
 
   // Create the global scope
   createScope();
@@ -315,12 +310,21 @@ function nameCheck(statements) {
   for (const statement of statements) {
     visitNode(statement);
   }
-
+  
   // Clean up global scope after analysis
   scopeStack.pop();
 
+  // Reconstruct a Map of scopes for test compatibility using all created scopes
+  const scopes = new Map();
+  allScopes.forEach((scope, index) => {
+    scopes.set(index, {
+      declarations: scope
+    });
+  });
+
   return {
     errors,
+    scopes,
   };
 }
 
