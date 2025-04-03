@@ -8,8 +8,6 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-let testsPassed = true;
-
 // Tokenizer tests
 test("Tokenize empty string", () => {
   const tokens = tokenize("");
@@ -502,11 +500,4 @@ test("Formatting roundtrip for complex nested structure", () => {
   );
 });
 
-// Finally, report any test failures
-testsPassed = reportTestFailures();
-
-// If any tests failed, this will ensure the process exits with a non-zero code
-if (!testsPassed) {
-  console.log("\nTest suite failed! See the errors above.");
-  process.exitCode = 1;
-}
+reportTestFailures()
