@@ -33,6 +33,7 @@ const TOKEN_PATTERNS = [
   { type: "PIPE", regex: /^\|/ }, // | for union types
   { type: "LESS_THAN", regex: /^</ }, // < for generic types
   { type: "GREATER_THAN", regex: /^>/ }, // > for generic types
+  { type: "MULTIPLY", regex: /^\*/ }, // * for multiplication
   { type: "PLUS", regex: /^\+/ }, // + for addition
   { type: "LEFT_PAREN", regex: /^\(/ }, // (
   { type: "RIGHT_PAREN", regex: /^\)/ }, // )
