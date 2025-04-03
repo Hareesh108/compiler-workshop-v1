@@ -96,7 +96,7 @@ function parse(tokens) {
       next(); // Consume the EOF token
       return null;
     }
-    
+
     let statement;
     if (check("CONST")) {
       statement = parseConstDeclaration();
@@ -177,16 +177,7 @@ function parse(tokens) {
    * Parse an expression (anything that produces a value)
    */
   function parseExpression() {
-    const expression = parseTernary();
-    return expression;
-  }
-
-  /**
-   * Parse a ternary (conditional) expression
-   */
-  function parseTernary() {
-    // Parse the condition (which may be any expression)
-    const condition = parseBinaryExpression();
+    const expr = parseBinaryExpression();
 
     // If we see a question mark, this is a ternary expression
     if (check("TERNARY")) {
@@ -205,7 +196,7 @@ function parse(tokens) {
       // Create the ternary expression node
       const ternary = {
         type: "ConditionalExpression",
-        test: condition,
+        test: expr,
         consequent,
         alternate,
       };
@@ -213,8 +204,8 @@ function parse(tokens) {
       return ternary;
     }
 
-    // If no question mark, just return the binary expression
-    return condition;
+    // If no question mark, just return the expression
+    return expr;
   }
 
   /**
