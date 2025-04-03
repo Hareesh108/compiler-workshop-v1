@@ -101,7 +101,8 @@ function parse(tokens) {
     } else if (check("RETURN")) {
       statement = parseReturnStatement();
     } else {
-      throw new Error(`Unexpected token type: ${peek().type}`);
+      // Handle expression statements (like array literals, function calls, etc.)
+      statement = parseExpressionStatement();
     }
 
     // Eat the semicolon if present
@@ -115,6 +116,17 @@ function parse(tokens) {
   /**
    * Parse a return statement
    */
+  /**
+   * Parse an expression statement (a standalone expression)
+   */
+  function parseExpressionStatement() {
+    const expression = parseExpression();
+    return {
+      type: "ExpressionStatement",
+      expression: expression
+    };
+  }
+
   function parseReturnStatement() {
     // Consume the 'return' keyword
     expect("RETURN", "Expected 'return' keyword");

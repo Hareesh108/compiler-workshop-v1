@@ -354,8 +354,7 @@ function unify(state, t1, t2, node) {
         `Type mismatch: ${typeToString(t1)} is not compatible with ${typeToString(t2)}`,
         node,
       );
-
-
+      return;
     }
   }
   // Case 5: Second type is a variable (swap and try again)
@@ -369,8 +368,7 @@ function unify(state, t1, t2, node) {
       `Cannot unify ${typeToString(t1)} with ${typeToString(t2)}`,
       node,
     );
-
-
+    return;
   }
 }
 
@@ -433,6 +431,9 @@ function infer(state, node) {
     case "ArrayLiteral":
       return inferTypeArrayLiteral(state, node);
 
+    case "ExpressionStatement":
+      return inferTypeExpressionStatement(state, node);
+
     case "Identifier":
       return inferTypeIdentifier(state, node);
 
@@ -473,6 +474,7 @@ function infer(state, node) {
 function inferTypeCallExpression(state, node) {
   // Infer the type of the function being called
   let fnType = infer(state, node.callee);
+  fnType = compress(fnType);  // Make sure we have the most specific type
 
   // Handle the function call and its arguments
   if (fnType.kind !== "FunctionType") {
@@ -505,7 +507,7 @@ function inferTypeCallExpression(state, node) {
       `Expected ${fnType.paramTypes.length} arguments but got ${node.arguments.length}`,
       node
     );
-    return newTypeVar(state);
+    return fnType.returnType; // Still return the return type to avoid cascading errors
   }
 
   // Infer types for all arguments and unify with function parameter types
@@ -616,28 +618,62 @@ function inferTypeBinaryExpression(state, node) {
         return primitive(Types.String);
       } else {
         // Numeric addition
-        const numericType = newTypeVar(state);
-        unify(state, leftType, numericType, node.left);
-        unify(state, rightType, numericType, node.right);
+        // Check if both operands can be numeric
+        const numericTypes = [Types.Number, Types.Float];
 
-        // Try to unify with Number or Float
-        try {
-          unify(state, numericType, primitive(Types.Number), node);
-          return primitive(Types.Number);
-        } catch (e) {
-          try {
-            unify(state, numericType, primitive(Types.Float), node);
-            return primitive(Types.Float);
-          } catch (e) {
-            reportError(
-              state.errors,
-              `The '+' operator requires either numeric operands or string operands`,
-              node,
-            );
-            return newTypeVar(state);
-          }
+        let leftIsNumeric = compress(leftType).kind === "PrimitiveType" &&
+                           numericTypes.includes(compress(leftType).type);
+
+        let rightIsNumeric = compress(rightType).kind === "PrimitiveType" &&
+                            numericTypes.includes(compress(rightType).type);
+
+        // If both are numeric or can be numeric (type variables)
+        if ((leftIsNumeric || compress(leftType).kind === "TypeVariable") &&
+            (rightIsNumeric || compress(rightType).kind === "TypeVariable")) {
+
+          // For simplicity in this implementation, we prefer Number over Float
+          const resultType = primitive(Types.Number);
+
+          // Ensure both operands are numeric
+          unify(state, leftType, resultType, node.left);
+          unify(state, rightType, resultType, node.right);
+
+          return resultType;
+        } else {
+          reportError(
+            state.errors,
+            `The '+' operator requires either numeric operands or string operands`,
+            node,
+          );
+          return newTypeVar(state);
         }
       }
+    }
+    // Add support for other operators
+    case "-":
+    case "*":
+    case "/": {
+      // These operators only work on numeric types
+      const numericType = primitive(Types.Number);
+      unify(state, leftType, numericType, node.left);
+      unify(state, rightType, numericType, node.right);
+      return numericType;
+    }
+    case ">":
+    case "<":
+    case ">=":
+    case "<=": {
+      // Comparison operators work on numeric types and return boolean
+      const numericType = primitive(Types.Number);
+      unify(state, leftType, numericType, node.left);
+      unify(state, rightType, numericType, node.right);
+      return primitive(Types.Bool);
+    }
+    case "==":
+    case "!=": {
+      // Equality operators require the same type on both sides
+      unify(state, leftType, rightType, node);
+      return primitive(Types.Bool);
     }
     default:
       reportError(
@@ -659,17 +695,21 @@ function inferTypeBinaryExpression(state, node) {
 function inferTernary(state, node) {
   // condition ? thenBranch : elseBranch
 
+  // The condition must be a boolean
   const conditionType = infer(state, node.condition);
   unify(state, conditionType, primitive(Types.Bool), node.condition);
 
+  // Infer types for both branches
   const thenBranchType = infer(state, node.thenBranch);
   const elseBranchType = infer(state, node.elseBranch);
 
-  const answer = newTypeVar(state, null, "Ternary condition result");
-  unify(state, thenBranchType, answer, node.thenBranch);
-  unify(state, elseBranchType, answer, node.elseBranch);
+  // Both branches must have the same type
+  // Create a result type and unify both branches with it
+  const resultType = newTypeVar(state, null, "Ternary condition result");
+  unify(state, thenBranchType, resultType, node.thenBranch);
+  unify(state, elseBranchType, resultType, node.elseBranch);
 
-  return answer;
+  return resultType;
 }
 
 /**
@@ -801,12 +841,18 @@ function inferTypeArrayLiteral(state, node) {
 function inferTypeMemberExpression(state, node) {
   // Get the type of the object being indexed
   let objectType = infer(state, node.object);
+  objectType = compress(objectType);  // Make sure we have the most specific type
 
   // Get the type of the index
   let indexType = infer(state, node.index);
 
   // The index should be a Number
   unify(state, indexType, primitive(Types.Number), node.index);
+
+  // If object is already an array type, extract its element type
+  if (objectType.kind === "ArrayType") {
+    return objectType.elementType;
+  }
 
   // If object is not already an array type, create a type variable for the element type
   // and unify the object with an array of that element type
@@ -925,18 +971,24 @@ function inferTypeReturnStatement(state, node) {
   return infer(state, node.argument);
 }
 
-
+/**
+ * Infer type for an expression statement
+ *
+ * @param {object} state - Current type inference state
+ * @param {object} node - Expression statement node
+ * @returns {object} - Inferred type
+ */
+function inferTypeExpressionStatement(state, node) {
+  return infer(state, node.expression);
+}
 
 /**
  * Analyze the AST and infer types
  *
  * @param {object} ast - AST to analyze
- * @param {object} [options] - Options for analysis
- * @param {Function} [options.onTypecheck] - Callback for typecheck events
  * @returns {object} - Result with AST and errors
  */
-function inferAst(ast, options = {}) {
-  // Initialize the typing environment
+function inferNode(ast) {
   const state = {
     errors: [],
     currentScope: {},
@@ -944,7 +996,6 @@ function inferAst(ast, options = {}) {
     nonGeneric: new Set(),
     // Counter for generating unique IDs for type variables
     nextTypeVarId: 0
-    // options removed
   };
 
   infer(state, ast);
@@ -952,59 +1003,10 @@ function inferAst(ast, options = {}) {
   return { ast, errors: state.errors };
 }
 
-/**
- * Combined analysis: validation + name resolution + type inference
- *
- * @param {object} ast - AST to analyze
- * @param {Array} nameErrors - Errors from name resolution
- * @param {object} options - Options for analysis
- * @param {Function} [options.onTypecheck] - Callback for typecheck events
- * @returns {object} - Result with AST and all errors
- */
-function typecheck(ast, nameErrors = [], options = {}) {
-  // Validate the AST structure (including return statement positions)
-  let validationErrors = [];
-  if (typeof window !== "undefined" && window.CompilerModule && window.CompilerModule.validate) {
-    validationErrors = window.CompilerModule.validate(ast);
-  } else if (typeof require !== "undefined") {
-    try {
-      const validateModule = require("./validate");
-      validationErrors = validateModule.validate(ast);
-    } catch (e) {
-      // If validate module is not available, we'll continue without it
-      console.warn("Validation module not found, skipping validation step");
-    }
-  }
-
-  // Perform type inference
-  const { errors: typeErrors } = inferAst(ast);
-
-  // Combine errors from validation, name resolution, and type inference
-  return {
-    ast,
-    errors: [...validationErrors, ...nameErrors, ...typeErrors],
-  };
-}
-
-// Export functions for use in the browser
-if (typeof window !== "undefined") {
-  window.CompilerModule = window.CompilerModule || {};
-
-  // Expose functions to the global CompilerModule
-  window.CompilerModule.infer = inferAst;
-  window.CompilerModule.typecheck = typecheck;
-  window.CompilerModule.Types = Types;
-  window.CompilerModule.typeToString = typeToString;
-  window.CompilerModule.createArrayType = createArrayType;
-}
-
-// Export for Node.js environment
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {
-    infer: inferAst,
-    typecheck,
-    Types,
-    typeToString,
-    createArrayType,
-  };
-}
+module.exports = {
+  infer: inferNode,
+  typecheck,
+  Types,
+  typeToString,
+  createArrayType,
+};
