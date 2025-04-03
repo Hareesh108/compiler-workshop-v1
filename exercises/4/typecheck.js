@@ -534,10 +534,7 @@ function typeCheck(statements) {
     visitNode(statement);
   }
 
-  return {
-    errors,
-    // For debugging: db
-  };
+  return { errors };
 }
 
 module.exports = {

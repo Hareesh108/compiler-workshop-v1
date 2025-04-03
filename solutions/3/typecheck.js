@@ -131,8 +131,10 @@ const unify = (aTypeId, bTypeId, node) => {
 
   // If both have concrete types and they're different, report mismatch
   if (
-    aEntry && aEntry.concrete !== undefined &&
-    bEntry && bEntry.concrete !== undefined &&
+    aEntry &&
+    aEntry.concrete !== undefined &&
+    bEntry &&
+    bEntry.concrete !== undefined &&
     aEntry.concrete !== bEntry.concrete
   ) {
     return reportTypeMismatch(aType, bType, node);
@@ -439,7 +441,7 @@ function visitConditionalExpression(node) {
   if (testConcrete && testConcrete !== "Boolean") {
     reportError(
       `Type mismatch in ternary: condition must be Boolean, got ${testConcrete}`,
-      node.test
+      node.test,
     );
   } else {
     // Try to unify if we don't have concrete type info
@@ -451,10 +453,14 @@ function visitConditionalExpression(node) {
   const alternateConcrete = getConcreteTypeName(alternateType);
 
   // Check if branches have the same type, directly compare concrete types
-  if (consequentConcrete && alternateConcrete && consequentConcrete !== alternateConcrete) {
+  if (
+    consequentConcrete &&
+    alternateConcrete &&
+    consequentConcrete !== alternateConcrete
+  ) {
     reportError(
       `Type mismatch in ternary: branches must have the same type, got ${consequentConcrete} and ${alternateConcrete}`,
-      node
+      node,
     );
   } else {
     // Try to unify if we don't have concrete type info for both
@@ -487,10 +493,14 @@ function visitArrayLiteral(node) {
     const elementConcrete = getConcreteTypeName(elementType);
 
     // If we have concrete types and they're different, report error
-    if (firstElementConcrete && elementConcrete && firstElementConcrete !== elementConcrete) {
+    if (
+      firstElementConcrete &&
+      elementConcrete &&
+      firstElementConcrete !== elementConcrete
+    ) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types, found ${firstElementConcrete} and ${elementConcrete}`,
-        node.elements[i]
+        node.elements[i],
       );
       continue;
     }
@@ -499,7 +509,7 @@ function visitArrayLiteral(node) {
     if (!unify(firstElementType, elementType, node.elements[i])) {
       reportError(
         `Type mismatch in array literal: array elements must have consistent types`,
-        node.elements[i]
+        node.elements[i],
       );
     }
   }
@@ -507,8 +517,6 @@ function visitArrayLiteral(node) {
   // Create an array type (in a real implementation, this would be Array<T>)
   return createConcreteType("Array");
 }
-
-
 
 /**
  * Perform type checking on a parse tree
@@ -528,10 +536,7 @@ function typeCheck(statements) {
     visitNode(statement);
   }
 
-  return {
-    errors,
-    // For debugging: db
-  };
+  return { errors };
 }
 
 module.exports = {
