@@ -30,7 +30,7 @@ function createScope(parent = null) {
  *
  * @param {object} scope - The scope to declare the variable in
  * @param {string} name - Variable name
- * @param {object} node - AST node where the variable is declared
+ * @param {object} node - Parse tree node where the variable is declared
  * @returns {boolean} - Whether the declaration was successful
  */
 function declareInScope(scope, name, node) {
@@ -97,7 +97,7 @@ function getDeclarationFromScope(scope, name) {
  *
  * @param {Array} errors - Array to add the error to
  * @param {string} message - Error message
- * @param {object} node - AST node where the error occurred
+ * @param {object} node - Parse tree node where the error occurred
  */
 function reportError(errors, message, node) {
   errors.push({
@@ -109,7 +109,7 @@ function reportError(errors, message, node) {
 /**
  * Check if a node introduces a new scope
  *
- * @param {object} node - The AST node
+ * @param {object} node - The parse tree node
  * @returns {boolean} - True if the node introduces a new scope
  */
 function isNodeWithScope(node) {
@@ -120,10 +120,10 @@ function isNodeWithScope(node) {
 }
 
 /**
- * Visit and analyze an AST node and its children
+ * Visit and analyze a parse tree node and its children
  *
  * @param {object} state - Current analyzer state
- * @param {object} node - AST node to visit
+ * @param {object} node - Parse tree node to visit
  */
 function visitNode(state, node) {
   if (!node || typeof node !== "object") {
@@ -157,7 +157,7 @@ function visitNode(state, node) {
  * Process a node according to its type
  *
  * @param {object} state - The current state
- * @param {object} node - The AST node
+ * @param {object} node - The parse tree node
  */
 function processNode(state, node) {
   // Skip null/undefined nodes and non-objects
@@ -247,7 +247,7 @@ function visitChildren(state, node) {
           visitNode(state, item);
         }
       }
-      // Handle nested objects (other AST nodes)
+      // Handle nested objects (other parse tree nodes)
       else if (child && typeof child === "object") {
         visitNode(state, child);
       }
@@ -433,30 +433,30 @@ function visitMemberExpression(state, node) {
 }
 
 /**
- * Analyze an AST to check for scope-based errors
+ * Analyze a parse tree to check for scope-based errors
  *
- * @param {object|Array} ast - The AST to analyze (may be an array of statements)
- * @returns {object} - The analyzed AST with scope information and any errors
+ * @param {object|Array} parseTree - The parse tree to analyze (may be an array of statements)
+ * @returns {object} - The analyzed parse tree with scope information and any errors
  */
-function nameCheck(ast) {
+function nameCheck(parseTree) {
   const state = {
     currentScope: createScope(), // Initialize with global scope
     errors: [],
     scopes: new Map(), // Map from nodes to their scopes
   };
 
-  // If ast is an array (program statements), process each statement
-  if (Array.isArray(ast)) {
-    for (const statement of ast) {
+  // If parseTree is an array (program statements), process each statement
+  if (Array.isArray(parseTree)) {
+    for (const statement of parseTree) {
       visitNode(state, statement);
     }
   } else {
     // Otherwise just process the single node
-    visitNode(state, ast);
+    visitNode(state, parseTree);
   }
 
   return {
-    ast,
+    parseTree: parseTree,
     errors: state.errors,
     scopes: state.scopes,
   };
