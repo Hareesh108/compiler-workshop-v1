@@ -2,17 +2,14 @@
  * Naming (aka Name Resolution, aka Canonicalization)
  *
  * This module performs semantic analysis on the parse tree, focusing
- * on reporting naming errors.
- *
- * Purpose:
+ * on reporting naming errors. It:
  * - Enforces that variables are declared before they are used
  * - Checks for duplicate variable declarations within the same scope
- * - Tracks variable scoping in nested environments (functions, blocks)
+ * - Supports nested scopes (e.g. in function bodies)
  */
 
 let errors = [];
-let scopeStack = []; // Stack of Sets, each Set contains variable names declared in that scope
-let allScopes = []; // Track all scopes created during analysis
+let scopes = [];
 
 /**
  * Declare a new variable in the current scope
@@ -25,7 +22,7 @@ let allScopes = []; // Track all scopes created during analysis
  * @returns {boolean} - True if declaration succeeded, false if duplicate
  */
 function declareVariable(name, node) {
-  const currentScope = scopeStack[scopeStack.length - 1];
+  const currentScope = scopes[scopes.length - 1];
 
   if (currentScope.has(name)) {
     reportError(`Duplicate declaration of variable: ${name}`, node);
@@ -47,18 +44,6 @@ function reportError(message, node) {
     message,
     node,
   });
-}
-
-/**
- * Create a new scope
- *
- * Pushes a new Set onto the scopeStack to represent a new scope
- * and tracks it in allScopes for later reference
- */
-function createScope() {
-  const newScope = new Set();
-  scopeStack.push(newScope);
-  allScopes.push(newScope); // Track this scope globally
 }
 
 /**
@@ -115,21 +100,43 @@ function visitNode(node) {
       break;
 
     default:
-      // For unknown node types, traverse children generically
       throw new Error(`Unknown node type: ${node.type}`);
   }
 }
 
 /**
- * Visit a const declaration
+ * Visit an identifier (variable reference)
  *
- * @param {object} node - ConstDeclaration node to visit
+ * @param {object} node - Identifier node to visit
  */
-function visitConstDeclaration(node) {
-  // Process the initializer first (must be evaluated before variable is in scope)
-  visitNode(node.init);
+function visitIdentifier(node) {
+  if (!scopes.some(scope => scope.has(node.name))) {
+    reportError(`Reference to undeclared variable: ${node.name}`, node);
+    return;
+  }
+}
 
-  declareVariable(node.id.name, node);
+/**
+ * Visit a binary expression
+ *
+ * @param {object} node - BinaryExpression node to visit
+ */
+function visitBinaryExpression(node) {
+  visitNode(node.left);
+  visitNode(node.right);
+}
+
+/**
+ * Visit a function call expression
+ *
+ * @param {object} node - CallExpression node to visit
+ */
+function visitCallExpression(node) {
+  visitNode(node.callee);
+
+  for (const arg of node.arguments) {
+      visitNode(arg);
+  }
 }
 
 /**
@@ -138,26 +145,24 @@ function visitConstDeclaration(node) {
  * @param {object} node - ArrowFunctionExpression node to visit
  */
 function visitArrowFunction(node) {
-  // Create a new scope for the function
-  createScope();
+  scopes.push(new Set());
 
-  // Check for duplicate parameters within function scope
-  const paramNames = new Set();
   for (const param of node.params) {
-    if (paramNames.has(param.name)) {
-      reportError(`Duplicate parameter name: ${param.name}`, param);
-    } else {
-      paramNames.add(param.name);
-      // Declare the parameter in the current function scope
-      declareVariable(param.name, param);
-    }
+    declareVariable(param.name, param);
   }
 
-  // Process the function body
   visitNode(node.body);
+  scopes.pop();
+}
 
-  // Exit the function scope
-  scopeStack.pop();
+/**
+ * Visit a const declaration
+ *
+ * @param {object} node - ConstDeclaration node to visit
+ */
+function visitConstDeclaration(node) {
+  visitNode(node.init);
+  declareVariable(node.id.name, node);
 }
 
 /**
@@ -174,52 +179,12 @@ function visitBlockStatement(node) {
 }
 
 /**
- * Check if a variable is declared in any accessible scope
- *
- * @param {string} name - The variable name to look for
- * @returns {boolean} - True if the variable is declared in any accessible scope
- */
-function isVariableDeclared(name) {
-  // Check each scope from innermost to outermost
-  for (let i = scopeStack.length - 1; i >= 0; i--) {
-    const scope = scopeStack[i];
-    if (scope.has(name)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Visit an identifier (variable reference)
- *
- * @param {object} node - Identifier node to visit
- */
-function visitIdentifier(node) {
-  if (!isVariableDeclared(node.name)) {
-    reportError(`Reference to undeclared variable: ${node.name}`, node);
-    return;
-  }
-}
-
-/**
  * Visit a return statement
  *
  * @param {object} node - ReturnStatement node to visit
  */
 function visitReturnStatement(node) {
   visitNode(node.argument);
-}
-
-/**
- * Visit a binary expression
- *
- * @param {object} node - BinaryExpression node to visit
- */
-function visitBinaryExpression(node) {
-  visitNode(node.left);
-  visitNode(node.right);
 }
 
 /**
@@ -231,21 +196,6 @@ function visitConditionalExpression(node) {
   visitNode(node.test);
   visitNode(node.consequent);
   visitNode(node.alternate);
-}
-
-/**
- * Visit a function call expression
- *
- * @param {object} node - CallExpression node to visit
- */
-function visitCallExpression(node) {
-  // First visit the function being called
-  visitNode(node.callee);
-
-  // Then check arguments
-  for (const arg of node.arguments) {
-      visitNode(arg);
-  }
 }
 
 /**
@@ -266,10 +216,7 @@ function visitArrayLiteral(node) {
  * @param {object} node - MemberExpression node to visit
  */
 function visitMemberExpression(node) {
-  // Visit the object being accessed
   visitNode(node.object);
-
-  // Visit the index expression
   visitNode(node.index);
 }
 
@@ -280,30 +227,17 @@ function visitMemberExpression(node) {
  * @returns {object} - The analyzed parse tree with scope information and any errors
  */
 function nameCheck(statements) {
+  // Reset globals
   errors = [];
-  scopeStack = [];
-  allScopes = []; // Reset all scopes for this analysis
-
-  createScope();
+  scopes = [new Set()];
 
   for (const statement of statements) {
     visitNode(statement);
   }
 
-  scopeStack.pop();
+  scopes.pop();
 
-  // Reconstruct a Map of scopes for test compatibility using all created scopes
-  const scopes = new Map();
-  allScopes.forEach((scope, index) => {
-    scopes.set(index, {
-      declarations: scope,
-    });
-  });
-
-  return {
-    errors,
-    scopes,
-  };
+  return { errors };
 }
 
 module.exports = {
