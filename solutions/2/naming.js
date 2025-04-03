@@ -55,28 +55,6 @@ function declareInScope(scope, name, node) {
 }
 
 /**
- * Check if a variable is declared in this scope or any parent scope
- *
- * @param {object} scope - The scope to check
- * @param {string} name - Variable name to look up
- * @returns {boolean} - Whether the variable is declared
- */
-function isDeclaredInScope(scope, name) {
-  // Check the current scope first
-  if (scope.declarations.has(name)) {
-    return true;
-  }
-
-  // If not found, recursively check parent scopes
-  if (scope.parent) {
-    return isDeclaredInScope(scope.parent, name);
-  }
-
-  // Not found in any scope
-  return false;
-}
-
-/**
  * Find declaration node for a variable
  *
  * @param {object} scope - The scope to check
@@ -334,9 +312,6 @@ function visitIdentifier(node) {
     );
     return;
   }
-
-  // Link this identifier to its declaration
-  node._declaration = declaration.node;
 }
 
 /**
