@@ -1,12 +1,16 @@
-# Building a Static Type-Inferring Compiler Workshop
+# Building a Static Type-Inferring Compiler Course
+This is a companion repository for the [Building a Static Type-Inferring Compiler](https://frontendmasters.com/courses/type-compiler/) course on Frontend Masters.
+[![Frontend Masters](https://static.frontendmasters.com/assets/brand/logos/full.png)](https://frontendmasters.com/courses/type-compiler/)
+
+## Course Info
 
 Welcome!
 
-There are [slides for this workshop](https://docs.google.com/presentation/d/1EkOFQCGFAIuIKG7sJB2ibsWE3Q8eti9UShLgo_z0rwo/edit?slide=id.g3478b1c1c1a_0_3445#slide=id.g3478b1c1c1a_0_3445) which reference the exercises in this repo.
+There are [slides for this course](https://static.frontendmasters.com/assets/courses/2025-06-10-type-compiler/type-compiler-slides.pdf) which reference the exercises in this repo.
 
 # Setup Instructions
 
-For this workshop, you'll need to clone this repository have node.js installed.
+For this course, you'll need to clone this repository have installed.
 
 To verify this, run the following command:
 
