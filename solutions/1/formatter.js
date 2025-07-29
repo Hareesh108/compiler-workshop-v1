@@ -187,6 +187,9 @@ function format(parseTree, options = {}) {
       result += formatNode(node.body, indentLevel, indentString);
     }
 
+    console.log("result:",result);
+    
+
     return result;
   }
 
