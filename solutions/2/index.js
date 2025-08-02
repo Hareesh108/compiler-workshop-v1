@@ -7,12 +7,12 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-test("Name-check empty program", () => {
-  const statements = compile("");
-  const result = nameCheck(statements);
+// test("Name-check empty program", () => {
+//   const statements = compile("");
+//   const result = nameCheck(statements);
 
-  assertEqual(result.errors.length, 0, "Empty program should have no errors");
-});
+//   assertEqual(result.errors.length, 0, "Empty program should have no errors");
+// });
 
 // test("Name-check simple const declaration", () => {
 //   const statements = compile("const x = 5;");
@@ -21,12 +21,14 @@ test("Name-check empty program", () => {
 //   assertEqual(result.errors.length, 0, "No errors expected");
 // });
 
-// test("Name-check variable reference", () => {
-//   const statements = compile("const x = 5; const y = x;");
-//   const result = nameCheck(statements);
+test("Name-check variable reference", () => {
+  const statements = compile("const x = 5; const y = x;");
+  const result = nameCheck(statements);
+  console.log("result:",result);
+  
 
-//   assertEqual(result.errors.length, 0, "No errors expected");
-// });
+  assertEqual(result.errors.length, 0, "No errors expected");
+});
 
 // test("Detect undeclared variable", () => {
 //   const statements = compile("const y = x;");
