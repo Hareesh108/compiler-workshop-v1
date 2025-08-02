@@ -119,9 +119,14 @@ function format(parseTree, options = {}) {
    * Format an array literal
    */
   function formatArrayLiteral(node) {
-    if (node.element.length === 0){
-      return "[]"
-    }
+    if (node.elements.length === 0) {
+          return "[]";
+        }
+
+        const elements = node.elements.map((elem) => formatNode(elem)).join(", ");
+
+        return `[${elements}]`;
+
     // 👉 Change this to format the given array literal node.
     //
     // The structure of the `node` arg will be:
