@@ -8,17 +8,20 @@ const {
   summarize: reportTestFailures,
 } = require("../test");
 
-test("Format const declaration", () => {
-  const code = "const x = 5;";
-  const tree = compile(code);
-  const formatted = format(tree);
+// test("Format const declaration", () => {
+//   const code = "const x = 5;";
+//   const tree = compile(code);
+//   const formatted = format(tree);
 
-  assertEqual(
-    formatted,
-    "const x = 5;",
-    "Should format const declaration correctly",
-  );
-});
+//   console.log("formatted:",formatted);
+  
+
+//   assertEqual(
+//     formatted,
+//     "const x = 5;",
+//     "Should format const declaration correctly",
+//   );
+// });
 
 // test("Format const declaration with type annotation", () => {
 //   const code = "const x: number = 5;";
@@ -80,17 +83,20 @@ test("Format const declaration", () => {
 //   );
 // });
 
-// test("Format arrow function", () => {
-//   const code = "const add = (a, b) => { return a + b; };";
-//   const tree = compile(code);
-//   const formatted = format(tree);
+test("Format arrow function", () => {
+  const code = "const add = (a, b) => { return a + b; };";
+  const tree = compile(code);
+  const formatted = format(tree);
 
-//   assertEqual(
-//     formatted,
-//     "const add = (a, b) => {\n  return a + b;\n};",
-//     "Should format arrow functions with proper indentation",
-//   );
-// });
+  console.log("formatted:",formatted);
+  
+
+  assertEqual(
+    formatted,
+    "const add = (a, b) => {\n  return a + b;\n};",
+    "Should format arrow functions with proper indentation",
+  );
+});
 
 // test("Format arrow function with type annotations", () => {
 //   const code =
