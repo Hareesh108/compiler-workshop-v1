@@ -113,23 +113,26 @@ const {
 //   );
 // });
 
-// test("Type error in polymorphic function", () => {
-//   const statements = compile(`
-//     const double = (x) => { return x + x; };
-//     const num = 5;
-//     const str = "hello";
+test("Type error in polymorphic function", () => {
+  const statements = compile(`
+    const double = (x) => { return x + x; };
+    const num = 5;
+    const str = "hello";
 
-//     const doubledNum = double(num);
-//     const mixed = double(num) + double(str);
-//   `);
-//   const result = typeCheck(statements);
+    const doubledNum = double(num);
+    const mixed = double(num) + double(str);
+  `);
+  const result = typeCheck(statements);
 
-//   assert(
-//     result.errors.length === 1 &&
-//       result.errors[0].message.includes("Type mismatch"),
-//     "Should detect type mismatch in expression using polymorphic functions",
-//   );
-// });
+  console.log("result:",result);
+  
+
+  assert(
+    result.errors.length === 1 &&
+      result.errors[0].message.includes("Type mismatch"),
+    "Should detect type mismatch in expression using polymorphic functions",
+  );
+});
 
 // // Array Tests
 
